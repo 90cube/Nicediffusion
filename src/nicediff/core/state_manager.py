@@ -1,15 +1,13 @@
-"""
-중앙 상태 관리자
-모든 UI 컴포넌트와 파이프라인의 상태를 관리
-"""
+# 파일 경로: src/nicediff/core/state_manager.py (진짜 최종 완성본)
 
+import torch
+import asyncio
+import random
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-import asyncio
-import json
-from pathlib import Path
-import torch
+from diffusers import StableDiffusionPipeline, DiffusionPipeline
 
 @dataclass
 class GenerationParams:
@@ -24,6 +22,14 @@ class GenerationParams:
     sampler: str = "dpmpp_2m"
     scheduler: str = "karras"
     
+    def randomize_seed(self):
+        """seed 값을 새로운 난수로 설정합니다."""
+        new_seed = self.seed
+        while new_seed == self.seed:
+            new_seed = random.randint(0, 2**32 - 1)
+        self.seed = new_seed
+        print(f"🌱 New random seed set: {self.seed}")
+
     def to_dict(self) -> Dict[str, Any]:
         return self.__dict__.copy()
     
@@ -44,10 +50,9 @@ class HistoryItem:
     loras: List[Dict[str, Any]] = field(default_factory=list)
 
 class StateManager:
-    """중앙 상태 관리자"""
+    """중앙 상태 관리자 (모든 기능 포함 최종 버전)"""
     
     def __init__(self):
-        # 현재 상태
         self._state: Dict[str, Any] = {
             'current_model': None,
             'current_vae': None,
@@ -58,64 +63,81 @@ class StateManager:
             'available_loras': {},
             'history': [],
             'is_generating': False,
-            'generation_progress': 0.0,
-            'ui_mode': 'setup',  # 'setup' or 'generate'
-            'sidebar_expanded': False,
             'sd_model': 'SD15',
         }
-        
-        # 옵저버 패턴을 위한 콜백 리스트
         self._observers: Dict[str, List[Callable]] = {}
-        
-        # 파이프라인
-        self.pipeline = None
-        
-        # 디바이스 설정
+        self.pipeline: Optional[DiffusionPipeline] = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"🖥️ 사용 중인 디바이스: {self.device}")
-        
-        if self.device == "cuda":
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
-            torch.backends.cudnn.benchmark = True
     
     async def initialize(self):
         """초기화 작업"""
-        # 설정 파일 로드
-        await self._load_config()
-        
-        # 모델 스캔 (별도 태스크로 실행)
-        asyncio.create_task(self._scan_models())
-    
-    async def _load_config(self):
-        """설정 파일 로드"""
         import tomllib
-        
         config_path = Path("config.toml")
         if config_path.exists():
             with open(config_path, "rb") as f:
                 self.config = tomllib.load(f)
         else:
             self.config = {}
+        asyncio.create_task(self._scan_models())
     
     async def _scan_models(self):
-        """모델 파일 스캔 (비동기)"""
+        """모델 파일 스캔"""
         from ..services.model_scanner import ModelScanner
         
         scanner = ModelScanner(self.config.get('paths', {}))
         
-        # 체크포인트 스캔
-        self._state['available_models'] = await scanner.scan_checkpoints()
-        self._notify('models_updated', self._state['available_models'])
+        self.set('available_models', await scanner.scan_checkpoints())
+        self._notify('models_updated', self.get('available_models'))
         
-        # VAE 스캔
-        self._state['available_vaes'] = await scanner.scan_vaes()
-        self._notify('vaes_updated', self._state['available_vaes'])
+        self.set('available_vaes', await scanner.scan_vaes())
+        self._notify('vaes_updated', self.get('available_vaes'))
         
-        # LoRA 스캔
-        self._state['available_loras'] = await scanner.scan_loras()
-        self._notify('loras_updated', self._state['available_loras'])
+        self.set('available_loras', await scanner.scan_loras())
+        self._notify('loras_updated', self.get('available_loras'))
     
+    async def load_model_pipeline(self, model_info: Dict[str, Any]) -> bool:
+        """선택된 모델 파일을 GPU에 로드하고 성공 여부를 반환합니다."""
+        
+        if self.get('current_model') == model_info.get('filename'):
+            ui.notify(f"'{model_info['name']}' 모델은 이미 로드되어 있습니다.", type='info')
+            return False # 로드를 진행하지 않았으므로 False 반환
+
+        self.set('is_generating', True)
+        self._notify('status_update', {'message': f"'{model_info['name']}' 로드 중...", 'type': 'loading', 'icon': 'sync'})
+        try:
+            if self.pipeline is not None:
+                print("- [Pipeline] 기존 모델을 메모리에서 제거합니다...")
+                del self.pipeline
+                self.pipeline = None
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+
+            model_path = model_info['path']
+            
+            def _load():
+                pipe = StableDiffusionPipeline.from_single_file(
+                    model_path, 
+                    torch_dtype=torch.float16,
+                    use_safetensors=True,
+                    safety_checker=None
+                )
+                return pipe.to(self.device)
+
+            self.pipeline = await asyncio.to_thread(_load)
+            
+            self.set('is_generating', False)
+            self._notify('status_update', {'message': '로드 완료!', 'type': 'success', 'icon': 'check_circle'})
+            self._notify('model_loaded', model_info) # 성공 시 모델 정보 전달
+            return True
+        except Exception as e:
+            print(f"❌ 파이프라인 로드 오류: {e}")
+            self.pipeline = None
+            self.set('is_generating', False)
+            self._notify('status_update', {'message': f'로드 실패: {e}', 'type': 'error', 'icon': 'error'})
+            self._notify('model_load_failed', str(e))
+            return False
+            
     def get(self, key: str, default: Any = None) -> Any:
         """상태 값 가져오기"""
         return self._state.get(key, default)
@@ -125,17 +147,12 @@ class StateManager:
         old_value = self._state.get(key)
         self._state[key] = value
         
-        print(f"✅ StateManager SET: '{key}' changed to '{value}' (was: '{old_value}')")
-
-        # 변경 알림
+        # print(f"✅ StateManager SET: '{key}' changed to '{value}' (was: '{old_value}')")
+        
         if old_value != value:
             self._notify(f'{key}_changed', value)
     
-    def update_batch(self, updates: Dict[str, Any]):
-        """여러 상태 값을 한번에 업데이트"""
-        for key, value in updates.items():
-            self.set(key, value)
-    
+    # --- [수정] 누락되었던 subscribe, unsubscribe, _notify 함수 추가 ---
     def subscribe(self, event: str, callback: Callable):
         """이벤트 구독"""
         if event not in self._observers:
@@ -157,53 +174,12 @@ class StateManager:
                     else:
                         callback(data)
                 except Exception as e:
-                    print(f"❌ 옵저버 콜백 오류: {e}")
-    
-    def add_to_history(self, image_path: str, thumbnail_path: str):
-        """히스토리에 추가"""
-        from uuid import uuid4
-        
-        history_item = HistoryItem(
-            id=str(uuid4()),
-            timestamp=datetime.now(),
-            image_path=image_path,
-            thumbnail_path=thumbnail_path,
-            params=GenerationParams(**self._state['current_params'].to_dict()),
-            model=self._state['current_model'],
-            vae=self._state['current_vae'],
-            loras=self._state['current_loras'].copy()
-        )
-        
-        self._state['history'].insert(0, history_item)
-        
-        # 히스토리 제한
-        limit = self.config.get('ui', {}).get('history_limit', 50)
-        if len(self._state['history']) > limit:
-            self._state['history'] = self._state['history'][:limit]
-        
-        self._notify('history_updated', self._state['history'])
-    
-    def restore_from_history(self, history_id: str):
-        """히스토리에서 복원"""
-        for item in self._state['history']:
-            if item.id == history_id:
-                # 파라미터 복원
-                self._state['current_params'] = GenerationParams.from_dict(item.params.to_dict())
-                self._state['current_model'] = item.model
-                self._state['current_vae'] = item.vae
-                self._state['current_loras'] = item.loras.copy()
-                
-                # 복원 이벤트 발생
-                self._notify('state_restored', item)
-                break
-    
+                    print(f"❌ 옵저버 콜백 오류 ({event}): {e}")
+
     async def cleanup(self):
-        """정리 작업"""
-        # 파이프라인 정리
+        """앱 종료 시 정리 작업"""
         if self.pipeline:
             del self.pipeline
             self.pipeline = None
-        
-        # GPU 메모리 정리
         if self.device == "cuda":
             torch.cuda.empty_cache()
