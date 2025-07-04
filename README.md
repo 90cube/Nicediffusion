@@ -1,8 +1,9 @@
 # Nicediffusion
 
-# NiceDiffusion - ComfyUI 기반의 이미지 생성 자동화 워크플로우
 
-![aidraw_simple_flat_logo_--ar_1716_--profile_5h5ugbf_--dref_ht_a5ab635c-b51a-4c00-a63c-383b2a766d5f_3](https://github.com/user-attachments/assets/aeba927c-2185-4ee0-b5a5-5206a0eafc6d)
+
+![aidraw_simple_flat_logo_--ar_1716_--profile_5h5ugbf_--dref_ht_a5ab635c-b51a-4c00-a63c-383b2a766d5f_3](https://github.com/user-attachments/assets/3e8f7682-e14d-4566-a1d1-3d4f91b9eb0d)
+# NiceDiffusion - ComfyUI 기반의 이미지 생성 자동화 워크플로우
 
 
 ## ✨ 프로젝트 소개
