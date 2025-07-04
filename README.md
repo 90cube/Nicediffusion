@@ -2,8 +2,8 @@
 
 # NiceDiffusion - ComfyUI 기반의 이미지 생성 자동화 워크플로우
 
-![NiceDiffusion Logo](images/nicediffusion_logo.png)
-_프로젝트 로고 또는 대표 이미지를 여기에 넣어주세요. (예: `images` 폴더 안에 저장)_
+![aidraw_simple_flat_logo_--ar_1716_--profile_5h5ugbf_--dref_ht_a5ab635c-b51a-4c00-a63c-383b2a766d5f_3](https://github.com/user-attachments/assets/aeba927c-2185-4ee0-b5a5-5206a0eafc6d)
+
 
 ## ✨ 프로젝트 소개
 
