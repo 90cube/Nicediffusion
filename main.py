@@ -1,3 +1,29 @@
+import sys
+import os
+try:
+    from importlib import metadata
+except ImportError:
+    import importlib_metadata as metadata
+
+print("\n\n--- [파이썬 환경 진단 시작] ---\n")
+print(f"1. 현재 실행 중인 파이썬 경로:")
+print(f"   L> {sys.executable}\n")
+
+expected_path = os.path.normpath("D:/nicediffusion/venv/Scripts/python.exe")
+if os.path.normpath(sys.executable) == expected_path:
+    print("2. 경로 확인: [성공] 의도한 가상환경의 파이썬이 맞습니다.\n")
+else:
+    print("2. 경로 확인: [실패] 의도치 않은 다른 경로의 파이썬이 실행되고 있습니다.")
+    print(f"   L> 예상 경로: {expected_path}\n")
+
+try:
+    version = metadata.version('nicegui')
+    print(f"3. NiceGUI 버전: [성공] '{version}' 버전을 찾았습니다.\n")
+except metadata.PackageNotFoundError:
+    print("3. NiceGUI 버전: [실패] 이 파이썬 환경에는 nicegui가 설치되어 있지 않습니다.\n")
+
+print("--- [진단 끝, 원래 코드 실행 시작] ---\n\n")
+
 #!/usr/bin/env python3
 """
 Nicediff - Modular AI Image Generation UI

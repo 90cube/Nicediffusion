@@ -1,75 +1,126 @@
-"""
-우측 파라미터 컨트롤 패널
-"""
+# parameter_panel.py (최종 완성본)
 
 from nicegui import ui
-from ..core.state_manager import StateManager
+import math
+from src.nicediff.core.state_manager import StateManager, GenerationParams
 
 class ParameterPanel:
     """파라미터 패널"""
     
     def __init__(self, state_manager: StateManager):
         self.state = state_manager
-    
+        
+        self.ratios_data = [
+            ("1:1", 1/1, "1:1 (정사각형)", 'square'), 
+            ("4:3", 4/3, "4:3 (표준 TV)", 'horizontal'),
+            ("16:9", 16/9, "16:9 (와이드스크린/HD TV)", 'horizontal'),
+            ("3:2", 3/2, "3:2 (사진/프린트)", 'horizontal'),
+            ("IMAX", 1.43/1, "1.43:1 (아이맥스)", 'horizontal'),
+            ("Euro Widescreen", 1.66/1, "1.66:1 (유럽 와이드스크린)", 'horizontal'),
+            ("황금비", 1.618/1, "1.618:1 (황금 비율)", 'horizontal'),
+        ]
+        
+        self.selected_display_name = "1:1"
+        self.selected_ratio_value = 1/1 
+        self.selected_base_orientation = 'square'
+        self._is_ratio_inverted = False 
+
+    def _calculate_dimensions(self):
+        target_pixels_map = {"SD15": 512*512, "SDXL": 1024*1024}
+        current_sd_model = self.state.get('sd_model', 'SD15') 
+        target_pixels = target_pixels_map.get(current_sd_model, 512*512)
+        base_ratio_value = self.selected_ratio_value
+        
+        if self._is_ratio_inverted and self.selected_base_orientation != 'square':
+            ratio_to_calculate = 1 / base_ratio_value
+        else:
+            ratio_to_calculate = base_ratio_value
+            
+        width = int((target_pixels * ratio_to_calculate)**0.5)
+        height = int((target_pixels / ratio_to_calculate)**0.5)
+        
+        width = width - (width % 8)
+        height = height - (height % 8)
+        
+        width = max(128, width)
+        height = max(128, height)
+
+        current_params: GenerationParams = self.state.get('current_params')
+        current_params.width = width
+        current_params.height = height
+        self.state.set('current_params', current_params)
+        
+        if hasattr(self, 'refresh_image_dimensions'):
+            self.refresh_image_dimensions.refresh()
+
+    @ui.refreshable
+    async def refresh_image_dimensions(self):
+        current_params: GenerationParams = self.state.get('current_params')
+        with ui.row().classes('gap-2'):
+            ui.label('Width').classes('text-xs')
+            ui.number(value=current_params.width).props('dark outlined dense').classes('bg-gray-700 w-20').bind_value(current_params, 'width')
+            ui.label('Height').classes('text-xs')
+            ui.number(value=current_params.height).props('dark outlined dense').classes('bg-gray-700 w-20').bind_value(current_params, 'height')
+
+    def _handle_ratio_click(self, dp_name, r_value, orient):
+        self._is_ratio_inverted = not self._is_ratio_inverted if self.selected_display_name == dp_name and orient != 'square' else False
+        self.selected_display_name = dp_name
+        self.selected_ratio_value = r_value
+        self.selected_base_orientation = orient
+        self._calculate_dimensions()
+        self.ratio_buttons_container.refresh()
+
+    @ui.refreshable
+    def ratio_buttons_container(self):
+        with ui.row().classes('w-full flex-wrap justify-center gap-1'):
+            sorted_ratios_data = sorted(self.ratios_data, key=lambda item: item[1])
+            for display_name, ratio_value, tooltip_text, orientation in sorted_ratios_data:
+                is_selected = (self.selected_display_name == display_name and not self._is_ratio_inverted)
+                button_text = display_name
+                if is_selected and self._is_ratio_inverted and orientation != 'square':
+                    if ":" in display_name:
+                        parts = display_name.split(':')
+                        if len(parts) == 2: button_text = f"{parts[1]}:{parts[0]}"
+                
+                btn_props = f'sm {"color=orange" if is_selected else "outline color=orange"}'
+                ui.button(button_text, on_click=lambda dp=display_name, rv=ratio_value, o=orientation: self._handle_ratio_click(dp, rv, o)).props(btn_props).tooltip(tooltip_text)
+
+    @ui.refreshable
     async def render(self):
-        """컴포넌트 렌더링"""
+        self._calculate_dimensions()
+        comfyui_samplers = ["euler", "dpmpp_2m", "dpmpp_sde_gpu", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde_gpu"]
+        comfyui_schedulers = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
+        current_params = self.state.get('current_params')
+
         with ui.column().classes('w-full gap-3'):
-            # 생성 설정 헤더
             ui.label('생성 설정').classes('text-lg font-bold text-yellow-400')
             
-            # 샘플러 & 스케줄러
             with ui.column().classes('gap-2'):
-                ui.label('샘플러').classes('text-sm text-gray-300')
-                ui.select(
-                    options=['DPM++ 2M Karras', 'Euler a', 'DDIM'],
-                    value='DPM++ 2M Karras'
-                ).props('dark outlined dense').classes('bg-gray-700')
-                
-                ui.label('스케줄러').classes('text-sm text-gray-300')
-                ui.select(
-                    options=['Karras', 'Normal', 'Simple'],
-                    value='Karras'
-                ).props('dark outlined dense').classes('bg-gray-700')
+                ui.select(options=comfyui_samplers, label='Sampler', value=current_params.sampler).props('dark outlined dense').classes('bg-gray-700').bind_value(current_params, 'sampler')
+                ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler).props('dark outlined dense').classes('bg-gray-700').bind_value(current_params, 'scheduler')
             
-            # Steps
-            ui.label('Steps').classes('text-sm text-gray-300')
-            ui.number(value=20, min=1, max=150).props('dark outlined dense').classes('bg-gray-700')
+            ui.number(label='Steps', value=current_params.steps, min=1, max=150).props('dark outlined dense').classes('bg-gray-700').bind_value(current_params, 'steps')
+            ui.number(label='CFG Scale', value=current_params.cfg_scale, min=1.0, max=30.0, step=0.5).props('dark outlined dense').classes('bg-gray-700').bind_value(current_params, 'cfg_scale')
             
-            # CFG Scale
-            ui.label('CFG Scale').classes('text-sm text-gray-300')
-            ui.number(value=7.0, min=1, max=30, step=0.5).props('dark outlined dense').classes('bg-gray-700')
+            await self.refresh_image_dimensions()
             
-            # 이미지 크기
-            ui.label('이미지 크기').classes('text-sm text-gray-300')
-            with ui.row().classes('gap-2'):
-                ui.label('Width').classes('text-xs')
-                ui.number(value=512).props('dark outlined dense').classes('bg-gray-700 w-20')
-                ui.label('Height').classes('text-xs')
-                ui.number(value=512).props('dark outlined dense').classes('bg-gray-700 w-20')
+            with ui.row().classes('w-full flex-center items-center gap-2'):
+                # --- [최종 수정] 스위치의 초기값을 False로 하드코딩하여 무조건 꺼진 상태로 시작 ---
+                model_switch = ui.switch(value=False).props('color=orange')
+                ui.label('SDXL').classes('text-xs text-gray-400')
+
+                def handle_model_change():
+                    # 이 로직은 이제 정확하게 동작합니다.
+                    new_model = 'SDXL' if model_switch.value else 'SD15'
+                    self.state.set('sd_model', new_model)
+                    self._calculate_dimensions()
+
+                model_switch.on('update:model-value', handle_model_change)
+
+            self.ratio_buttons_container()
             
-            # 비율 프리셋
-            ui.label('비율 프리셋').classes('text-sm text-green-400')
-            with ui.column().classes('gap-1'):
-                # SD1.5 프리셋
-                ui.chip('SD15', selectable=True).props('color=green')
-                ui.chip('SDXL', selectable=True).props('color=green outline')
-                
-                # 비율 버튼들
-                with ui.row().classes('gap-1 flex-wrap'):
-                    for ratio in ['1:1', '2:1', '4:3']:
-                        ui.button(ratio).props('sm outline color=orange')
-                        
-                # 더 많은 비율들
-                with ui.row().classes('gap-1 flex-wrap'):
-                    ui.button('9(비율 유지기능)').props('sm color=yellow text-black')
-                    ui.button('16:9').props('sm color=orange')
-                    ui.button('8:5').props('sm color=orange')
-            
-            # Seed
-            ui.label('Seed').classes('text-sm text-gray-300')
-            with ui.row().classes('gap-2 items-center'):
-                ui.number(value=-1).props('dark outlined dense').classes('bg-gray-700 flex-1')
-                ui.button(icon='casino').props('sm round color=blue')
-            
-            # 생성 버튼
+            with ui.row().classes('gap-2 items-center w-full'):
+                ui.number(label='Seed', value=current_params.seed, min=-1).props('dark outlined dense').classes('bg-gray-700 flex-grow').bind_value(current_params, 'seed')
+                ui.button(icon='casino', on_click=lambda: hasattr(current_params, 'randomize_seed') and current_params.randomize_seed()).props('sm round color=blue')
+
             ui.button('생성').props('size=lg color=blue').classes('w-full mt-4')

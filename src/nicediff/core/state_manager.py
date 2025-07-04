@@ -21,8 +21,8 @@ class GenerationParams:
     steps: int = 20
     cfg_scale: float = 7.0
     seed: int = -1
-    sampler: str = "DPM++ 2M"
-    scheduler: str = "Karras"
+    sampler: str = "dpmpp_2m"
+    scheduler: str = "karras"
     
     def to_dict(self) -> Dict[str, Any]:
         return self.__dict__.copy()
@@ -61,6 +61,7 @@ class StateManager:
             'generation_progress': 0.0,
             'ui_mode': 'setup',  # 'setup' or 'generate'
             'sidebar_expanded': False,
+            'sd_model': 'SD15',
         }
         
         # 옵저버 패턴을 위한 콜백 리스트
@@ -124,6 +125,8 @@ class StateManager:
         old_value = self._state.get(key)
         self._state[key] = value
         
+        print(f"✅ StateManager SET: '{key}' changed to '{value}' (was: '{old_value}')")
+
         # 변경 알림
         if old_value != value:
             self._notify(f'{key}_changed', value)
