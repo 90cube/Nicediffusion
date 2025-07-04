@@ -1,0 +1,27 @@
+# 가상 환경 (Virtual Environment)
+.venv/
+venv/
+env/
+*.pyc
+__pycache__/
+
+# 모델 파일 (Model Checkpoints/Weights) 및 관련 큰 파일들
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+models/
+checkpoints/
+output/
+logs/
+
+# 운영체제 및 에디터 관련 파일 (선택 사항)
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

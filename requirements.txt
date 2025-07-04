@@ -1,0 +1,11 @@
+nicegui>=2.5.0
+torch>=2.5.0
+torchvision
+diffusers>=0.31.0
+transformers>=4.46.0
+accelerate>=1.1.0
+safetensors>=0.4.5
+Pillow>=10.4.0
+tomli>=2.0.2
+pydantic>=2.10.0
+aiofiles>=24.1.0

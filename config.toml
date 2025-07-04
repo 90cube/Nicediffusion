@@ -1,0 +1,21 @@
+[app]
+title = "Nicediff v1.0"
+theme = "dark"
+port = 8080
+
+[paths]
+models = "models/checkpoint"
+vaes = "models/vae"
+loras = "models/lora"
+embeddings = "models/embedding"
+outputs = "outputs"
+
+[generation]
+default_steps = 20
+default_cfg = 7.0
+default_sampler = "DPM++ 2M"
+default_scheduler = "Karras"
+
+[ui]
+history_limit = 50
+thumbnail_size = 128
