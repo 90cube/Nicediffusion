@@ -30,35 +30,35 @@ class InferencePage:
     async def render(self):
         """페이지 렌더링"""
         # 전체 컨테이너 - 다크 테마 배경
-        with ui.column().classes('w-full h-screen bg-gray-900 text-white overflow-hidden'):
+        with ui.column().classes('w-full h-screen bg-gray-900 text-white overflow-hidden no-wrap'):
             # 상단 바 (Checkpoint, VAE, 설정 아이콘)
             await self.top_bar.render()
             
-            # 메인 컨텐츠 영역
-            with ui.row().classes('flex-1 gap-0'):
-                # 좌측 영역: 사이드바 + 이미지 패드 + 파라미터
-                with ui.row().classes('flex-1 gap-0'):
-                    # 접이식 사이드바
-                    await self.sidebar.render()
-                    
+            # 메인 컨텐츠 영역 (좌측 사이드바 + 중앙 + 우측 패널)
+            with ui.row().classes('flex-1 w-full gap-0 overflow-hidden'): # flex-1로 남은 공간 채우기
+                # 좌측 접이식 사이드바
+                await self.sidebar.render()
+                
+                # 중앙 컨텐츠 영역 (이미지 패드 + 프롬프트 패널)
+                with ui.column().classes('flex-1 h-full gap-2 p-2 overflow-hidden'): # flex-1로 남은 공간 채우기
                     # 중앙 이미지 패드
-                    with ui.column().classes('flex-1 bg-blue-900 p-4'):
+                    with ui.card().classes('w-full flex-grow p-0 overflow-hidden'): # flex-grow로 남은 세로 공간 채우기
                         await self.image_pad.render()
                     
-                    # 우측 파라미터 패널
-                    with ui.column().classes('w-80 bg-gray-800 p-4'):
-                        await self.param_panel.render()
-                
-                # 하단 패널들 (프롬프트, LoRA, 메타데이터)
-                with ui.column().classes('w-96 bg-gray-800'):
                     # 프롬프트 패널
-                    with ui.card().classes('bg-gray-700 p-4 m-2'):
+                    with ui.card().classes('w-full bg-gray-700 p-4'):
                         await self.prompt_panel.render()
+                
+                # 우측 패널 영역 (파라미터 + LoRA + 메타데이터)
+                with ui.column().classes('w-80 h-full bg-gray-800 p-2 gap-2 overflow-y-auto'): # 스케치에 따라 폭 80, 세로 스크롤 가능
+                    # 파라미터 패널
+                    with ui.card().classes('w-full bg-gray-700 p-4'):
+                        await self.param_panel.render()
                     
                     # LoRA 패널
-                    with ui.card().classes('bg-gray-700 p-4 m-2 flex-1'):
+                    with ui.card().classes('w-full bg-gray-700 p-4'):
                         await self.lora_panel.render()
                     
                     # 메타데이터 패널
-                    with ui.card().classes('bg-teal-800 p-4 m-2'):
+                    with ui.card().classes('w-full bg-teal-800 p-4'):
                         await self.metadata_panel.render()
