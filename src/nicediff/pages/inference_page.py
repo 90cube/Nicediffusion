@@ -1,5 +1,5 @@
 """
-이미지 생성 워크스페이스 페이지
+이미지 생성 워크스페이스 페이지 (반응형 수정)
 """
 
 from nicegui import ui
@@ -29,28 +29,28 @@ class InferencePage:
     
     async def render(self):
         """페이지 렌더링"""
-        # 전체 컨테이너 - 다크 테마 배경
-        with ui.column().classes('w-full h-screen bg-gray-900 text-white overflow-hidden no-wrap'):
-            # 상단 바 (Checkpoint, VAE, 설정 아이콘)
+        # 전체 컨테이너 - 뷰포트에 맞춤
+        with ui.column().classes('w-screen h-screen bg-gray-900 text-white overflow-hidden'):
+            # 상단 바 (고정 높이)
             await self.top_bar.render()
             
-            # 메인 컨텐츠 영역 (좌측 사이드바 + 중앙 + 우측 패널)
-            with ui.row().classes('flex-1 w-full gap-0 overflow-hidden'): # flex-1로 남은 공간 채우기
+            # 메인 컨텐츠 영역 (나머지 공간 모두 사용)
+            with ui.row().classes('flex-1 w-full min-h-0 overflow-hidden'):
                 # 좌측 접이식 사이드바
                 await self.sidebar.render()
                 
-                # 중앙 컨텐츠 영역 (이미지 패드 + 프롬프트 패널)
-                with ui.column().classes('flex-1 h-full gap-2 p-2 overflow-hidden'): # flex-1로 남은 공간 채우기
-                    # 중앙 이미지 패드
-                    with ui.card().classes('w-full flex-grow p-0 overflow-hidden'): # flex-grow로 남은 세로 공간 채우기
+                # 중앙 컨텐츠 영역 (유연한 크기)
+                with ui.column().classes('flex-1 min-w-0 h-full gap-2 p-2 overflow-hidden'):
+                    # 중앙 이미지 패드 (남은 세로 공간 채우기)
+                    with ui.card().classes('w-full flex-1 min-h-0 p-0 overflow-hidden'):
                         await self.image_pad.render()
                     
-                    # 프롬프트 패널
-                    with ui.card().classes('w-full bg-gray-700 p-4'):
+                    # 프롬프트 패널 (고정 높이)
+                    with ui.card().classes('w-full h-48 bg-gray-700 p-4 overflow-y-auto'):
                         await self.prompt_panel.render()
                 
-                # 우측 패널 영역 (파라미터 + LoRA + 메타데이터)
-                with ui.column().classes('w-80 h-full bg-gray-800 p-2 gap-2 overflow-y-auto'): # 스케치에 따라 폭 80, 세로 스크롤 가능
+                # 우측 패널 영역 (반응형 너비)
+                with ui.column().classes('w-72 lg:w-80 xl:w-96 h-full bg-gray-800 p-2 gap-2 overflow-y-auto flex-shrink-0'):
                     # 파라미터 패널
                     with ui.card().classes('w-full bg-gray-700 p-4'):
                         await self.param_panel.render()

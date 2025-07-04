@@ -12,10 +12,10 @@ class ModelScanner:
     
     def __init__(self, paths_config: Dict[str, str]):
         self.paths = {
-            'checkpoints': Path(paths_config.get('models', 'models/checkpoint')),
+            'checkpoints': Path(paths_config.get('models', 'models/checkpoints')),
             'vaes': Path(paths_config.get('vaes', 'models/vae')),
-            'loras': Path(paths_config.get('loras', 'models/lora')),
-            'embeddings': Path(paths_config.get('embeddings', 'models/embedding'))
+            'loras': Path(paths_config.get('loras', 'models/loras')),
+            'embeddings': Path(paths_config.get('embeddings', 'models/embeddings'))
         }
         
         # 지원 확장자

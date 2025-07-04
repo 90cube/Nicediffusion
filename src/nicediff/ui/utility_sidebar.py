@@ -1,5 +1,5 @@
 """
-좌측 접이식 사이드바 컴포넌트
+좌측 접이식 사이드바 컴포넌트 (반응형 수정)
 """
 
 from nicegui import ui
@@ -18,10 +18,10 @@ class UtilitySidebar:
     
     async def render(self):
         """컴포넌트 렌더링"""
-        # 접이식 사이드바 컨테이너 (기본 다크 테마)
+        # 접이식 사이드바 컨테이너 (반응형 너비)
         self.container = ui.column().classes(
-            'h-full bg-gray-800 transition-all duration-300 overflow-hidden relative border-r border-gray-600'
-        ).style('width: 60px')
+            'h-full bg-gray-800 transition-all duration-300 overflow-hidden relative border-r border-gray-600 flex-shrink-0'
+        ).style('width: 48px; min-width: 48px')  # 최소 너비 보장
         
         with self.container:
             # 상단: 토글 버튼과 축약된 메뉴들
@@ -30,7 +30,7 @@ class UtilitySidebar:
                 self.toggle_button = ui.button(
                     '▶',
                     on_click=self.toggle
-                ).props('flat').classes('w-full h-12 text-white').tooltip('사이드바 열기')
+                ).props('flat').classes('w-full h-12 text-white text-xs').tooltip('사이드바 열기')
                 
                 # 축약된 섹션 표시 (접혀있을 때)
                 with ui.column().classes('w-full').bind_visibility_from(self, 'is_expanded', value=False):
@@ -46,11 +46,11 @@ class UtilitySidebar:
             
             # 확장된 내용 (펼쳐졌을 때만 보임)
             with ui.scroll_area().classes('flex-1 w-full').bind_visibility_from(self, 'is_expanded'):
-                with ui.column().classes('w-full p-4 gap-4'):
+                with ui.column().classes('w-full p-2 gap-2'):  # 패딩 줄임
                     # 히스토리 섹션
                     with ui.expansion('히스토리', icon='history').classes('w-full'):
-                        with ui.scroll_area().classes('w-full h-48'):
-                            self.history_container = ui.column().classes('w-full gap-2')
+                        with ui.scroll_area().classes('w-full h-40'):  # 높이 줄임
+                            self.history_container = ui.column().classes('w-full gap-1')  # 갭 줄임
                             self._show_empty_history()
                     
                     # 편집 도구 섹션
@@ -67,11 +67,12 @@ class UtilitySidebar:
                 ]
                 
                 for method, short_name in methods:
+                    button_text = method if self.is_expanded else short_name
                     ui.button(
-                        method if self.is_expanded else short_name,
+                        button_text,
                         on_click=lambda m=method: self._on_method_select(m)
                     ).props('flat').classes(
-                        'w-full h-10 text-white hover:bg-gray-700 border-b border-gray-600'
+                        'w-full h-8 text-white hover:bg-gray-700 border-b border-gray-600 text-xs'  # 높이와 텍스트 크기 줄임
                     ).tooltip(method if not self.is_expanded else '')
         
         # 히스토리 업데이트 구독
@@ -80,14 +81,21 @@ class UtilitySidebar:
     def toggle(self):
         """사이드바 토글"""
         self.is_expanded = not self.is_expanded
-        width = '320px' if self.is_expanded else '60px'
-        self.container.style(f'width: {width}')
+        # 반응형 너비 설정
+        if self.is_expanded:
+            width = 'min(280px, 25vw)'  # 최대 뷰포트 너비의 25%
+            min_width = '280px'
+        else:
+            width = '48px'
+            min_width = '48px'
+        
+        self.container.style(f'width: {width}; min-width: {min_width}')
         self.toggle_button.set_text('◀' if self.is_expanded else '▶')
         self.toggle_button.tooltip('사이드바 닫기' if self.is_expanded else '사이드바 열기')
     
     def _create_edit_tools(self):
         """편집 도구 생성"""
-        with ui.column().classes('w-full gap-2'):
+        with ui.column().classes('w-full gap-1'):  # 갭 줄임
             tools = [
                 ('crop', '자르기'),
                 ('rotate_right', '회전'),
@@ -100,7 +108,7 @@ class UtilitySidebar:
                     text=name,
                     icon=icon,
                     on_click=lambda t=name: self._on_tool_click(t)
-                ).props('flat').classes('w-full justify-start text-white hover:bg-gray-700')
+                ).props('flat').classes('w-full justify-start text-white hover:bg-gray-700 h-8 text-xs')  # 높이와 텍스트 크기 줄임
     
     def _on_tool_click(self, tool_name: str):
         """편집 도구 클릭"""
@@ -115,9 +123,9 @@ class UtilitySidebar:
         """빈 히스토리 상태 표시"""
         self.history_container.clear()
         with self.history_container:
-            with ui.column().classes('w-full items-center justify-center p-4'):
-                ui.icon('history').classes('text-4xl text-gray-500 mb-2')
-                ui.label('생성된 이미지가 없습니다').classes('text-gray-400 text-sm text-center')
+            with ui.column().classes('w-full items-center justify-center p-2'):
+                ui.icon('history').classes('text-2xl text-gray-500 mb-1')  # 크기 줄임
+                ui.label('생성된 이미지가 없습니다').classes('text-gray-400 text-xs text-center')  # 텍스트 크기 줄임
                 ui.label('이미지를 생성하면 여기에 표시됩니다').classes('text-gray-500 text-xs text-center')
     
     async def _update_history(self, history_items):
@@ -133,28 +141,28 @@ class UtilitySidebar:
         
         # 히스토리 아이템 표시 (최신순)
         with self.history_container:
-            for item in history_items[:20]:  # 최대 20개만 표시
-                with ui.card().classes('w-full p-2 cursor-pointer hover:bg-gray-700').on(
+            for item in history_items[:15]:  # 개수 줄임 (15개)
+                with ui.card().classes('w-full p-1 cursor-pointer hover:bg-gray-700').on(  # 패딩 줄임
                     'click',
                     lambda i=item: self._restore_from_history(i)
                 ):
-                    with ui.row().classes('gap-2 items-center'):
-                        # 썸네일
+                    with ui.row().classes('gap-1 items-center'):  # 갭 줄임
+                        # 썸네일 (크기 줄임)
                         if hasattr(item, 'thumbnail_path') and Path(item.thumbnail_path).exists():
-                            ui.image(item.thumbnail_path).classes('w-12 h-12 rounded object-cover')
+                            ui.image(item.thumbnail_path).classes('w-8 h-8 rounded object-cover')  # 크기 줄임
                         else:
-                            ui.icon('image').classes('w-12 h-12 text-gray-400')
+                            ui.icon('image').classes('w-8 h-8 text-gray-400')  # 크기 줄임
                         
                         # 정보
                         with ui.column().classes('flex-1 min-w-0'):
                             # 시간
                             if hasattr(item, 'timestamp'):
-                                time_str = item.timestamp.strftime('%H:%M:%S')
+                                time_str = item.timestamp.strftime('%H:%M')  # 초 제거
                                 ui.label(time_str).classes('text-xs text-gray-400')
                             
-                            # 프롬프트 (일부만)
+                            # 프롬프트 (일부만, 더 짧게)
                             if hasattr(item, 'params') and hasattr(item.params, 'prompt'):
-                                prompt_preview = item.params.prompt[:25] + '...' if len(item.params.prompt) > 25 else item.params.prompt
+                                prompt_preview = item.params.prompt[:20] + '...' if len(item.params.prompt) > 20 else item.params.prompt
                                 ui.label(prompt_preview).classes('text-xs text-white truncate')
     
     def _restore_from_history(self, history_item):

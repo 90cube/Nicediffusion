@@ -27,7 +27,7 @@ print("--- [진단 끝, 원래 코드 실행 시작] ---\n\n")
 #!/usr/bin/env python3
 """
 Nicediff - Modular AI Image Generation UI
-Main entry point
+Main entry point (반응형 최적화)
 """
 
 import sys
@@ -47,7 +47,62 @@ state_manager = StateManager()
 @ui.page('/')
 async def main_page():
     """메인 페이지 라우터"""
+    # 반응형 디자인을 위한 색상 설정
     ui.colors(primary='#3b82f6', dark='#1e293b')
+    
+    # 반응형 메타 태그 및 뷰포트 설정
+    ui.add_head_html("""
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+        <style>
+            /* 전체 페이지 스크롤 방지 */
+            html, body {
+                overflow: hidden !important;
+                height: 100vh !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            /* NiceGUI 기본 컨테이너 최적화 */
+            .nicegui-content {
+                height: 100vh !important;
+                overflow: hidden !important;
+            }
+            
+            /* 스크롤바 스타일링 (다크 테마) */
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            
+            ::-webkit-scrollbar-track {
+                background: #374151;
+                border-radius: 4px;
+            }
+            
+            ::-webkit-scrollbar-thumb {
+                background: #6b7280;
+                border-radius: 4px;
+            }
+            
+            ::-webkit-scrollbar-thumb:hover {
+                background: #9ca3af;
+            }
+            
+            /* 작은 화면에서 텍스트 크기 조정 */
+            @media (max-width: 640px) {
+                .text-responsive {
+                    font-size: 0.75rem !important;
+                }
+            }
+            
+            /* 매우 작은 화면 대응 */
+            @media (max-width: 480px) {
+                .hide-on-mobile {
+                    display: none !important;
+                }
+            }
+        </style>
+    """)
     
     # Inference 페이지 렌더링
     inference_page = InferencePage(state_manager)

@@ -118,7 +118,7 @@ class LoraPanel:
         import platform
         import subprocess
         
-        lora_path = Path(self.state.config.get('paths', {}).get('loras', 'models/lora'))
+        lora_path = Path(self.state.config.get('paths', {}).get('loras', 'models/loras'))
         lora_path.mkdir(parents=True, exist_ok=True)
         
         try:

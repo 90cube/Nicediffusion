@@ -4,10 +4,10 @@ theme = "dark"
 port = 8080
 
 [paths]
-models = "models/checkpoint"
+models = "models/checkpoints"
 vaes = "models/vae"
-loras = "models/lora"
-embeddings = "models/embedding"
+loras = "models/loras"
+embeddings = "models/embeddings"
 outputs = "outputs"
 
 [generation]
