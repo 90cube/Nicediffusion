@@ -48,7 +48,7 @@
    * ComfyUI Git 저장소를 클론합니다:
      
      ```bash
-     git clone [https://github.com/comfyanonymous/ComfyUI.git](https://github.com/comfyanonymous/ComfyUI.git) ../ComfyUI
+     git clone [[https://github.com/comfyanonymous/ComfyUI.git](https://github.com/comfyanonymous/ComfyUI.git) ../ComfyUI](https://github.com/90cube/Nicediffusion.git)
      ```
      
        *`../ComfyUI`*: 현재 `nicediffusion` 폴더의 상위 폴더에 `ComfyUI` 폴더를 생성.
