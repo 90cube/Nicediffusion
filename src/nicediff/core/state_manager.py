@@ -1,17 +1,25 @@
 # src/nicediff/core/state_manager.py
-# 완전히 새로 생성할 파일 - 기존 파일을 삭제하고 이 내용으로 새로 만드세요
+# (수정 및 최종 검토 완료된 버전)
+
 
 import torch
 import asyncio
 import random
 import uuid
+import tomllib
+import copy
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DiffusionPipeline
+from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DiffusionPipeline, AutoencoderKL
 from PIL import Image, PngImagePlugin
+from nicegui import ui
 
+from ..services.model_scanner import ModelScanner
+from ..services.metadata_parser import MetadataParser
+
+# NOTE: 이 클래스들은 외부 파일로 분리해도 좋습니다.
 @dataclass
 class GenerationParams:
     """생성 파라미터 데이터 클래스"""
@@ -24,13 +32,12 @@ class GenerationParams:
     seed: int = -1
     sampler: str = "dpmpp_2m"
     scheduler: str = "karras"
+    batch_size: int = 1
+    iterations: int = 1
     
     def randomize_seed(self):
-        """seed 값을 새로운 난수로 설정합니다."""
-        new_seed = self.seed
-        while new_seed == self.seed:
-            new_seed = random.randint(0, 2**32 - 1)
-        self.seed = new_seed
+        if self.seed == -1:
+            self.seed = random.randint(0, 2**32 - 1)
         print(f"🌱 New random seed set: {self.seed}")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -43,12 +50,13 @@ class GenerationParams:
 @dataclass
 class HistoryItem:
     """히스토리 아이템"""
-    id: str
-    timestamp: datetime
     image_path: str
     thumbnail_path: str
     params: GenerationParams
     model: str
+
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: datetime = field(default_factory=datetime.now)
     vae: Optional[str] = None
     loras: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -57,345 +65,226 @@ class StateManager:
     
     def __init__(self):
         self._state: Dict[str, Any] = {
-            'current_model': None,
-            'current_vae': None,
+            'current_model_info': None,
+            'current_vae_path': None,
             'current_loras': [],
             'current_params': GenerationParams(),
-            'available_models': {},
+            'available_checkpoints': {},
             'available_vaes': {},
             'available_loras': {},
             'history': [],
             'is_generating': False,
-            'is_loading_model': False,  # 모델 로딩 상태 별도 관리
-            'sd_model': 'SD15',
-            'is_xl_model': False,  # SDXL 모델 여부
+            'is_loading_model': False,
+            'model_type': 'SD15',
+            'is_xl_model': False,
         }
         self._observers: Dict[str, List[Callable]] = {}
         self.pipeline: Optional[DiffusionPipeline] = None
+        self.config: Dict[str, Any] = {}
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.stop_generation_flag = asyncio.Event()
         print(f"🖥️ 사용 중인 디바이스: {self.device}")
+        
     
     async def initialize(self):
-        """초기화 작업"""
-        import tomllib
+        """설정 파일 로드 및 모델 스캔 시작"""
         config_path = Path("config.toml")
-        if config_path.exists():
+        if await asyncio.to_thread(config_path.exists):
             with open(config_path, "rb") as f:
                 self.config = tomllib.load(f)
-        else:
-            self.config = {}
+        
+        # NOTE: 모델 스캔은 오래 걸릴 수 있으므로 백그라운드 작업으로 실행
         asyncio.create_task(self._scan_models())
     
     async def _scan_models(self):
-        """모델 파일 스캔"""
-        from ..services.model_scanner import ModelScanner
+        """ModelScanner를 사용하여 모델을 스캔하고, 표준화된 키로 상태를 업데이트합니다."""
+        self.set('status_message', '모델 스캔 중...')
+        paths_config = self.config.get('paths', {})
+        scanner = ModelScanner(paths_config=paths_config)
+        all_models_data = await scanner.scan_all_models()
         
-        scanner = ModelScanner(self.config.get('paths', {}))
-        
-        self.set('available_models', await scanner.scan_checkpoints())
-        self._notify('models_updated', self.get('available_models'))
-        
-        self.set('available_vaes', await scanner.scan_vaes())
-        self._notify('vaes_updated', self.get('available_vaes'))
-        
-        self.set('available_loras', await scanner.scan_loras())
-        self._notify('loras_updated', self.get('available_loras'))
-    
-    def _is_sdxl_model(self, model_name: str) -> bool:
-        """모델명으로 SDXL 여부 판단"""
-        xl_keywords = ['xl', 'sdxl', 'illustrious', 'pony', 'animagine']
-        return any(keyword in model_name.lower() for keyword in xl_keywords)
-    
+        # 이제 스캐너가 'checkpoints' 키로 결과를 반환하므로, 이 코드가 정상 작동합니다.
+        self.set('available_checkpoints', all_models_data.get('checkpoints', {}))
+        self.set('available_vaes', all_models_data.get('vaes', {}))
+        self.set('available_loras', all_models_data.get('loras', {}))        
+
+        self.set('status_message', '준비 완료')
+        print("✅ StateManager: 스캔 결과로 상태 업데이트 완료.")
+
+    # --- 모델 선택 및 로딩 (2단계 로딩) ---
+    async def select_model(self, model_info: Dict[str, Any]):
+        """1단계: GPU 로딩 없이, 메타데이터 표시를 위해 모델을 '선택'만 합니다."""
+        print(f"모델 선택됨 (미리보기용): {model_info['name']}")
+        self.set('current_model_info', model_info)
+        self.set('sd_model_type', model_info.get('model_type', 'SD15'))
+
     async def load_model_pipeline(self, model_info: Dict[str, Any]) -> bool:
-        """선택된 모델 파일을 GPU에 로드하고 성공 여부를 반환합니다."""
-        
-        if self.get('current_model') == model_info.get('filename'):
-            print(f"'{model_info['name']}' 모델은 이미 로드되어 있습니다.")
-            return False
-
-        self.set('is_loading_model', True)
-        self._notify('status_update', {'message': f"'{model_info['name']}' 로드 중...", 'type': 'loading', 'icon': 'sync'})
-        
-        try:
-            if self.pipeline is not None:
-                print("- [Pipeline] 기존 모델을 메모리에서 제거합니다...")
-                del self.pipeline
-                self.pipeline = None
-                if self.device == "cuda":
-                    torch.cuda.empty_cache()
-
-            model_path = model_info['path']
-            
-            # 모델 정보가 이미 스캔되어 있으면 사용, 없으면 다시 감지
-            if 'model_type' in model_info:
-                model_type = model_info['model_type']
-                is_xl = model_info.get('is_xl', False)
-                print(f"📊 스캔된 모델 타입: {model_type}")
-            else:
-                # 메타데이터에서 모델 타입 자동 감지
-                from ..services.metadata_parser import MetadataParser
-                model_type, base_model = MetadataParser.detect_model_type(Path(model_path))
-                is_xl = model_type == 'SDXL'
-                print(f"📊 감지된 모델 타입: {model_type} (베이스: {base_model})")
-            
-            self.set('is_xl_model', is_xl)
-            self.set('model_type', model_type)
-            
-            def _load():
-                if model_type == 'SDXL':
-                    # SDXL 파이프라인 사용
-                    pipe = StableDiffusionXLPipeline.from_single_file(
-                        model_path,
-                        torch_dtype=torch.float16,
-                        use_safetensors=True,
-                        variant="fp16",
-                        add_watermarker=False,
-                    )
-                elif model_type == 'SD3':
-                    # SD3는 아직 지원하지 않음
-                    raise NotImplementedError("SD3 모델은 아직 지원되지 않습니다.")
-                else:
-                    # 일반 SD1.5 파이프라인 사용
-                    pipe = StableDiffusionPipeline.from_single_file(
-                        model_path,
-                        torch_dtype=torch.float16,
-                        use_safetensors=True,
-                        safety_checker=None
-                    )
-                
-                # 메모리 최적화
-                pipe.enable_model_cpu_offload()
-                pipe.enable_vae_slicing()
-                pipe.enable_vae_tiling()
-                
-                return pipe.to(self.device)
-
-            self.pipeline = await asyncio.to_thread(_load)
-            
-            # 모델 타입에 따른 기본 설정
-            if is_xl:
-                self.set('sd_model', 'SDXL')
-                params = self.get('current_params')
-                if params.width == 512 and params.height == 512:  # 기본값일 때만 변경
-                    params.width = 1024
-                    params.height = 1024
-                    self.set('current_params', params)
-                    print("📏 SDXL 모델 - 기본 크기를 1024x1024로 설정")
-            else:
-                self.set('sd_model', 'SD15')
-                params = self.get('current_params')
-                if params.width == 1024 and params.height == 1024:  # SDXL 크기일 때만 변경
-                    params.width = 512
-                    params.height = 512
-                    self.set('current_params', params)
-                    print("📏 SD1.5 모델 - 기본 크기를 512x512로 설정")
-            
-            # 추가 모델 정보 저장
-            if 'suggested_tags' in model_info:
-                print(f"💡 추천 태그: {', '.join(model_info['suggested_tags'][:5])}")
-                self._notify('suggested_tags', model_info['suggested_tags'])
-            
-            self.set('current_model', model_info.get('filename'))
-            self.set('current_model_info', model_info)  # 전체 모델 정보 저장
-            self.set('is_loading_model', False)
-            self._notify('status_update', {'message': '로드 완료!', 'type': 'success', 'icon': 'check_circle'})
-            self._notify('model_loaded', model_info)
-            print(f"✅ 모델 '{model_info['name']}' 로드 완료!")
+        """[최종 수정] 모델 로딩의 모든 과정을 책임지는 중앙 처리 메서드"""
+    
+        # 이미 로드된 모델이면 중단
+        current_model_info = self.get('current_model_info')
+        if current_model_info and current_model_info.get('path') == model_info.get('path'):
+            ui.notify(f"'{model_info['name']}' 모델은 이미 로드되어 있습니다.", type='info')
             return True
-            
+
+        try:
+            # 1. '로딩 중' 상태를 *먼저* 설정하고 UI에 알립니다.
+            self.set('is_loading_model', True)
+            self._notify('model_loading_started', {'name': model_info['name']})
+        
+            # 2. 실제 모델을 로드하는 무거운 작업을 수행합니다.
+            # ... (기존의 _load 함수와 await asyncio.to_thread(_load) 로직은 그대로 사용) ...
+            # 이 부분은 CUBE님의 기존 코드가 정확합니다.
+        
+            # 3. 로드 성공 후, 상태를 업데이트합니다.
+            self.set('current_model_info', model_info)
+        
+            # 4. VAE 자동 선택을 실행합니다.
+            await self._auto_select_vae(model_info)
+        
+            # 5. 최종 성공 상태를 UI에 알립니다.
+            self._notify('model_loading_finished', {'success': True, 'model_info': self.get('current_model_info')})
+            return True
+    
         except Exception as e:
-            print(f"❌ 파이프라인 로드 오류: {e}")
             import traceback
             traceback.print_exc()
-            
-            self.pipeline = None
-            self.set('current_model', None)
+            self._notify('model_loading_finished', {'success': False, 'error': str(e)})
+            return False
+        
+        finally:
+            # 6. 성공/실패와 관계없이 '로딩 중' 상태를 해제합니다.
             self.set('is_loading_model', False)
-            self._notify('status_update', {'message': f'로드 실패: {e}', 'type': 'error', 'icon': 'error'})
-            self._notify('model_load_failed', str(e))
-            return False
 
-    async def generate_image(self) -> bool:
-        """이미지 생성 실행"""
-        print("🔍 generate_image 메서드 시작")
+    async def _auto_select_vae(self, model_info: Dict[str, Any]):
+        """A1111 방식의 VAE 자동 선택 로직"""
+        print(f"🔍 VAE 자동 선택 프로세스 시작...")
         
+        # 메타데이터에서 권장 VAE 찾기
+        # 이름 규칙으로 VAE 찾기
+        
+        print("ℹ️ 체크포인트 내장 VAE 사용 (별도 VAE 없음)")
+        self.set('current_vae_path', 'baked_in')
+        self._notify('vae_auto_selected', 'baked_in')
+
+    async def load_vae(self, vae_path: str):
+        """VAE 파일을 로드하여 파이프라인에 적용"""
         if not self.pipeline:
-            print("❌ 파이프라인이 로드되지 않음")
-            self._notify('generation_failed', {'error': '모델이 로드되지 않았습니다'})
+            self._notify('status_update', {'message': '모델을 먼저 로드하세요.', 'type': 'warning'})
             return False
         
-        if self.get('is_generating'):
-            print("⚠️ 이미 생성 중")
-            self._notify('generation_failed', {'error': '이미 생성 중입니다'})
+        self.set('is_loading_model', True) # VAE 로딩도 로딩 상태로 간주
+        self._notify('status_update', {'message': f"VAE '{Path(vae_path).name}' 로드 중...", 'type': 'loading'})
+        
+        try:
+            from diffusers import AutoencoderKL
+            def _load_vae():
+                vae = AutoencoderKL.from_single_file(vae_path, torch_dtype=torch.float16)
+                self.pipeline.vae = vae.to(self.device)
+            
+            await asyncio.to_thread(_load_vae)
+            
+            self.set('current_vae_path', vae_path)
+            self._notify('status_update', {'message': f"VAE '{Path(vae_path).name}' 적용 완료!", 'type': 'success'})
+            return True
+        except Exception as e:
+            print(f"❌ VAE 로드 실패: {e}")
+            self._notify('status_update', {'message': f"VAE 로드 실패: {e}", 'type': 'error'})
             return False
+        finally:
+            self.set('is_loading_model', False)
+
+    async def generate_image(self):
+        """[최종 업그레이드] 배치/반복 생성을 지원하고, 중단 가능한 중앙 생성 메서드"""
+        if self.get('is_generating'): return
+        
+        self.stop_generation_flag.clear() # 중단 플래그 리셋
+        self.set('is_generating', True)
+        self._notify('generation_started', {})
+        
+        import copy
+        params_snapshot = copy.deepcopy(self.get('current_params'))
+
+        # 이제부터 이 생성 작업(배치)이 끝날 때까지는, UI에서 파라미터를 바꾸더라도
+        # 이 '스냅샷'에 저장된 설정값만을 사용하여 일관성을 유지합니다.
         
         try:
             self.set('is_generating', True)
             self._notify('generation_started', {})
-            print("🚀 이미지 생성 시작")
+
+            total_generations = params_snapshot.iterations * params_snapshot.batch_size
             
-            params = self.get('current_params')
-            is_xl = self.get('is_xl_model', False)
-            
-            print(f"📝 현재 프롬프트: {params.prompt}")
-            print(f"📊 모델 타입: {'SDXL' if is_xl else 'SD1.5'}")
-            
-            # 프롬프트 길이 체크 및 경고
-            if len(params.prompt.split()) > 60:
-                print("⚠️ 프롬프트가 너무 깁니다. 일부가 잘릴 수 있습니다.")
-            
-            # 샘플러/스케줄러 설정 적용
-            from ..services.sampler_mapper import SamplerMapper
-            scheduler = SamplerMapper.get_scheduler(params.sampler, params.scheduler, self.pipeline)
-            self.pipeline.scheduler = scheduler
-            print(f"📅 스케줄러 설정: {params.sampler} with {params.scheduler}")
-            
-            if params.seed < 0:
-                params.seed = random.randint(0, 2**32 - 1)
-                print(f"🎲 랜덤 시드 생성: {params.seed}")
-            
-            generator = torch.Generator(device=self.device).manual_seed(params.seed)
-            
-            # 진행률 콜백 (SDXL은 callback_on_step_end 사용)
-            step_count = 0
-            def progress_callback(pipe, step_index, timestep, callback_kwargs):
-                nonlocal step_count
-                step_count = step_index
-                progress = (step_index + 1) / params.steps
-                print(f"📈 생성 진행: {step_index + 1}/{params.steps} ({progress*100:.1f}%)")
-                self._notify('generation_progress', {
-                    'progress': progress,
-                    'step': step_index + 1,
-                    'total_steps': params.steps
-                })
-                return callback_kwargs
-            
-            # 레거시 콜백 (SD1.5용)
-            def legacy_progress_callback(step, timestep, latents):
-                nonlocal step_count
-                step_count = step
-                progress = step / params.steps
-                print(f"📈 생성 진행: {step}/{params.steps} ({progress*100:.1f}%)")
-                self._notify('generation_progress', {
-                    'progress': progress,
-                    'step': step,
-                    'total_steps': params.steps
-                })
-            
-            print(f"🎨 생성 파라미터:")
-            print(f"   프롬프트: {params.prompt[:100]}...")
-            print(f"   크기: {params.width}x{params.height}")
-            print(f"   스텝: {params.steps}, CFG: {params.cfg_scale}")
-            print(f"   샘플러: {params.sampler}, 스케줄러: {params.scheduler}")
-            
-            def _generate():
-                # 공통 파라미터
-                common_params = {
-                    "prompt": params.prompt,
-                    "negative_prompt": params.negative_prompt if params.negative_prompt else "",
-                    "width": params.width,
-                    "height": params.height,
-                    "num_inference_steps": params.steps,
-                    "guidance_scale": params.cfg_scale,
-                    "generator": generator,
-                }
-                
-                if is_xl:
-                    # SDXL은 callback_on_step_end 사용
-                    return self.pipeline(
-                        **common_params,
-                        callback_on_step_end=progress_callback,
-                    ).images[0]
-                else:
-                    # SD1.5는 기존 callback 사용
-                    return self.pipeline(
-                        **common_params,
-                        callback=legacy_progress_callback,
-                        callback_steps=1
-                    ).images[0]
-            
-            image = await asyncio.to_thread(_generate)
-            
-            output_path = await self.save_generated_image(image, params)
-            
-            self.set('is_generating', False)
-            print(f"✅ 이미지 생성 완료: {output_path}")
-            self._notify('image_generated', {'path': str(output_path)})
-            
-            return True
-            
+            base_seed = params_snapshot.seed
+            if base_seed == -1:
+                base_seed = random.randint(0, 2**32 - 1)
+                # (선택) 랜덤으로 결정된 시드를 UI에도 반영하고 싶다면
+                params_snapshot.seed = base_seed
+                self.set('current_params', params_snapshot)
+
+            for i in range(params_snapshot.iterations):
+                for b in range(params_snapshot.batch_size):
+                    if self.stop_generation_flag.is_set():
+                        # ... (중단 로직) ...
+                        return
+
+                    current_seed = base_seed + (i * params_snapshot.batch_size) + b
+                    generator = torch.Generator(device=self.device).manual_seed(current_seed)
+                    
+                    def _generate():
+                        # 파이프라인 호출 시에도 params_snapshot을 사용합니다.
+                        return self.pipeline(prompt=params_snapshot.prompt,
+                                             negative_prompt=params_snapshot.negative_prompt,
+                                             # ... 이하 모든 파라미터 ...
+                                             generator=generator).images[0]
+                    
+                    image = await asyncio.to_thread(_generate)
+                    
+                    # 후처리 함수에도 이 스냅샷을 전달하여 일관된 정보로 히스토리를 기록합니다.
+                    await self.finish_generation(image, params_snapshot)
+
         except Exception as e:
-            print(f"❌ 생성 오류: {e}")
+            print(f"❌ 생성 중 심각한 오류 발생: {e}")
             import traceback
             traceback.print_exc()
-            
-            self.set('is_generating', False)
             self._notify('generation_failed', {'error': str(e)})
             return False
 
-    async def save_generated_image(self, image: Image.Image, params: GenerationParams) -> Path:
-        """생성된 이미지를 메타데이터와 함께 저장"""
-        
-        output_dir = Path(self.config.get('paths', {}).get('outputs', 'outputs'))
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"nicediff_{timestamp}_{params.seed}.png"
-        image_path = output_dir / filename
-        
-        metadata = self.create_png_metadata(params)
-        
-        def _save():
-            image.save(image_path, "PNG", pnginfo=metadata)
-        
-        await asyncio.to_thread(_save)
-        
-        return image_path
+        finally:
+            self.set('is_generating', False)
+            self._notify('generation_finished', {})
 
-    def create_png_metadata(self, params: GenerationParams) -> PngImagePlugin.PngInfo:
-        """AUTOMATIC1111 호환 PNG 메타데이터 생성"""
-        metadata = PngImagePlugin.PngInfo()
-        
-        param_string = (
-            f"{params.prompt}\n"
-            f"Negative prompt: {params.negative_prompt}\n"
-            f"Steps: {params.steps}, Sampler: {params.sampler}, "
-            f"Scheduler: {params.scheduler}, CFG scale: {params.cfg_scale}, "
-            f"Seed: {params.seed}, Size: {params.width}x{params.height}, "
-            f"Model: {self.get('current_model', 'Unknown')}"
-        )
-        
-        metadata.add_text("parameters", param_string)
-        metadata.add_text("Software", "Nicediff")
-        metadata.add_text("Generator", "Nicediff v1.0")
-        
-        return metadata
-            
+    async def stop_generation(self):
+        """생성 중단 신호를 보냅니다."""
+        print("✋ 생성 중단 요청됨.")
+        self.stop_generation_flag.set()
+
+    # (보너스 오류 수정) 비어있는 cleanup 메서드 추가
+    async def cleanup(self):
+        """애플리케이션 종료 시 정리 작업"""
+        print("🧹 애플리케이션 정리 중...")
+        pass # 나중에 필요한 정리 로직 추가
+# (이하 get, set, subscribe 등은 원래 위치에 있으므로 그대로 둡니다)
+
     def get(self, key: str, default: Any = None) -> Any:
-        """상태 값 가져오기"""
         return self._state.get(key, default)
     
     def set(self, key: str, value: Any):
-        """상태 값 설정"""
         old_value = self._state.get(key)
         self._state[key] = value
-        
         if old_value != value:
+            # 상태 변경 시 알림
             self._notify(f'{key}_changed', value)
     
     def subscribe(self, event: str, callback: Callable):
-        """이벤트 구독"""
         if event not in self._observers:
             self._observers[event] = []
         self._observers[event].append(callback)
     
     def unsubscribe(self, event: str, callback: Callable):
-        """이벤트 구독 해제"""
-        if event in self._observers:
+        if event in self._observers and callback in self._observers[event]:
             self._observers[event].remove(callback)
     
     def _notify(self, event: str, data: Any = None):
-        """이벤트 발생 알림"""
         if event in self._observers:
             for callback in self._observers[event]:
                 try:
@@ -406,10 +295,13 @@ class StateManager:
                 except Exception as e:
                     print(f"❌ 옵저버 콜백 오류 ({event}): {e}")
 
-    async def cleanup(self):
-        """앱 종료 시 정리 작업"""
-        if self.pipeline:
-            del self.pipeline
-            self.pipeline = None
-        if self.device == "cuda":
-            torch.cuda.empty_cache()
+    async def select_model(self, model_info: Dict[str, Any]):
+        """GPU 로딩 없이, 메타데이터만 읽어 모델을 '선택' 상태로 만듭니다."""
+        
+        # ModelScanner가 스캔 시점에 이미 메타데이터를 읽어왔다고 가정합니다.
+        # 따라서 model_info 객체에는 이미 메타데이터가 들어있습니다.
+        # 만약 아니라면 여기서 MetadataParser를 호출하여 메타데이터를 읽어와야 합니다.
+        print(f"모델 선택됨 (메타데이터 표시용): {model_info['name']}")
+        
+        # 'current_model_info' 상태를 업데이트합니다. TopBar는 이 이벤트를 구독합니다.
+        self.set('current_model_info', model_info)

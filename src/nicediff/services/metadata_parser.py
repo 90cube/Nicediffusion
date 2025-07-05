@@ -1,11 +1,11 @@
-# 파일 경로: src/nicediff/services/metadata_parser.py
+# 파일 경로: src/nicediff/services/metadata_parser.py (수정 제안)
 
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from PIL import Image
 import json
 import re
-import struct
+import struct # struct는 내장 모듈이므로 pip 설치 불필요 (오류가 났던 부분)
 
 class MetadataParser:
     @staticmethod
@@ -73,27 +73,46 @@ class MetadataParser:
     
     @staticmethod
     def extract_from_safetensors(model_path: Path) -> Dict[str, Any]:
-        """Safetensors 파일에서 __metadata__ 블록 직접 추출"""
+        """Safetensors 파일에서 __metadata__ 블록 직접 추출 및 워크플로우 프롬프트 파싱"""
         try:
             with open(model_path, 'rb') as f:
-                # 헤더 크기 읽기
                 header_size_bytes = f.read(8)
                 header_size = struct.unpack('<Q', header_size_bytes)[0]
                 
                 if header_size > 0:
-                    # JSON 헤더 읽기
                     json_data = f.read(header_size)
                     header_dict = json.loads(json_data)
                     
-                    # 메타데이터 추출
                     if '__metadata__' in header_dict:
                         metadata = header_dict['__metadata__']
                         
                         # 상세 디버깅
-                        print("📋 Safetensors 메타데이터 발견:")
-                        for key, value in list(metadata.items())[:10]:  # 처음 10개만 출력
+                        #print("📋 Safetensors 메타데이터 발견:")
+                        for key, value in list(metadata.items())[:10]:
                             print(f"   - {key}: {str(value)[:100]}...")
                         
+                        # 'prompt' 키가 ComfyUI 워크플로우 JSON인지 확인하고 파싱
+                        if 'prompt' in metadata and isinstance(metadata['prompt'], str):
+                            try:
+                                # JSON 문자열일 가능성 확인
+                                prompt_content = json.loads(metadata['prompt'])
+                                # ComfyUI 워크플로우 JSON으로 간주하고 파싱
+                                parsed_prompts = MetadataParser._parse_comfyui_workflow_json(prompt_content)
+                                if parsed_prompts['prompt']:
+                                    metadata['prompt'] = parsed_prompts['prompt']
+                                if parsed_prompts['negative_prompt']:
+                                    metadata['negative_prompt'] = parsed_prompts['negative_prompt']
+                                # 'parameters'도 워크플로우에서 추출 가능하면 추가
+                                if parsed_prompts['parameters']:
+                                    metadata['parameters'] = {**metadata.get('parameters', {}), **parsed_prompts['parameters']}
+                                
+                            except json.JSONDecodeError:
+                                # JSON이 아니면 일반 문자열 프롬프트로 간주
+                                pass
+                            except Exception as e:
+                                print(f"경고: ComfyUI 워크플로우 프롬프트 파싱 오류: {e}")
+                                pass # 파싱 실패해도 원래 메타데이터 사용
+
                         return metadata
                     else:
                         print("⚠️ __metadata__ 블록이 없습니다.")
@@ -101,6 +120,67 @@ class MetadataParser:
         except Exception as e:
             print(f"Safetensors 메타데이터 추출 오류 ({model_path.name}): {e}")
         return {}
+    
+    @staticmethod
+    def _parse_comfyui_workflow_json(workflow_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        ComfyUI 워크플로우 JSON 데이터에서 긍정/부정 프롬프트 및 파라미터를 추출합니다.
+        가장 일반적인 "CLIPTextEncode" 노드를 기반으로 합니다.
+        """
+        extracted = {'prompt': '', 'negative_prompt': '', 'parameters': {}}
+        nodes = workflow_data.get('nodes', [])
+
+        # 긍정 및 부정 프롬프트 추출 시도
+        # CLIPTextEncode 노드를 찾아 프롬프트 추출
+        for node in nodes:
+            if node.get('class_type') == 'CLIPTextEncode':
+                node_id = str(node.get('id'))
+                if 'inputs' in node and 'text' in node['inputs']:
+                    # 긍정 프롬프트 (대부분의 경우 CLIPTextEncode 노드는 긍정 프롬프트에 사용됨)
+                    if not extracted['prompt']: # 첫 번째 긍정 프롬프트만 가져옴
+                        extracted['prompt'] = node['inputs']['text']
+                        #print(f"🔎 ComfyUI 워크플로우에서 긍정 프롬프트 추출됨 (Node {node_id}): {extracted['prompt'][:50]}...")
+                
+                # 부정 프롬프트는 보통 별도의 CLIPTextEncode 노드나 다른 특정 노드에 연결될 수 있음
+                # 명시적인 'negative' 키가 없으므로 heuristic이 필요함
+                # 예를 들어, prompt가 비어있고 text_g/text_l이 있는 노드를 찾을 수 있음 (고급 케이스)
+                
+                # 워크플로우 메타데이터에서 파라미터 추출 시도 (예: KSampler 노드)
+                if node.get('class_type') == 'KSampler':
+                    if 'inputs' in node:
+                        if 'steps' in node['inputs']:
+                            extracted['parameters']['steps'] = node['inputs']['steps']
+                        if 'cfg' in node['inputs']: # ComfyUI에서는 'cfg'로 표기될 수 있음
+                            extracted['parameters']['cfg_scale'] = node['inputs']['cfg']
+                        if 'sampler_name' in node['inputs']:
+                            extracted['parameters']['sampler'] = node['inputs']['sampler_name']
+                        if 'scheduler' in node['inputs']:
+                            extracted['parameters']['scheduler'] = node['inputs']['scheduler']
+                        if 'seed' in node['inputs']:
+                            extracted['parameters']['seed'] = node['inputs']['seed']
+                
+                # 크기 정보 (EmptyLatentImage 노드)
+                if node.get('class_type') == 'EmptyLatentImage':
+                    if 'inputs' in node:
+                        if 'width' in node['inputs']:
+                            extracted['parameters']['width'] = node['inputs']['width']
+                        if 'height' in node['inputs']:
+                            extracted['parameters']['height'] = node['inputs']['height']
+            
+            # TODO: LoRA, ControlNet 등 다른 노드에서 추가 정보 추출 가능
+            # (이 부분은 필요에 따라 확장)
+
+        # 'prompt' 키가 없거나 비어 있다면, 'workflow' 최상위 키의 다른 프롬프트 필드를 찾을 수도 있음 (덜 일반적)
+        if not extracted['prompt'] and 'prompt' in workflow_data and isinstance(workflow_data['prompt'], str):
+            extracted['prompt'] = workflow_data['prompt']
+
+        # 'workflow' 키에 직접 'extra_pnginfo'가 있는 경우
+        if 'extra_pnginfo' in workflow_data and 'prompt' in workflow_data['extra_pnginfo']:
+            extracted['prompt'] = workflow_data['extra_pnginfo']['prompt']
+        if 'extra_pnginfo' in workflow_data and 'negative_prompt' in workflow_data['extra_pnginfo']:
+            extracted['negative_prompt'] = workflow_data['extra_pnginfo']['negative_prompt']
+
+        return extracted
     
     @staticmethod
     def detect_model_type(model_path: Path) -> Tuple[str, Optional[str]]:
@@ -112,12 +192,12 @@ class MetadataParser:
         
         # 1. Safetensors 메타데이터에서 확인
         if model_path.suffix == '.safetensors':
-            metadata = MetadataParser.extract_from_safetensors(model_path)
+            metadata = MetadataParser.extract_from_safetensors(model_path) # 수정된 extract_from_safetensors 호출
             
             # Civitai 형식 메타데이터
             if 'ss_base_model_version' in metadata:
                 base_version = metadata['ss_base_model_version']
-                print(f"✅ ss_base_model_version 발견: {base_version}")
+                #print(f"✅ ss_base_model_version 발견: {base_version}")
                 
                 if 'xl' in base_version.lower() or 'sdxl' in base_version.lower():
                     return 'SDXL', base_version
@@ -129,7 +209,7 @@ class MetadataParser:
             # ComfyUI/A1111 형식
             if 'modelspec.architecture' in metadata:
                 arch = metadata['modelspec.architecture']
-                print(f"✅ modelspec.architecture 발견: {arch}")
+                #print(f"✅ modelspec.architecture 발견: {arch}")
                 
                 if 'xl' in arch.lower():
                     return 'SDXL', arch
@@ -143,10 +223,10 @@ class MetadataParser:
                 if isinstance(value, str):
                     value_lower = value.lower()
                     if 'sdxl' in value_lower or 'xl' in value_lower:
-                        print(f"✅ SDXL 힌트 발견: {key}={value[:50]}...")
+                        #print(f"✅ SDXL 힌트 발견: {key}={value[:50]}...")
                         return 'SDXL', value
                     elif 'sd3' in value_lower:
-                        print(f"✅ SD3 힌트 발견: {key}={value[:50]}...")
+                        #print(f"✅ SD3 힌트 발견: {key}={value[:50]}...")
                         return 'SD3', value
         
         # 2. 파일명에서 추측
@@ -156,18 +236,18 @@ class MetadataParser:
         sdxl_keywords = ['sdxl', 'xl', 'illustrious', 'pony', 'animagine', 'juggernaut']
         for keyword in sdxl_keywords:
             if keyword in filename_lower:
-                print(f"📝 파일명에서 SDXL 키워드 발견: {keyword}")
+                #print(f"📝 파일명에서 SDXL 키워드 발견: {keyword}")
                 return 'SDXL', None
         
         # SD3 키워드
         sd3_keywords = ['sd3', 'stable-diffusion-3']
         for keyword in sd3_keywords:
             if keyword in filename_lower:
-                print(f"📝 파일명에서 SD3 키워드 발견: {keyword}")
+                #print(f"📝 파일명에서 SD3 키워드 발견: {keyword}")
                 return 'SD3', None
         
         # 기본값은 SD1.5
-        print("ℹ️ 특별한 표시가 없어 SD1.5로 간주합니다.")
+        #print("ℹ️ 특별한 표시가 없어 SD1.5로 간주합니다.")
         return 'SD15', None
     
     @staticmethod
@@ -183,11 +263,23 @@ class MetadataParser:
             'is_xl': model_type == 'SDXL',
             'is_sd3': model_type == 'SD3',
             'default_size': (1024, 1024) if model_type in ['SDXL', 'SD3'] else (512, 512),
+            'metadata': {}  # 빈 메타데이터 딕셔너리 초기화
         }
         
         # 추가 메타데이터 병합
         if model_path.suffix == '.safetensors':
             metadata = MetadataParser.extract_from_safetensors(model_path)
+            
+            # 전체 메타데이터 저장
+            info['metadata'] = metadata
+            
+            # VAE 정보 추출
+            if 'ss_vae_name' in metadata:
+                info['recommended_vae'] = metadata['ss_vae_name']
+            if 'vae' in metadata:
+                info['recommended_vae'] = metadata['vae']
+            if 'sd_vae' in metadata:
+                info['recommended_vae'] = metadata['sd_vae']
             
             # 학습 정보 추출
             if 'ss_training_comment' in metadata:

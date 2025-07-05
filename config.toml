@@ -4,7 +4,7 @@ theme = "dark"
 port = 8080
 
 [paths]
-models = "models/checkpoints"
+checkpoints = "models/checkpoints"
 vaes = "models/vae"
 loras = "models/loras"
 embeddings = "models/embeddings"

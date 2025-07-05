@@ -65,6 +65,7 @@
      ```bash
      git clone [https://github.com/comfyanonymous/ComfyUI.git](https://github.com/comfyanonymous/ComfyUI.git) ../ComfyUI
      ```
+   
    * ComfyUI의 Python 패키지를 설치합니다 (필요한 경우):
      
      ```bash
@@ -101,8 +102,133 @@ NiceDiffusion은 자체 UI를 통해 이미지 생성 작업을 관리합니다.
    ```bash
    python main.py
    ```
+
 2. 웹 브라우저에서 `http://localhost:8080` (또는 콘솔에 표시되는 주소)으로 접속하여 NiceDiffusion UI에 접근합니다.
+
 3. UI에서 모델을 선택하고, 프롬프트와 기타 설정을 조정한 후 "생성" 버튼을 클릭하여 이미지를 생성합니다.
+   
+   
+   
+   
+   # NiceDiffusion 개발 로드맵
+   
+   ## 📋 Phase 1: 기본 기능 구현 (현재 완료 단계)
+   
+   - ✅ NiceGUI 기반 UI 구성
+   - ✅ Diffusers 파이프라인 통합
+   - ✅ 모델 로딩 시스템
+   - ✅ 기본 이미지 생성 (txt2img)
+   - ✅ 파라미터 조정 UI
+   - ✅ 메타데이터 추출 및 표시
+   - ✅ 프롬프트 프리셋 시스템
+   - ⏳ 에러 처리 개선
+   
+   ## 🚀 Phase 2: 고급 기능 구현
+   
+   ### 2A: 추가 생성 모드
+   
+   - [ ] img2img 구현
+   - [ ] inpaint/outpaint 구현
+   - [ ] ControlNet 통합
+   - [ ] IP-Adapter 지원
+   
+   ### 2B: 캔버스 에디터
+   
+   - [ ] HTML5 Canvas 기반 편집 도구
+   - [ ] 레이어 시스템
+   - [ ] 마스크 편집
+   - [ ] 실시간 미리보기
+   
+   ### 2C: 고급 기능
+   
+   - [ ] 배치 생성
+   - [ ] 히스토리 관리 및 복원
+   - [ ] 프롬프트 믹싱
+   - [ ] Seed 여행 (interpolation)
+   
+   ## 🔧 Phase 3: 확장성 및 통합
+   
+   ### 3A: 플러그인 시스템
+   
+   ```python
+   # 플러그인 구조 예시
+   plugins/
+   ├── __init__.py
+   ├── base.py           # 플러그인 베이스 클래스
+   ├── prompt_helper/    # LLM 프롬프트 도우미
+   ├── style_transfer/   # 스타일 전송
+   └── batch_processor/  # 배치 처리
+   ```
+   
+   ### 3B: ComfyUI 통합
+   
+   - [ ] ComfyUI 워크플로우 임포트
+   - [ ] 노드 에디터 UI
+   - [ ] 커스텀 노드 지원
+   - [ ] 워크플로우 저장/불러오기
+   
+   ### 3C: 외부 서비스 연동
+   
+   - [ ] Civitai API 연동 (모델 다운로드)
+   - [ ] HuggingFace 연동
+   - [ ] 클라우드 저장소 지원
+   - [ ] Discord/Telegram 봇
+   
+   ## 🎯 Phase 4: 엔터프라이즈 기능
+   
+   - [ ] 멀티 유저 지원
+   - [ ] 작업 큐 시스템
+   - [ ] GPU 클러스터 지원
+   - [ ] REST API 서버
+   - [ ] 웹 기반 배포
+   
+   ## 🛠️ 기술 스택 진화
+   
+   ### 현재 (Phase 1)
+   
+   - Frontend: NiceGUI
+   - Backend: Diffusers, PyTorch
+   - Storage: 로컬 파일 시스템
+   
+   ### 미래 (Phase 3-4)
+   
+   - Frontend: NiceGUI + React 컴포넌트
+   - Backend: FastAPI + Celery
+   - Storage: S3 호환 스토리지
+   - Database: PostgreSQL/SQLite
+   - Cache: Redis
+   
+   ## 📊 성능 목표
+   
+   - Phase 1: 단일 GPU, 512x512 이미지 5초 이내
+   - Phase 2: 멀티 해상도, 실시간 미리보기
+   - Phase 3: 배치 처리, 병렬 생성
+   - Phase 4: 분산 처리, 무제한 확장
+   
+   ## 🔌 플러그인 예시
+   
+   ```python
+   # plugins/prompt_helper/main.py
+   from nicediff.core.plugin_base import PluginBase
+   
+   class PromptHelperPlugin(PluginBase):
+       name = "Prompt Helper"
+       version = "1.0.0"
+   
+       def __init__(self, state_manager):
+           super().__init__(state_manager)
+           self.llm_client = None
+   
+       def register(self):
+           # UI에 버튼 추가
+           self.state.subscribe('ui_ready', self.add_ui_elements)
+   
+       def enhance_prompt(self, prompt: str) -> str:
+           # LLM을 사용해 프롬프트 개선
+           return enhanced_prompt
+   ```
+
+## 
 
 ## 🤝 기여 방법
 

@@ -86,57 +86,10 @@ class ParameterPanel:
                 ui.button(button_text, on_click=lambda dp=display_name, rv=ratio_value, o=orientation: self._handle_ratio_click(dp, rv, o)).props(btn_props).tooltip(tooltip_text)
 
     async def _on_generate_click(self):
-        """생성 버튼 클릭 처리 (핵심 로직)"""
-        print("🎯 생성 버튼 클릭됨!")
-        
-        # 1. 모델 로드 상태 확인
-        current_model = self.state.get('current_model')
-        if not current_model:
-            ui.notify('⚠️ 모델이 선택되지 않음', type='warning')
-            print("❌ 모델이 선택되지 않음")
-            return        
-
-        # 2. 파이프라인 로드 상태 확인
-        if not self.state.pipeline:
-            ui.notify('⚠️ 파이프라인이 로드되지 않음', type='warning')
-            print("❌ 파이프라인이 로드되지 않음")
-            return
-        
-        # 3. 프롬프트 확인
-        params = self.state.get('current_params')
-        if not params or not params.prompt or not params.prompt.strip():
-            ui.notify('프롬프트가 비어있음', type='warning')
-            print(f"❌ 프롬프트가 비어있음 (현재값: {params.prompt if params else 'params is None'})")
-            return
-        
-        # 4. 이미 생성 중인지 확인
-        if self.state.get('is_generating'):
-            ui.notify('이미 생성 중', type='info')
-            print("⚠️ 이미 생성 중")
-            return
-        
-        print(f"🚀 생성 시작: {params.prompt[:50]}...")
-        
-        # 버튼 상태를 즉시 변경
-        self._on_generate_status_change(True)
-        
-        # 5. 생성 실행
-        try:
-            success = await self.state.generate_image()
-            if success:
-                ui.notify('이미지 생성이 완료되었습니다!', type='success')
-                print("✅ 이미지 생성 완료")
-            else:
-                ui.notify('이미지 생성에 실패했습니다', type='negative')
-                print("❌ 이미지 생성 실패")
-        except Exception as e:
-            print(f"❌ 생성 중 오류: {e}")
-            import traceback
-            traceback.print_exc()
-            ui.notify(f'생성 오류: {str(e)}', type='negative')
-        finally:
-            # 버튼 상태를 원래대로 복원
-            self._on_generate_status_change(False)
+        """StateManager에 생성을 '요청'만 합니다."""
+        print("🚀 UI에서 생성 요청을 StateManager로 전달합니다...")
+    # 모든 확인과 실행은 StateManager가 알아서 할 것입니다.
+        await self.state.generate_image()
     
     def _on_generate_status_change(self, is_generating: bool):
         """생성 상태 변경 시 버튼 업데이트"""
@@ -144,9 +97,12 @@ class ParameterPanel:
             if is_generating:
                 self.generate_button.props('loading color=orange')
                 self.generate_button.set_text('생성 중...')
+                self.generate_button.disable()
             else:
                 self.generate_button.props('color=blue')
+                self.generate_button.props(remove='loading')  # loading 속성 제거
                 self.generate_button.set_text('생성')
+                self.generate_button.enable()
 
     @ui.refreshable
     async def render(self):
@@ -180,6 +136,19 @@ class ParameterPanel:
 
             self.ratio_buttons_container()
             
+            with ui.row().classes('w-full gap-2 mt-4'): # 상단과 간격을 주기 위해 mt-4 추가
+                ui.number(label="배치 사이즈", min=1, max=32, value=1) \
+                .props('dark outlined dense') \
+                .classes('flex-1') \
+                .bind_value(current_params, 'batch_size') \
+                .tooltip('한 번에 생성할 이미지 수')
+            
+                ui.number(label="반복 횟수", min=1, max=100, value=1) \
+                .props('dark outlined dense') \
+                .classes('flex-1') \
+                .bind_value(current_params, 'iterations') \
+                .tooltip('이 생성 작업을 몇 번 반복할지')
+
             with ui.row().classes('gap-2 items-center w-full'):
                 ui.number(label='Seed', value=current_params.seed, min=-1).props('dark outlined dense').classes('bg-gray-700 flex-grow').bind_value(current_params, 'seed')
                 ui.button(icon='casino', on_click=lambda: hasattr(current_params, 'randomize_seed') and current_params.randomize_seed()).props('sm round color=blue')

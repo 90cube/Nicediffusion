@@ -144,6 +144,21 @@ class PromptPanel:
         # TODO: Phase 2에서 실제 LLM 통합
         ui.notify('LLM 프롬프트 개선은 Phase 2에서 구현됩니다', type='info')
     
+    def _apply_positive_preset(self, preset: str):
+        """긍정 프롬프트 프리셋 적용"""
+        current = self.positive_textarea.value
+        
+        if current:
+            # 기존 내용에 추가
+            new_text = f"{current}, {preset}"
+        else:
+            new_text = preset
+        
+        self.positive_textarea.set_value(new_text)
+        self._on_positive_change(type('', (), {'args': new_text})())
+        
+        ui.notify('프리셋이 적용되었습니다', type='success')
+    
     def _apply_negative_preset(self, preset: str):
         """부정 프롬프트 프리셋 적용"""
         current = self.negative_textarea.value
@@ -159,6 +174,18 @@ class PromptPanel:
         
         ui.notify('프리셋이 적용되었습니다', type='success')
     
+    def _apply_style_preset(self, style: dict):
+        """스타일 프리셋 적용 (긍정/부정 동시)"""
+        if 'positive' in style:
+            self.positive_textarea.set_value(style['positive'])
+            self._on_positive_change(type('', (), {'args': style['positive']})())
+        
+        if 'negative' in style:
+            self.negative_textarea.set_value(style['negative'])
+            self._on_negative_change(type('', (), {'args': style['negative']})())
+        
+        ui.notify('스타일 프리셋이 적용되었습니다', type='success')
+        
     async def _on_prompt_updated(self, prompt: str):
         """외부에서 프롬프트 업데이트"""
         if self.positive_textarea and self.positive_textarea.value != prompt:
