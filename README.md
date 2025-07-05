@@ -1,10 +1,8 @@
 # Nicediffusion
 
-
-
 ![aidraw_simple_flat_logo_--ar_1716_--profile_5h5ugbf_--dref_ht_a5ab635c-b51a-4c00-a63c-383b2a766d5f_3](https://github.com/user-attachments/assets/3e8f7682-e14d-4566-a1d1-3d4f91b9eb0d)
-# NiceDiffusion - ComfyUI 기반의 이미지 생성 자동화 워크플로우
 
+# NiceDiffusion - ComfyUI 기반의 이미지 생성 자동화 워크플로우
 
 ## ✨ 프로젝트 소개
 
@@ -27,7 +25,7 @@
 
 ### 📋 전제 조건
 
-* Python 3.10 이상 (ComfyUI 권장 버전 확인)
+* Python 3.12
 * Git (저장소를 클론하기 위해 필요)
 * NVIDIA GPU (CUDA 지원, ComfyUI 실행을 위해 필수)
 
@@ -58,9 +56,9 @@
    * 필요한 Python 패키지를 설치합니다:
      
      ```bash
-     cd ../ComfyUI
-     pip install -r requirements.txt --extra-index-url [https://download.pytorch.org/whl/cu118](https://download.pytorch.org/whl/cu118)
-     # GPU 환경에 따라 cu118 부분을 cu121 등으로 변경해주세요.
+     cd ../ComfyU
+     pip install -r requirements.txt --extra-index-url [https://download.pytorch.org/whl/cu128]
+     
      ```
 
 3. **모델 파일 다운로드**:
@@ -106,6 +104,8 @@
 
 ## 📧 문의
 
-CUBE (당신의 이메일 주소 또는 GitHub 프로필 링크)
+- 카카오톡 오픈채팅: "[카카오톡 오픈채팅](https://open.kakao.com/o/gEnuCiFh)"
+
+- 입장 코드: "cube"
 
 ---

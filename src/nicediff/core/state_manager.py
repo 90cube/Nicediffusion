@@ -1,13 +1,16 @@
-# 파일 경로: src/nicediff/core/state_manager.py (진짜 최종 완성본)
+# src/nicediff/core/state_manager.py
+# 완전히 새로 생성할 파일 - 기존 파일을 삭제하고 이 내용으로 새로 만드세요
 
 import torch
 import asyncio
 import random
+import uuid
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from diffusers import StableDiffusionPipeline, DiffusionPipeline
+from PIL import Image, PngImagePlugin
 
 @dataclass
 class GenerationParams:
@@ -50,7 +53,7 @@ class HistoryItem:
     loras: List[Dict[str, Any]] = field(default_factory=list)
 
 class StateManager:
-    """중앙 상태 관리자 (모든 기능 포함 최종 버전)"""
+    """중앙 상태 관리자"""
     
     def __init__(self):
         self._state: Dict[str, Any] = {
@@ -100,8 +103,8 @@ class StateManager:
         """선택된 모델 파일을 GPU에 로드하고 성공 여부를 반환합니다."""
         
         if self.get('current_model') == model_info.get('filename'):
-            ui.notify(f"'{model_info['name']}' 모델은 이미 로드되어 있습니다.", type='info')
-            return False # 로드를 진행하지 않았으므로 False 반환
+            print(f"'{model_info['name']}' 모델은 이미 로드되어 있습니다.")
+            return False
 
         self.set('is_generating', True)
         self._notify('status_update', {'message': f"'{model_info['name']}' 로드 중...", 'type': 'loading', 'icon': 'sync'})
@@ -126,17 +129,132 @@ class StateManager:
 
             self.pipeline = await asyncio.to_thread(_load)
             
+            self.set('current_model', model_info.get('filename'))
             self.set('is_generating', False)
             self._notify('status_update', {'message': '로드 완료!', 'type': 'success', 'icon': 'check_circle'})
-            self._notify('model_loaded', model_info) # 성공 시 모델 정보 전달
+            self._notify('model_loaded', model_info)
             return True
         except Exception as e:
             print(f"❌ 파이프라인 로드 오류: {e}")
             self.pipeline = None
+            self.set('current_model', None)
             self.set('is_generating', False)
             self._notify('status_update', {'message': f'로드 실패: {e}', 'type': 'error', 'icon': 'error'})
             self._notify('model_load_failed', str(e))
             return False
+
+    async def generate_image(self) -> bool:
+        """이미지 생성 실행"""
+        if not self.pipeline:
+            print("❌ 파이프라인이 로드되지 않음")
+            self._notify('generation_failed', {'error': '모델이 로드되지 않았습니다'})
+            return False
+        
+        if self.get('is_generating'):
+            print("⚠️ 이미 생성 중")
+            self._notify('generation_failed', {'error': '이미 생성 중입니다'})
+            return False
+        
+        try:
+            self.set('is_generating', True)
+            self._notify('generation_started', {})
+            print("🚀 이미지 생성 시작")
+            
+            params = self.get('current_params')
+            
+            if params.seed < 0:
+                params.seed = random.randint(0, 2**32 - 1)
+                print(f"🎲 랜덤 시드 생성: {params.seed}")
+            
+            generator = torch.Generator(device=self.device).manual_seed(params.seed)
+            
+            step_count = 0
+            def progress_callback(step, timestep, latents):
+                nonlocal step_count
+                step_count = step
+                progress = step / params.steps
+                print(f"📈 생성 진행: {step}/{params.steps} ({progress*100:.1f}%)")
+                self._notify('generation_progress', {
+                    'progress': progress,
+                    'step': step,
+                    'total_steps': params.steps
+                })
+            
+            print(f"🎨 생성 파라미터:")
+            print(f"   프롬프트: {params.prompt[:100]}...")
+            print(f"   크기: {params.width}x{params.height}")
+            print(f"   스텝: {params.steps}, CFG: {params.cfg_scale}")
+            print(f"   샘플러: {params.sampler}, 스케줄러: {params.scheduler}")
+            
+            def _generate():
+                return self.pipeline(
+                    prompt=params.prompt,
+                    negative_prompt=params.negative_prompt if params.negative_prompt else "",
+                    width=params.width,
+                    height=params.height,
+                    num_inference_steps=params.steps,
+                    guidance_scale=params.cfg_scale,
+                    generator=generator,
+                    callback=progress_callback,
+                    callback_steps=1
+                ).images[0]
+            
+            image = await asyncio.to_thread(_generate)
+            
+            output_path = await self.save_generated_image(image, params)
+            
+            self.set('is_generating', False)
+            print(f"✅ 이미지 생성 완료: {output_path}")
+            self._notify('image_generated', {'path': str(output_path)})
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ 생성 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            self.set('is_generating', False)
+            self._notify('generation_failed', {'error': str(e)})
+            return False
+
+    async def save_generated_image(self, image: Image.Image, params: GenerationParams) -> Path:
+        """생성된 이미지를 메타데이터와 함께 저장"""
+        
+        output_dir = Path(self.config.get('paths', {}).get('outputs', 'outputs'))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"nicediff_{timestamp}_{params.seed}.png"
+        image_path = output_dir / filename
+        
+        metadata = self.create_png_metadata(params)
+        
+        def _save():
+            image.save(image_path, "PNG", pnginfo=metadata)
+        
+        await asyncio.to_thread(_save)
+        
+        return image_path
+
+    def create_png_metadata(self, params: GenerationParams) -> PngImagePlugin.PngInfo:
+        """AUTOMATIC1111 호환 PNG 메타데이터 생성"""
+        metadata = PngImagePlugin.PngInfo()
+        
+        param_string = (
+            f"{params.prompt}\n"
+            f"Negative prompt: {params.negative_prompt}\n"
+            f"Steps: {params.steps}, Sampler: {params.sampler}, "
+            f"Scheduler: {params.scheduler}, CFG scale: {params.cfg_scale}, "
+            f"Seed: {params.seed}, Size: {params.width}x{params.height}, "
+            f"Model: {self.get('current_model', 'Unknown')}"
+        )
+        
+        metadata.add_text("parameters", param_string)
+        metadata.add_text("Software", "Nicediff")
+        metadata.add_text("Generator", "Nicediff v1.0")
+        
+        return metadata
             
     def get(self, key: str, default: Any = None) -> Any:
         """상태 값 가져오기"""
@@ -147,12 +265,9 @@ class StateManager:
         old_value = self._state.get(key)
         self._state[key] = value
         
-        # print(f"✅ StateManager SET: '{key}' changed to '{value}' (was: '{old_value}')")
-        
         if old_value != value:
             self._notify(f'{key}_changed', value)
     
-    # --- [수정] 누락되었던 subscribe, unsubscribe, _notify 함수 추가 ---
     def subscribe(self, event: str, callback: Callable):
         """이벤트 구독"""
         if event not in self._observers:

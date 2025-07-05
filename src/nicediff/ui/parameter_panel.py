@@ -1,4 +1,4 @@
-# parameter_panel.py (최종 완성본)
+# parameter_panel.py (생성 기능 완성본)
 
 from nicegui import ui
 import math
@@ -85,6 +85,57 @@ class ParameterPanel:
                 btn_props = f'sm {"color=orange" if is_selected else "outline color=orange"}'
                 ui.button(button_text, on_click=lambda dp=display_name, rv=ratio_value, o=orientation: self._handle_ratio_click(dp, rv, o)).props(btn_props).tooltip(tooltip_text)
 
+    # --- [새로 추가] 생성 관련 메서드들 ---
+    
+    async def _on_generate_click(self):
+        """생성 버튼 클릭 처리 (핵심 로직)"""
+        print("🎯 생성 버튼 클릭됨!")
+        
+        # 1. 모델 로드 상태 확인
+        current_model = self.state.get('current_model')
+        if not current_model:
+            print("⚠️ 모델이 선택되지 않음", type='warning')
+            return        
+
+        # 2. 파이프라인 로드 상태 확인
+        if not self.state.pipeline:
+            ui.notify('⚠️ 파이프라인이 로드되지 않음', type='warning')
+            return
+        
+        # 3. 프롬프트 확인
+        params = self.state.get('current_params')
+        if not params.prompt.strip():
+            ui.notify('프롬프트가 비어있음', type='warning')
+            return
+        
+        # 4. 이미 생성 중인지 확인
+        if self.state.get('is_generating'):
+            ui.notify('이미 생성 중', type='info')
+            return
+        
+        print(f"🚀 생성 시작: {params.prompt[:50]}...")
+        
+        # 5. 생성 실행
+        try:
+            success = await self.state.generate_image()
+            if success:
+                ui.notify('이미지 생성이 완료되었습니다!', type='success')
+            else:
+                ui.notify('이미지 생성에 실패했습니다', type='negative')
+        except Exception as e:
+            print(f"❌ 생성 중 오류: {e}")
+            ui.notify(f'생성 오류: {str(e)}', type='negative')
+    
+    def _on_generate_status_change(self, is_generating: bool):
+        """생성 상태 변경 시 버튼 업데이트"""
+        if hasattr(self, 'generate_button'):
+            if is_generating:
+                self.generate_button.props('loading color=orange')
+                self.generate_button.set_text('생성 중...')
+            else:
+                self.generate_button.props('color=blue')
+                self.generate_button.set_text('생성')
+
     @ui.refreshable
     async def render(self):
         self._calculate_dimensions()
@@ -105,12 +156,10 @@ class ParameterPanel:
             await self.refresh_image_dimensions()
             
             with ui.row().classes('w-full flex-center items-center gap-2'):
-                # --- [최종 수정] 스위치의 초기값을 False로 하드코딩하여 무조건 꺼진 상태로 시작 ---
                 model_switch = ui.switch(value=False).props('color=orange')
                 ui.label('SDXL').classes('text-xs text-gray-400')
 
                 def handle_model_change():
-                    # 이 로직은 이제 정확하게 동작합니다.
                     new_model = 'SDXL' if model_switch.value else 'SD15'
                     self.state.set('sd_model', new_model)
                     self._calculate_dimensions()
@@ -123,4 +172,47 @@ class ParameterPanel:
                 ui.number(label='Seed', value=current_params.seed, min=-1).props('dark outlined dense').classes('bg-gray-700 flex-grow').bind_value(current_params, 'seed')
                 ui.button(icon='casino', on_click=lambda: hasattr(current_params, 'randomize_seed') and current_params.randomize_seed()).props('sm round color=blue')
 
-            ui.button('생성').props('size=lg color=blue').classes('w-full mt-4')
+            # --- [수정된 부분] 생성 버튼에 기능 연결 ---
+                ui.button(
+                '생성', 
+                 on_click=self._on_generate_click
+                ).props('size=lg color=blue').classes('w-full mt-4')
+    async def _on_generate_click(self):
+        """생성 버튼 클릭 처리"""
+        print("🎯 생성 버튼 클릭됨!")
+    
+    # 1. 모델 로드 상태 확인
+        current_model = self.state.get('current_model')
+        if not current_model:
+            print("⚠️ 모델이 선택되지 않음")
+            return
+    
+        # 2. 파이프라인 로드 상태 확인
+        if not self.state.pipeline:
+            print("⚠️ 파이프라인이 로드되지 않음")
+            return
+    
+        # 3. 프롬프트 확인
+        params = self.state.get('current_params')
+        if not params.prompt.strip():
+            print("⚠️ 프롬프트가 비어있음")
+            return
+    
+        # 4. 이미 생성 중인지 확인
+        if self.state.get('is_generating'):
+            print("⚠️ 이미 생성 중")
+            return
+    
+    print(f"🚀 생성 시작: {params.prompt[:50]}...")
+    
+    # 5. 생성 실행
+    try:
+        success = await self.state.generate_image()
+        if success:
+            print("✅ 이미지 생성 완료!")
+        else:
+            print("❌ 이미지 생성 실패")
+    except Exception as e:
+        print(f"❌ 생성 중 오류: {e}")
+        # 생성 상태 변경 이벤트 구독
+        self.state.subscribe('is_generating_changed', self._on_generate_status_change)

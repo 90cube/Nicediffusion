@@ -1,0 +1,28 @@
+# requirements.txt - CUDA 12.8 + Python 3.12 + Windows 11
+# PyTorch는 별도 설치: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+# === 핵심 프레임워크 ===
+nicegui>=2.20.0
+numpy>=1.26.4
+
+# === AI/ML 라이브러리 ===
+diffusers>=0.34.0
+transformers>=4.49.0
+accelerate>=1.1.1
+safetensors>=0.4.5
+
+# === 이미지 & 데이터 ===
+Pillow>=10.4.0
+pydantic>=2.11.7
+tomli>=2.2.1
+aiofiles>=24.1.0
+
+# === Windows 11 최적화 ===
+pywin32>=310
+colorama>=0.4.6
+
+# ========================================
+# 성능 최적화 (나중에 추가 가능)
+# ========================================
+# xformers           # 메모리 효율화 (CUDA 12.8 지원)
+# bitsandbytes        # 양자화 (Windows 지원)
