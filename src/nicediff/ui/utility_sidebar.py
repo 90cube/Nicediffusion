@@ -45,47 +45,47 @@ class UtilitySidebar:
                         on_click=lambda: self.toggle() if not self.is_expanded else None
                     ).props('flat').classes('w-full h-10 text-gray-400').tooltip('편집 도구')
             
-        # 확장된 내용 (펼쳐졌을 때만 보임)
-        with ui.scroll_area().classes('flex-1 w-full').bind_visibility_from(self, 'is_expanded'):
-            with ui.column().classes('w-full p-2 gap-2'):  # 패딩 줄임
-                # 히스토리 섹션
-                with ui.expansion('히스토리', icon='history').classes('w-full'):
-                    with ui.scroll_area().classes('w-full h-40'):  # 높이 줄임
-                        self.history_container = ui.column().classes('w-full gap-1')  # 갭 줄임
-                        self._show_empty_history()
-                
-                # 편집 도구 섹션 (기존)
-                with ui.expansion('편집 도구', icon='edit').classes('w-full'):
-                    self._create_edit_tools()
-                
-                # 그림 도구 섹션 (새로 추가)
-                with ui.expansion('그림 도구', icon='palette').classes('w-full'): # 아이콘을 'palette' 등으로 변경 (선택적)
-                    self._create_drawing_tools() # 새로 추가한 메서드 호출
+            # 확장된 내용 (펼쳐졌을 때만 보임)
+            with ui.scroll_area().classes('flex-1 w-full').bind_visibility_from(self, 'is_expanded'):
+                with ui.column().classes('w-full p-2 gap-2'):  # 패딩 줄임
+                    # 히스토리 섹션
+                    with ui.expansion('히스토리', icon='history').classes('w-full'):
+                        with ui.scroll_area().classes('w-full h-40'):  # 높이 줄임
+                            self.history_container = ui.column().classes('w-full gap-1')  # 갭 줄임
+                            self._show_empty_history()
                     
-            # 하단: 생성 방법 버튼들 (항상 보임)
-            with ui.column().classes('w-full mt-auto border-t border-gray-600'):
-                methods = [
-                    ('txt2img', 'TXT'),
-                    ('img2img', 'IMG'), 
-                    ('inpaint', 'INP'),
-                    ('upscale', 'UPS')
-                ]
-                
-                for method, short_name in methods:
-                    button_text = method if self.is_expanded else short_name
-                    ui.button(
-                        button_text,
-                        on_click=lambda m=method: self._on_method_select(m)
-                    ).props('flat').classes(
-                        'w-full h-8 text-white hover:bg-gray-700 border-b border-gray-600 text-xs'  # 높이와 텍스트 크기 줄임
-                    ).tooltip(method if not self.is_expanded else '')
+                    # 편집 도구 섹션 (기존)
+                    with ui.expansion('편집 도구', icon='edit').classes('w-full'):
+                        self._create_edit_tools()
+                    
+                    # 그림 도구 섹션 (새로 추가)
+                    with ui.expansion('그림 도구', icon='palette').classes('w-full'):
+                        self._create_drawing_tools()
+                        
+                # 하단: 생성 방법 버튼들 (항상 보임)
+                with ui.column().classes('w-full mt-auto border-t border-gray-600'):
+                    methods = [
+                        ('txt2img', 'TXT'),
+                        ('img2img', 'IMG'), 
+                        ('inpaint', 'INP'),
+                        ('upscale', 'UPS')
+                    ]
+                    
+                    for method, short_name in methods:
+                        button_text = method if self.is_expanded else short_name
+                        ui.button(
+                            button_text,
+                            on_click=lambda m=method: self._on_method_select(m)
+                        ).props('flat').classes(
+                            'w-full h-8 text-white hover:bg-gray-700 border-b border-gray-600 text-xs'
+                        ).tooltip(method if not self.is_expanded else '')
         
         # 히스토리 업데이트 구독
         self.state.subscribe('history_updated', self._update_history)
 
-        def _create_drawing_tools(self):
-        #"""그림 도구 섹션 생성"""
-            with ui.column().classes('w-full gap-2'):
+    def _create_drawing_tools(self):
+        """그림 도구 섹션 생성"""
+        with ui.column().classes('w-full gap-2'):
             # 도구 선택
             with ui.row().classes('w-full gap-1'):
                 tools = [
@@ -113,7 +113,9 @@ class UtilitySidebar:
                 with ui.row().classes('gap-1'):
                     colors = ['#ffffff', '#000000', '#ff0000', '#00ff00', '#0000ff']
                     for color in colors:
-                        ui.button().props(f'round color=white').style(f'background-color: {color}; width: 20px; height: 20px').on('click', lambda c=color: self._on_color_select(c))
+                        ui.button().props(f'round color=white').style(
+                            f'background-color: {color}; width: 20px; height: 20px'
+                        ).on('click', lambda c=color: self._on_color_select(c))
             
             # 레이어 관리
             with ui.expansion('레이어').classes('w-full'):
@@ -163,7 +165,6 @@ class UtilitySidebar:
                             on_click=self._clear_mask
                         ).props('flat').classes('flex-1 text-xs')
 
-    # 이벤트 핸들러들 (UtilitySidebar 클래스 내부에 있어야 함)
     def _on_tool_select(self, tool_id: str):
         """도구 선택"""
         # 캔버스 에디터에 도구 변경 알림
@@ -196,13 +197,12 @@ class UtilitySidebar:
         """마스크 보기 토글"""
         canvas_editor = self.state.get('canvas_editor')
         if canvas_editor:
-            canvas_editor.toggle_mask_view(e.value) # e.args 대신 e.value 사용
+            canvas_editor.toggle_mask_view(e.value)
 
     def _add_layer(self):
         """레이어 추가"""
         # Phase 2B에서 구현
         ui.notify('레이어 기능은 Phase 2B에서 구현됩니다', type='info')
-        # 임시로 레이어 목록 업데이트를 호출할 수 있습니다.
         self._update_layers_list()
 
     def _activate_sam_tool(self):
@@ -253,7 +253,7 @@ class UtilitySidebar:
                     text=name,
                     icon=icon,
                     on_click=lambda t=name: self._on_tool_click(t)
-                ).props('flat').classes('w-full justify-start text-white hover:bg-gray-700 h-8 text-xs')  # 높이와 텍스트 크기 줄임
+                ).props('flat').classes('w-full justify-start text-white hover:bg-gray-700 h-8 text-xs')
     
     def _on_tool_click(self, tool_name: str):
         """편집 도구 클릭"""
@@ -269,8 +269,8 @@ class UtilitySidebar:
         self.history_container.clear()
         with self.history_container:
             with ui.column().classes('w-full items-center justify-center p-2'):
-                ui.icon('history').classes('text-2xl text-gray-500 mb-1')  # 크기 줄임
-                ui.label('생성된 이미지가 없습니다').classes('text-gray-400 text-xs text-center')  # 텍스트 크기 줄임
+                ui.icon('history').classes('text-2xl text-gray-500 mb-1')
+                ui.label('생성된 이미지가 없습니다').classes('text-gray-400 text-xs text-center')
                 ui.label('이미지를 생성하면 여기에 표시됩니다').classes('text-gray-500 text-xs text-center')
     
     async def _update_history(self, history_items):
@@ -287,22 +287,22 @@ class UtilitySidebar:
         # 히스토리 아이템 표시 (최신순)
         with self.history_container:
             for item in history_items[:15]:  # 개수 줄임 (15개)
-                with ui.card().classes('w-full p-1 cursor-pointer hover:bg-gray-700').on(  # 패딩 줄임
+                with ui.card().classes('w-full p-1 cursor-pointer hover:bg-gray-700').on(
                     'click',
                     lambda i=item: self._restore_from_history(i)
                 ):
-                    with ui.row().classes('gap-1 items-center'):  # 갭 줄임
+                    with ui.row().classes('gap-1 items-center'):
                         # 썸네일 (크기 줄임)
                         if hasattr(item, 'thumbnail_path') and Path(item.thumbnail_path).exists():
-                            ui.image(item.thumbnail_path).classes('w-8 h-8 rounded object-cover')  # 크기 줄임
+                            ui.image(item.thumbnail_path).classes('w-8 h-8 rounded object-cover')
                         else:
-                            ui.icon('image').classes('w-8 h-8 text-gray-400')  # 크기 줄임
+                            ui.icon('image').classes('w-8 h-8 text-gray-400')
                         
                         # 정보
                         with ui.column().classes('flex-1 min-w-0'):
                             # 시간
                             if hasattr(item, 'timestamp'):
-                                time_str = item.timestamp.strftime('%H:%M')  # 초 제거
+                                time_str = item.timestamp.strftime('%H:%M')
                                 ui.label(time_str).classes('text-xs text-gray-400')
                             
                             # 프롬프트 (일부만, 더 짧게)

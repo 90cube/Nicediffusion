@@ -162,6 +162,12 @@ class StateManager:
             
             params = self.get('current_params')
             
+            # 샘플러/스케줄러 설정 적용
+            from ..services.sampler_mapper import SamplerMapper
+            scheduler = SamplerMapper.get_scheduler(params.sampler, params.scheduler, self.pipeline)
+            self.pipeline.scheduler = scheduler
+            print(f"📅 스케줄러 설정: {params.sampler} with {params.scheduler}")
+            
             if params.seed < 0:
                 params.seed = random.randint(0, 2**32 - 1)
                 print(f"🎲 랜덤 시드 생성: {params.seed}")

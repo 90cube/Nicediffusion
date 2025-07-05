@@ -3,7 +3,8 @@ from diffusers import (
     DPMSolverMultistepScheduler, 
     DPMSolverSinglestepScheduler,
     DDIMScheduler,
-    PNDMScheduler
+    PNDMScheduler,
+    EulerAncestralDiscreteScheduler
 )
 
 class SamplerMapper:
@@ -11,10 +12,11 @@ class SamplerMapper:
     
     SAMPLER_MAP = {
         'euler': EulerDiscreteScheduler,
+        'euler_a': EulerAncestralDiscreteScheduler,
         'dpmpp_2m': DPMSolverMultistepScheduler,
-        'dpmpp_sde_gpu': DPMSolverSinglestepScheduler,
-        'dpmpp_2m_sde_gpu': DPMSolverMultistepScheduler,
-        'dpmpp_3m_sde_gpu': DPMSolverMultistepScheduler,
+        'dpmpp_sde_gpu': DPMSolverMultistepScheduler,  # SDE 알고리즘 사용
+        'dpmpp_2m_sde_gpu': DPMSolverMultistepScheduler,  # SDE 알고리즘 사용
+        'dpmpp_3m_sde_gpu': DPMSolverMultistepScheduler,  # 3차 방법
         'ddim': DDIMScheduler,
         'pndm': PNDMScheduler,
     }
@@ -22,15 +24,37 @@ class SamplerMapper:
     SCHEDULER_CONFIG = {
         'normal': {},
         'karras': {'use_karras_sigmas': True},
-        'exponential': {'exponential': True},
-        'sgm_uniform': {'sgm_uniform': True},
-        'simple': {'simple': True},
-        'ddim_uniform': {'ddim_uniform': True}
+        'exponential': {'beta_schedule': 'exponential'},
+        'sgm_uniform': {'timestep_spacing': 'trailing'},
+        'simple': {'timestep_spacing': 'leading'},
+        'ddim_uniform': {'timestep_spacing': 'linspace'}
     }
     
     @staticmethod
-    def get_scheduler(sampler_name: str, scheduler_type: str):
+    def get_scheduler(sampler_name: str, scheduler_type: str, pipeline=None):
         """적절한 스케줄러 인스턴스 반환"""
         scheduler_class = SamplerMapper.SAMPLER_MAP.get(sampler_name, EulerDiscreteScheduler)
-        config = SamplerMapper.SCHEDULER_CONFIG.get(scheduler_type, {})
-        return scheduler_class.from_config(scheduler_class.default_config(), **config)
+        config_overrides = SamplerMapper.SCHEDULER_CONFIG.get(scheduler_type, {})
+        
+        # SDE 기반 샘플러들에 대한 특별 처리
+        if 'sde' in sampler_name.lower():
+            config_overrides['algorithm_type'] = 'sde-dpmsolver++'
+            if sampler_name == 'dpmpp_3m_sde_gpu':
+                config_overrides['solver_order'] = 3
+            else:
+                config_overrides['solver_order'] = 2
+        elif sampler_name == 'dpmpp_2m':
+            config_overrides['algorithm_type'] = 'dpmsolver++'
+            config_overrides['solver_order'] = 2
+        
+        # pipeline이 제공되면 기존 설정을 기반으로 생성
+        if pipeline and hasattr(pipeline, 'scheduler'):
+            base_config = pipeline.scheduler.config
+            return scheduler_class.from_config(base_config, **config_overrides)
+        else:
+            # 기본 설정으로 생성
+            try:
+                return scheduler_class(**config_overrides)
+            except TypeError:
+                # 일부 설정이 지원되지 않는 경우 기본값으로 생성
+                return scheduler_class()

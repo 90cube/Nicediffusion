@@ -85,8 +85,6 @@ class ParameterPanel:
                 btn_props = f'sm {"color=orange" if is_selected else "outline color=orange"}'
                 ui.button(button_text, on_click=lambda dp=display_name, rv=ratio_value, o=orientation: self._handle_ratio_click(dp, rv, o)).props(btn_props).tooltip(tooltip_text)
 
-    # --- [새로 추가] 생성 관련 메서드들 ---
-    
     async def _on_generate_click(self):
         """생성 버튼 클릭 처리 (핵심 로직)"""
         print("🎯 생성 버튼 클릭됨!")
@@ -94,37 +92,51 @@ class ParameterPanel:
         # 1. 모델 로드 상태 확인
         current_model = self.state.get('current_model')
         if not current_model:
-            print("⚠️ 모델이 선택되지 않음", type='warning')
+            ui.notify('⚠️ 모델이 선택되지 않음', type='warning')
+            print("❌ 모델이 선택되지 않음")
             return        
 
         # 2. 파이프라인 로드 상태 확인
         if not self.state.pipeline:
             ui.notify('⚠️ 파이프라인이 로드되지 않음', type='warning')
+            print("❌ 파이프라인이 로드되지 않음")
             return
         
         # 3. 프롬프트 확인
         params = self.state.get('current_params')
         if not params.prompt.strip():
             ui.notify('프롬프트가 비어있음', type='warning')
+            print("❌ 프롬프트가 비어있음")
             return
         
         # 4. 이미 생성 중인지 확인
         if self.state.get('is_generating'):
             ui.notify('이미 생성 중', type='info')
+            print("⚠️ 이미 생성 중")
             return
         
         print(f"🚀 생성 시작: {params.prompt[:50]}...")
+        
+        # 버튼 상태를 즉시 변경
+        self._on_generate_status_change(True)
         
         # 5. 생성 실행
         try:
             success = await self.state.generate_image()
             if success:
                 ui.notify('이미지 생성이 완료되었습니다!', type='success')
+                print("✅ 이미지 생성 완료")
             else:
                 ui.notify('이미지 생성에 실패했습니다', type='negative')
+                print("❌ 이미지 생성 실패")
         except Exception as e:
             print(f"❌ 생성 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
             ui.notify(f'생성 오류: {str(e)}', type='negative')
+        finally:
+            # 버튼 상태를 원래대로 복원
+            self._on_generate_status_change(False)
     
     def _on_generate_status_change(self, is_generating: bool):
         """생성 상태 변경 시 버튼 업데이트"""
@@ -172,47 +184,14 @@ class ParameterPanel:
                 ui.number(label='Seed', value=current_params.seed, min=-1).props('dark outlined dense').classes('bg-gray-700 flex-grow').bind_value(current_params, 'seed')
                 ui.button(icon='casino', on_click=lambda: hasattr(current_params, 'randomize_seed') and current_params.randomize_seed()).props('sm round color=blue')
 
-            # --- [수정된 부분] 생성 버튼에 기능 연결 ---
-                ui.button(
+            # 생성 버튼에 기능 연결
+            self.generate_button = ui.button(
                 '생성', 
-                 on_click=self._on_generate_click
-                ).props('size=lg color=blue').classes('w-full mt-4')
-    async def _on_generate_click(self):
-        """생성 버튼 클릭 처리"""
-        print("🎯 생성 버튼 클릭됨!")
-    
-    # 1. 모델 로드 상태 확인
-        current_model = self.state.get('current_model')
-        if not current_model:
-            print("⚠️ 모델이 선택되지 않음")
-            return
-    
-        # 2. 파이프라인 로드 상태 확인
-        if not self.state.pipeline:
-            print("⚠️ 파이프라인이 로드되지 않음")
-            return
-    
-        # 3. 프롬프트 확인
-        params = self.state.get('current_params')
-        if not params.prompt.strip():
-            print("⚠️ 프롬프트가 비어있음")
-            return
-    
-        # 4. 이미 생성 중인지 확인
-        if self.state.get('is_generating'):
-            print("⚠️ 이미 생성 중")
-            return
-    
-    print(f"🚀 생성 시작: {params.prompt[:50]}...")
-    
-    # 5. 생성 실행
-    try:
-        success = await self.state.generate_image()
-        if success:
-            print("✅ 이미지 생성 완료!")
-        else:
-            print("❌ 이미지 생성 실패")
-    except Exception as e:
-        print(f"❌ 생성 중 오류: {e}")
-        # 생성 상태 변경 이벤트 구독
-        self.state.subscribe('is_generating_changed', self._on_generate_status_change)
+                on_click=self._on_generate_click
+            ).props('size=lg color=blue').classes('w-full mt-4')
+            
+            # 생성 상태 변경 이벤트 구독
+            self.state.subscribe('is_generating_changed', self._on_generate_status_change)
+            self.state.subscribe('generation_started', lambda _: self._on_generate_status_change(True))
+            self.state.subscribe('image_generated', lambda _: self._on_generate_status_change(False))
+            self.state.subscribe('generation_failed', lambda _: self._on_generate_status_change(False))
