@@ -17,16 +17,19 @@ class PromptPanel:
     
     async def render(self):
         """컴포넌트 렌더링"""
+        # 현재 파라미터 가져오기
+        current_params = self.state.get('current_params')
+        
         with ui.column().classes('w-full gap-3'):
             # 긍정 프롬프트
             with ui.column().classes('w-full'):
                 with ui.row().classes('items-center justify-between mb-1'):
                     ui.label('긍정프롬프트').classes('text-green-400 font-bold')
-                    self.char_count_positive = ui.label('0자').classes('text-xs text-gray-400')
+                    self.char_count_positive = ui.label(f'{len(current_params.prompt)}자').classes('text-xs text-gray-400')
                 
                 self.positive_textarea = ui.textarea(
                     placeholder='생성하고 싶은 이미지를 설명하세요...\n예: a beautiful sunset over mountains, highly detailed, 4k'
-                ).props('dark outlined').classes('w-full bg-gray-800').props('rows=4')
+                ).props('dark outlined').classes('w-full bg-gray-800').props('rows=4').bind_value(current_params, 'prompt')
                 
                 # 프롬프트 도우미 버튼들
                 with ui.row().classes('gap-1 mt-1'):
@@ -42,18 +45,18 @@ class PromptPanel:
                     
                     ui.button(
                         icon='clear',
-                        on_click=lambda: self.positive_textarea.set_value('')
+                        on_click=lambda: self._clear_positive_prompt()
                     ).props('dense flat size=sm').tooltip('지우기')
             
             # 부정 프롬프트
             with ui.column().classes('w-full'):
                 with ui.row().classes('items-center justify-between mb-1'):
                     ui.label('부정프롬프트').classes('text-pink-400 font-bold')
-                    self.char_count_negative = ui.label('0자').classes('text-xs text-gray-400')
+                    self.char_count_negative = ui.label(f'{len(current_params.negative_prompt)}자').classes('text-xs text-gray-400')
                 
                 self.negative_textarea = ui.textarea(
                     placeholder='원하지 않는 요소를 입력하세요...\n예: low quality, blurry, bad anatomy'
-                ).props('dark outlined').classes('w-full bg-gray-800').props('rows=3')
+                ).props('dark outlined').classes('w-full bg-gray-800').props('rows=3').bind_value(current_params, 'negative_prompt')
                 
                 # 부정 프롬프트 프리셋
                 with ui.row().classes('gap-1 mt-1 flex-wrap'):
@@ -84,21 +87,28 @@ class PromptPanel:
     
     def _on_positive_change(self, e):
         """긍정 프롬프트 변경"""
-        text = e.args if e.args else ''
+        text = self.state.get('current_params').prompt
         self.char_count_positive.set_text(f'{len(text)}자')
         
-        # 상태 업데이트
-        params = self.state.get('current_params')
-        params.prompt = text
+        # 상태 변경 알림
+        self.state._notify('current_params_changed', self.state.get('current_params'))
+        print(f"✏️ 프롬프트 업데이트: {text[:50]}{'...' if len(text) > 50 else ''}")
     
     def _on_negative_change(self, e):
         """부정 프롬프트 변경"""
-        text = e.args if e.args else ''
+        text = self.state.get('current_params').negative_prompt
         self.char_count_negative.set_text(f'{len(text)}자')
         
-        # 상태 업데이트
+        # 상태 변경 알림
+        self.state._notify('current_params_changed', self.state.get('current_params'))
+        print(f"✏️ 부정 프롬프트 업데이트: {text[:50]}{'...' if len(text) > 50 else ''}")
+    
+    def _clear_positive_prompt(self):
+        """긍정 프롬프트 지우기"""
         params = self.state.get('current_params')
-        params.negative_prompt = text
+        params.prompt = ''
+        self.state.set('current_params', params)
+        self.positive_textarea.set_value('')
     
     def _insert_random_prompt(self):
         """랜덤 프롬프트 삽입"""

@@ -104,9 +104,9 @@ class ParameterPanel:
         
         # 3. 프롬프트 확인
         params = self.state.get('current_params')
-        if not params.prompt.strip():
+        if not params or not params.prompt or not params.prompt.strip():
             ui.notify('프롬프트가 비어있음', type='warning')
-            print("❌ 프롬프트가 비어있음")
+            print(f"❌ 프롬프트가 비어있음 (현재값: {params.prompt if params else 'params is None'})")
             return
         
         # 4. 이미 생성 중인지 확인

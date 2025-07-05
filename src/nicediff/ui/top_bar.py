@@ -119,7 +119,19 @@ class TopBar:
                     with ui.grid(columns=2).classes('w-full gap-2 p-2'):
                         for model_data in items:
                             with ui.card().tight().classes('hover:shadow-lg transition-shadow w-full'):
-                                with ui.row().classes('w-full h-24 bg-gray-800 flex items-center justify-center'):
+                                with ui.row().classes('w-full h-24 bg-gray-800 flex items-center justify-center relative'):
+                                    # 모델 타입 배지
+                                    if 'model_type' in model_data:
+                                        model_type = model_data['model_type']
+                                        badge_color = {
+                                            'SDXL': 'bg-purple-600',
+                                            'SD15': 'bg-blue-600',
+                                            'SD3': 'bg-green-600'
+                                        }.get(model_type, 'bg-gray-600')
+                                                                                
+                                        with ui.element('div').classes(f'absolute top-1 right-1 {badge_color} text-white text-xs px-2 py-1 rounded z-10'):
+                                            ui.label(model_type)
+                                                                        
                                     preview_path = Path(model_data['path']).with_suffix('.png')
                                     if preview_path.exists():
                                         try:
@@ -132,10 +144,14 @@ class TopBar:
                                         ui.label('PNG EMPTY').classes('text-gray-500 font-medium')
                                 
                                 with ui.card_section().classes('p-1 w-full'):
+                                    # 모델명과 크기
                                     ui.label(model_data['name']).classes('text-xs w-full text-center font-medium h-6 truncate')
+                                    if 'size_mb' in model_data:
+                                        ui.label(f"{model_data['size_mb']:.1f} MB").classes('text-xs text-gray-400 text-center')
+                                                                        
                                     ui.button('로드', on_click=lambda m=model_data: self._load_and_display_model(m)) \
                                         .props('dense color=positive size=xs').classes('w-full mt-1')
-    
+                                # --- 제공해주신 코드 추가 끝 ---    
     def _toggle_visibility(self):
         self.is_expanded = not self.is_expanded
         self.content_row.set_visibility(self.is_expanded)

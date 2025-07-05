@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from diffusers import StableDiffusionPipeline, DiffusionPipeline
+from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DiffusionPipeline
 from PIL import Image, PngImagePlugin
 
 @dataclass
@@ -66,7 +66,9 @@ class StateManager:
             'available_loras': {},
             'history': [],
             'is_generating': False,
+            'is_loading_model': False,  # 모델 로딩 상태 별도 관리
             'sd_model': 'SD15',
+            'is_xl_model': False,  # SDXL 모델 여부
         }
         self._observers: Dict[str, List[Callable]] = {}
         self.pipeline: Optional[DiffusionPipeline] = None
@@ -99,6 +101,11 @@ class StateManager:
         self.set('available_loras', await scanner.scan_loras())
         self._notify('loras_updated', self.get('available_loras'))
     
+    def _is_sdxl_model(self, model_name: str) -> bool:
+        """모델명으로 SDXL 여부 판단"""
+        xl_keywords = ['xl', 'sdxl', 'illustrious', 'pony', 'animagine']
+        return any(keyword in model_name.lower() for keyword in xl_keywords)
+    
     async def load_model_pipeline(self, model_info: Dict[str, Any]) -> bool:
         """선택된 모델 파일을 GPU에 로드하고 성공 여부를 반환합니다."""
         
@@ -106,8 +113,9 @@ class StateManager:
             print(f"'{model_info['name']}' 모델은 이미 로드되어 있습니다.")
             return False
 
-        self.set('is_generating', True)
+        self.set('is_loading_model', True)
         self._notify('status_update', {'message': f"'{model_info['name']}' 로드 중...", 'type': 'loading', 'icon': 'sync'})
+        
         try:
             if self.pipeline is not None:
                 print("- [Pipeline] 기존 모델을 메모리에서 제거합니다...")
@@ -118,33 +126,99 @@ class StateManager:
 
             model_path = model_info['path']
             
+            # 모델 정보가 이미 스캔되어 있으면 사용, 없으면 다시 감지
+            if 'model_type' in model_info:
+                model_type = model_info['model_type']
+                is_xl = model_info.get('is_xl', False)
+                print(f"📊 스캔된 모델 타입: {model_type}")
+            else:
+                # 메타데이터에서 모델 타입 자동 감지
+                from ..services.metadata_parser import MetadataParser
+                model_type, base_model = MetadataParser.detect_model_type(Path(model_path))
+                is_xl = model_type == 'SDXL'
+                print(f"📊 감지된 모델 타입: {model_type} (베이스: {base_model})")
+            
+            self.set('is_xl_model', is_xl)
+            self.set('model_type', model_type)
+            
             def _load():
-                pipe = StableDiffusionPipeline.from_single_file(
-                    model_path, 
-                    torch_dtype=torch.float16,
-                    use_safetensors=True,
-                    safety_checker=None
-                )
+                if model_type == 'SDXL':
+                    # SDXL 파이프라인 사용
+                    pipe = StableDiffusionXLPipeline.from_single_file(
+                        model_path,
+                        torch_dtype=torch.float16,
+                        use_safetensors=True,
+                        variant="fp16",
+                        add_watermarker=False,
+                    )
+                elif model_type == 'SD3':
+                    # SD3는 아직 지원하지 않음
+                    raise NotImplementedError("SD3 모델은 아직 지원되지 않습니다.")
+                else:
+                    # 일반 SD1.5 파이프라인 사용
+                    pipe = StableDiffusionPipeline.from_single_file(
+                        model_path,
+                        torch_dtype=torch.float16,
+                        use_safetensors=True,
+                        safety_checker=None
+                    )
+                
+                # 메모리 최적화
+                pipe.enable_model_cpu_offload()
+                pipe.enable_vae_slicing()
+                pipe.enable_vae_tiling()
+                
                 return pipe.to(self.device)
 
             self.pipeline = await asyncio.to_thread(_load)
             
+            # 모델 타입에 따른 기본 설정
+            if is_xl:
+                self.set('sd_model', 'SDXL')
+                params = self.get('current_params')
+                if params.width == 512 and params.height == 512:  # 기본값일 때만 변경
+                    params.width = 1024
+                    params.height = 1024
+                    self.set('current_params', params)
+                    print("📏 SDXL 모델 - 기본 크기를 1024x1024로 설정")
+            else:
+                self.set('sd_model', 'SD15')
+                params = self.get('current_params')
+                if params.width == 1024 and params.height == 1024:  # SDXL 크기일 때만 변경
+                    params.width = 512
+                    params.height = 512
+                    self.set('current_params', params)
+                    print("📏 SD1.5 모델 - 기본 크기를 512x512로 설정")
+            
+            # 추가 모델 정보 저장
+            if 'suggested_tags' in model_info:
+                print(f"💡 추천 태그: {', '.join(model_info['suggested_tags'][:5])}")
+                self._notify('suggested_tags', model_info['suggested_tags'])
+            
             self.set('current_model', model_info.get('filename'))
-            self.set('is_generating', False)
+            self.set('current_model_info', model_info)  # 전체 모델 정보 저장
+            self.set('is_loading_model', False)
             self._notify('status_update', {'message': '로드 완료!', 'type': 'success', 'icon': 'check_circle'})
             self._notify('model_loaded', model_info)
+            print(f"✅ 모델 '{model_info['name']}' 로드 완료!")
             return True
+            
         except Exception as e:
             print(f"❌ 파이프라인 로드 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            
             self.pipeline = None
             self.set('current_model', None)
-            self.set('is_generating', False)
+            self.set('is_loading_model', False)
             self._notify('status_update', {'message': f'로드 실패: {e}', 'type': 'error', 'icon': 'error'})
             self._notify('model_load_failed', str(e))
             return False
 
     async def generate_image(self) -> bool:
         """이미지 생성 실행"""
+        print("🔍 generate_image 메서드 시작")
+        
         if not self.pipeline:
             print("❌ 파이프라인이 로드되지 않음")
             self._notify('generation_failed', {'error': '모델이 로드되지 않았습니다'})
@@ -161,6 +235,14 @@ class StateManager:
             print("🚀 이미지 생성 시작")
             
             params = self.get('current_params')
+            is_xl = self.get('is_xl_model', False)
+            
+            print(f"📝 현재 프롬프트: {params.prompt}")
+            print(f"📊 모델 타입: {'SDXL' if is_xl else 'SD1.5'}")
+            
+            # 프롬프트 길이 체크 및 경고
+            if len(params.prompt.split()) > 60:
+                print("⚠️ 프롬프트가 너무 깁니다. 일부가 잘릴 수 있습니다.")
             
             # 샘플러/스케줄러 설정 적용
             from ..services.sampler_mapper import SamplerMapper
@@ -174,8 +256,22 @@ class StateManager:
             
             generator = torch.Generator(device=self.device).manual_seed(params.seed)
             
+            # 진행률 콜백 (SDXL은 callback_on_step_end 사용)
             step_count = 0
-            def progress_callback(step, timestep, latents):
+            def progress_callback(pipe, step_index, timestep, callback_kwargs):
+                nonlocal step_count
+                step_count = step_index
+                progress = (step_index + 1) / params.steps
+                print(f"📈 생성 진행: {step_index + 1}/{params.steps} ({progress*100:.1f}%)")
+                self._notify('generation_progress', {
+                    'progress': progress,
+                    'step': step_index + 1,
+                    'total_steps': params.steps
+                })
+                return callback_kwargs
+            
+            # 레거시 콜백 (SD1.5용)
+            def legacy_progress_callback(step, timestep, latents):
                 nonlocal step_count
                 step_count = step
                 progress = step / params.steps
@@ -193,17 +289,30 @@ class StateManager:
             print(f"   샘플러: {params.sampler}, 스케줄러: {params.scheduler}")
             
             def _generate():
-                return self.pipeline(
-                    prompt=params.prompt,
-                    negative_prompt=params.negative_prompt if params.negative_prompt else "",
-                    width=params.width,
-                    height=params.height,
-                    num_inference_steps=params.steps,
-                    guidance_scale=params.cfg_scale,
-                    generator=generator,
-                    callback=progress_callback,
-                    callback_steps=1
-                ).images[0]
+                # 공통 파라미터
+                common_params = {
+                    "prompt": params.prompt,
+                    "negative_prompt": params.negative_prompt if params.negative_prompt else "",
+                    "width": params.width,
+                    "height": params.height,
+                    "num_inference_steps": params.steps,
+                    "guidance_scale": params.cfg_scale,
+                    "generator": generator,
+                }
+                
+                if is_xl:
+                    # SDXL은 callback_on_step_end 사용
+                    return self.pipeline(
+                        **common_params,
+                        callback_on_step_end=progress_callback,
+                    ).images[0]
+                else:
+                    # SD1.5는 기존 callback 사용
+                    return self.pipeline(
+                        **common_params,
+                        callback=legacy_progress_callback,
+                        callback_steps=1
+                    ).images[0]
             
             image = await asyncio.to_thread(_generate)
             
