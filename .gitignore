@@ -14,7 +14,7 @@ __pycache__/
 *.onnx
 models/
 checkpoints/
-output/
+outputs/
 logs/
 
 # 운영체제 및 에디터 관련 파일 (선택 사항)
