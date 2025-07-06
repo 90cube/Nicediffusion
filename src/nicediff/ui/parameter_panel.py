@@ -33,6 +33,25 @@ class ParameterPanel:
         self.height_input = None
         self.model_switch = None
         self.seed_input = None
+        self.steps_input = None
+        self.cfg_input = None
+        self.sampler_select = None
+        self.scheduler_select = None
+        self.batch_size_input = None
+        self.iterations_input = None
+
+    def _on_generate_status_change(self, is_generating: bool):
+        """'생성' 버튼의 상태를 변경합니다 (오류 방어 강화)"""
+        # getattr를 사용해 self.generate_button이 없어도 오류가 나지 않도록 방어
+        button = getattr(self, 'generate_button', None)
+        if not button:
+            # 버튼이 아직 생성되지 않았으면 아무 작업도 하지 않음
+            return
+
+        if is_generating:
+            button.props('loading color=orange').set_text('생성 중...').disable()
+        else:
+            button.props('color=blue', remove='loading').set_text('생성').enable()
 
     def _calculate_dimensions(self):
         target_pixels_map = {"SD15": 512*512, "SDXL": 1024*1024}
@@ -128,16 +147,16 @@ class ParameterPanel:
             ui.label('생성 설정').classes('text-lg font-bold text-yellow-400')
             
             with ui.column().classes('gap-2'):
-                ui.select(options=comfyui_samplers, label='Sampler', value=current_params.sampler) \
+                self.sampler_select = ui.select(options=comfyui_samplers, label='Sampler', value=current_params.sampler) \
                     .on('update:model-value', self._on_param_change('sampler', str))
                 
-                ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler) \
+                self.scheduler_select = ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler) \
                     .on('update:model-value', self._on_param_change('scheduler', str))
             
-            ui.number(label='Steps', value=current_params.steps, min=1, max=150) \
+            self.steps_input = ui.number(label='Steps', value=current_params.steps, min=1, max=150) \
                 .on('update:model-value', self._on_param_change('steps', int))
             
-            ui.number(label='CFG Scale', value=current_params.cfg_scale, min=1.0, max=30.0, step=0.5) \
+            self.cfg_input = ui.number(label='CFG Scale', value=current_params.cfg_scale, min=1.0, max=30.0, step=0.5) \
                 .on('update:model-value', self._on_param_change('cfg_scale', float))
             
             with ui.row().classes('gap-2'):
@@ -155,10 +174,10 @@ class ParameterPanel:
             self.ratio_buttons_container()
             
             with ui.row().classes('w-full gap-2 mt-4'):
-                ui.number(label="배치 사이즈", min=1, max=32, value=current_params.batch_size) \
+                self.batch_size_input = ui.number(label="배치 사이즈", min=1, max=32, value=current_params.batch_size) \
                     .on('update:model-value', self._on_param_change('batch_size', int))
             
-                ui.number(label="반복 횟수", min=1, max=100, value=current_params.iterations) \
+                self.iterations_input = ui.number(label="반복 횟수", min=1, max=100, value=current_params.iterations) \
                     .on('update:model-value', self._on_param_change('iterations', int))
 
             with ui.row().classes('gap-2 items-center w-full'):
@@ -169,7 +188,3 @@ class ParameterPanel:
 
             self.generate_button = ui.button('생성', on_click=self._on_generate_click) \
                 .props('size=lg color=blue').classes('w-full mt-4')
-            
-            # --- [수정된 부분] ---
-            # 여기서 구독하던 로직을 완전히 제거합니다.
-            # self.state.subscribe(...)

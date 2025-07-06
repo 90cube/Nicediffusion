@@ -135,24 +135,20 @@ class StateManager:
             return True
 
         try:
-            # 1. '로딩 중' 상태를 *먼저* 설정하고 UI에 알립니다.
             self.set('is_loading_model', True)
             self._notify('model_loading_started', {'name': model_info['name']})
-        
-            # 2. 실제 모델을 로드하는 무거운 작업을 수행합니다.
             await self._load_model_heavy_work(model_info)
-        
-            # 3. 로드 성공 후, 상태를 업데이트합니다.
             self.set('current_model_info', model_info)
-        
-            # 4. VAE 자동 선택을 실행합니다.
             await self._auto_select_vae(model_info)
-        
-            # 5. 최종 성공 상태를 UI에 알립니다.
+            
+            # --- [확인 및 추가] ---
+            # 모델 로딩 후 메타데이터를 적용하는 로직 호출
+            self.apply_params_from_metadata(model_info)
+            
             self._notify('model_loading_finished', {'success': True, 'model_info': model_info})
             ui.notify(f"'{model_info['name']}' 모델이 로드되었습니다.", type='success')
             return True
-    
+        
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -499,30 +495,41 @@ Steps: {params.steps}, Sampler: {params.sampler}, Scheduler: {params.scheduler},
         
         current_params = self.get('current_params')
         
-        # 파라미터 적용
+        # 파라미터 적용 (너비, 높이는 여기서 직접 제어)
         if 'steps' in params:
             current_params.steps = int(params['steps'])
         if 'cfg_scale' in params:
             current_params.cfg_scale = float(params['cfg_scale'])
         if 'sampler' in params:
-            current_params.sampler = params['sampler']
+            # NOTE: ComfyUI 샘플러 목록에 있는 것만 적용
+            comfyui_samplers = ["euler", "dpmpp_2m", "dpmpp_sde_gpu", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde_gpu"]
+            if params['sampler'] in comfyui_samplers:
+                current_params.sampler = params['sampler']
         if 'scheduler' in params:
-            current_params.scheduler = params['scheduler']
-        if 'width' in params:
-            current_params.width = int(params['width'])
-        if 'height' in params:
-            current_params.height = int(params['height'])
+            # NOTE: ComfyUI 스케줄러 목록에 있는 것만 적용
+            comfyui_schedulers = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
+            if params['scheduler'] in comfyui_schedulers:
+                current_params.scheduler = params['scheduler']
+        #if 'width' in params:
+        #    current_params.width = int(params['width'])
+        #if 'height' in params:
+        #    current_params.height = int(params['height'])
         if 'seed' in params:
             current_params.seed = int(params['seed'])
         
-        # 프롬프트 적용
-        if 'prompt' in metadata:
-            current_params.prompt = metadata['prompt']
-        if 'negative_prompt' in metadata:
-            current_params.negative_prompt = metadata['negative_prompt']
+        # --- [수정된 부분] ---
+        # 사용자 요청에 따라 프롬프트 자동 적용 로직은 주석 처리합니다.
+        # if 'prompt' in metadata:
+        #     current_params.prompt = metadata['prompt']
+        # if 'negative_prompt' in metadata:
+        #     current_params.negative_prompt = metadata['negative_prompt']
         
+        # 'current_params_changed' 이벤트를 통해 UI에 변경사항을 알립니다.
         self.set('current_params', current_params)
         print("✅ 메타데이터에서 파라미터가 적용되었습니다.")
+        
+        # 기존 MetadataPanel 등을 위한 알림은 유지합니다.
+        self._notify('state_restored', {'params': current_params})
 
     def restore_from_history(self, history_id: str):
         """히스토리에서 설정 복원"""
