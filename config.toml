@@ -5,7 +5,7 @@ port = 8080
 
 [paths]
 checkpoints = "models/checkpoints"
-vaes = "models/vae"
+vae = "models/vae"
 loras = "models/loras"
 embeddings = "models/embeddings"
 outputs = "outputs"

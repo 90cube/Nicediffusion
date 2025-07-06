@@ -13,7 +13,7 @@ class TopBar:
         self.selected_model_info: Optional[Dict[str, Any]] = None
         self.is_expanded = True
         self.state.subscribe('models_updated', self._on_models_updated)
-        self.state.subscribe('vaes_updated', self._on_vaes_updated)
+        self.state.subscribe('vae_updated', self._on_vae_updated)
         self.state.subscribe('model_loading_started', self._on_model_loading_started)
         self.state.subscribe('model_loading_finished', self._on_model_loading_finished)
         
@@ -28,18 +28,20 @@ class TopBar:
         self.neg_prompt_area: Optional[ui.markdown] = None
         self.params_label: Optional[ui.label] = None
         self.apply_button: Optional[ui.button] = None
+        self.main_card: Optional[ui.card] = None
         
         # 애플리케이션의 핵심 이벤트를 여기서 모두 구독합니다.
         self.state.subscribe('available_checkpoints_changed', self._on_models_updated)
-        self.state.subscribe('vaes_updated', self._on_vaes_updated)
+        self.state.subscribe('vae_updated', self._on_vae_updated)
         self.state.subscribe('model_selection_changed', self._on_model_selected)
 
     # 1. UI의 '틀'을 만드는 render 메서드
     async def render(self):
         """[최종 수정] 반응형 레이아웃으로 TopBar 개선"""
         
-        # 전체를 감싸는 카드 (overflow 제어)
-        with ui.card().tight().classes('w-full overflow-hidden'):
+    # 전체를 감싸는 카드 (overflow 제어)
+        self.main_card = ui.card().tight().classes('w-full overflow-hidden transition-all duration-300')
+        with self.main_card:
             
             # 1. 최상단 바: 반응형 레이아웃
             with ui.row().classes('w-full p-2 bg-gray-900 items-center justify-between flex-wrap gap-2'):
@@ -79,7 +81,7 @@ class TopBar:
     async def _initial_load(self):
         """초기 데이터 로딩"""
         await self._on_models_updated(self.state.get('available_checkpoints', {}))
-        await self._on_vaes_updated(self.state.get('available_vaes', {}))
+        await self._on_vae_updated(self.state.get('available_vae', {}))
 
     async def _on_models_updated(self, models_by_category: Dict[str, List[Dict[str, Any]]]):
         """모델 목록(checkpoints)이 업데이트되면 앨범 UI를 다시 그립니다."""
@@ -96,14 +98,14 @@ class TopBar:
                         for model_info in models_by_category[folder]:
                             self._create_model_card(model_info)
 
-    async def _on_vaes_updated(self, vaes_by_category: Dict[str, List[Dict[str, Any]]]):
+    async def _on_vae_updated(self, vae_by_category: Dict[str, List[Dict[str, Any]]]):
         """VAE 목록이 업데이트되면 드롭다운 메뉴를 채웁니다."""
         # VAE 옵션 업데이트
         vae_options = ['Automatic', 'None']
         
-        if vaes_by_category:
-            for folder_name, folder_vaes in vaes_by_category.items():
-                for vae_info in folder_vaes:
+        if vae_by_category:
+            for folder_name, folder_vae in vae_by_category.items():
+                for vae_info in folder_vae:
                     display_name = vae_info['name']
                     if folder_name != 'Root':
                         display_name = f"{folder_name}/{vae_info['name']}"
@@ -128,11 +130,12 @@ class TopBar:
     def _build_metadata_ui_skeleton(self):
         """메타데이터 UI의 뼈대를 생성합니다 (반응형 개선)."""
         with self.metadata_container:
-            with ui.card_section().classes('p-2'):
-                ui.label('선택된 모델 정보').classes('text-sm font-bold text-white mb-2')
-            
-            with ui.column().classes('w-full h-52 p-2 gap-2 overflow-hidden'):
-                # 미리보기 이미지 (반응형)
+            with ui.column().classes('w-full h-full p-2 gap-1 relative'): # 'relative' 클래스 추가
+                # --- NEW: 로딩 스피너를 여기에 추가하고 처음엔 숨김 ---
+                self.loading_spinner = ui.spinner(size='lg').props('color=white') \
+                    .classes('absolute-center bg-gray-800 bg-opacity-70 p-4 rounded-full z-10') \
+                    .set_visibility(False)
+
                 self.preview_image = ui.image().classes('w-full h-32 object-contain bg-gray-800 rounded-md flex-shrink-0')
                 
                 # 스크롤 가능한 메타데이터 영역
@@ -234,17 +237,18 @@ class TopBar:
     # --- 이벤트 핸들러 ---
 
     async def _on_model_loading_started(self, data: Dict[str, Any]):
-        """'로딩 시작' 이벤트를 받았을 때 UI를 로딩 상태로 변경합니다."""
-        self._update_metadata_ui(loading_info=data)
+        """이제 전체를 지우지 않고, 스피너만 보여줍니다."""
+        if self.loading_spinner:
+            self.loading_spinner.set_visibility(True)
 
     async def _on_model_loading_finished(self, data: Dict[str, Any]):
-        """'로딩 완료' 이벤트를 받았을 때 UI를 최종 상태로 변경합니다."""
-        if data.get('success'):
-            model_info = data.get('model_info')
-            self.selected_model_info = model_info
-            self._update_metadata_ui(model_info)
-        else:
-            self._update_metadata_ui(error_message=data.get('error'))
+        """로딩이 끝나면 스피너를 숨깁니다."""
+        if self.loading_spinner:
+            self.loading_spinner.set_visibility(False)
+        
+        # 로딩 실패 시 알림
+        if not data.get('success'):
+            ui.notify(f"모델 로드 실패: {data.get('error', '알 수 없는 오류')}", type='negative')
 
     def _apply_metadata_to_params(self):
         """'파라미터 적용' 버튼 클릭 시 StateManager에 파라미터 적용을 요청합니다."""
@@ -255,10 +259,28 @@ class TopBar:
             ui.notify('적용할 파라미터가 없습니다', type='warning')
 
     def _toggle_visibility(self):
-        """모델 라이브러리 접기/펴기"""
+        """'펼치기/접기'를 '전체화면/원래대로' 기능으로 업그레이드합니다."""
         self.is_expanded = not self.is_expanded
-        self.content_row.set_visibility(self.is_expanded)
-        self.toggle_button.props(f"icon={'expand_less' if self.is_expanded else 'expand_more'}")
+    
+        if self.is_expanded:
+            # 펼칠 때: 전체 화면을 덮는 스타일로 변경
+            self.main_card.classes(
+                remove='max-h-80', # 기존 높이 제한이 있다면 제거
+                add='fixed top-0 left-0 w-screen h-screen z-50' # 전체화면 CSS 클래스
+            )
+            self.content_row.classes(remove='h-64') # 컨텐츠 높이 제한 해제
+            self.toggle_button.props('icon=close') # 아이콘을 닫기 버튼으로
+            self.toggle_button.tooltip('라이브러리 닫기')
+
+        else:
+            # 접을 때: 원래 스타일로 복원
+            self.main_card.classes(
+                add='max-h-80', # 원래 높이 제한을 다시 줄 수 있습니다
+                remove='fixed top-0 left-0 w-screen h-screen z-50'
+            )
+            self.content_row.classes(add='h-64') # 컨텐츠 높이 복원
+            self.toggle_button.props('icon=fullscreen') # 아이콘을 전체화면 버튼으로
+            self.toggle_button.tooltip('라이브러리 전체화면')
 
     async def _on_model_selected(self, model_info: Optional[Dict[str, Any]]):
         """StateManager에서 모델 선택이 변경되었다는 알림을 받았을 때 호출됩니다."""

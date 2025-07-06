@@ -64,16 +64,10 @@ class MetadataPanel:
                         ui.label(positive_prompt).classes('text-xs text-white bg-gray-800 p-2 rounded')
                         with ui.row().classes('gap-1'):
                             ui.button(
-                                '복사',
+                                '클립보드로 복사',  # 텍스트 변경
                                 icon='content_copy',
                                 on_click=lambda: self._copy_to_clipboard(positive_prompt, '긍정 프롬프트')
-                            ).props('dense flat color=teal-300 size=xs')
-                            ui.button(
-                                '프롬프트에 적용',
-                                icon='arrow_forward',
-                                on_click=lambda: self._apply_prompt_to_input(positive_prompt, 'positive')
-                            ).props('dense flat color=green size=xs')
-            
+                            ).props('dense flat color=teal-300 size=xs')            
             # 부정 프롬프트 정보
             negative_prompt = metadata.get('negative_prompt', '')
             if negative_prompt:
@@ -82,16 +76,12 @@ class MetadataPanel:
                         ui.label(negative_prompt).classes('text-xs text-white bg-gray-800 p-2 rounded')
                         with ui.row().classes('gap-1'):
                             ui.button(
-                                '복사',
+                                '클립보드로 복사', # 텍스트 변경
                                 icon='content_copy',
                                 on_click=lambda: self._copy_to_clipboard(negative_prompt, '부정 프롬프트')
                             ).props('dense flat color=teal-300 size=xs')
-                            ui.button(
-                                '프롬프트에 적용',
-                                icon='arrow_forward',
-                                on_click=lambda: self._apply_prompt_to_input(negative_prompt, 'negative')
-                            ).props('dense flat color=red size=xs')
-            
+                            # '프롬프트에 적용' 버튼 제거
+                                        
             # 파라미터 정보
             params = metadata.get('parameters', {})
             if params:
@@ -132,23 +122,6 @@ class MetadataPanel:
                             on_click=lambda w=word: self._add_trigger_word(w)
                         ).props('dense outline color=teal-300').classes('text-xs')
 
-    def _apply_prompt_to_input(self, prompt_text: str, prompt_type: str):
-        """프롬프트를 입력창에 적용"""
-        current_params = self.state.get('current_params')
-        
-        if prompt_type == 'positive':
-            current_params.prompt = prompt_text
-            ui.notify('긍정 프롬프트가 적용되었습니다', type='success')
-        elif prompt_type == 'negative':
-            current_params.negative_prompt = prompt_text
-            ui.notify('부정 프롬프트가 적용되었습니다', type='success')
-        
-        # 상태 업데이트
-        self.state.set('current_params', current_params)
-        # UI 업데이트 알림
-        self.state._notify('prompt_updated', current_params.prompt)
-        self.state._notify('params_updated', current_params)
-
     def _copy_to_clipboard(self, text: str, label: str):
         """클립보드에 복사 (개선된 방식)"""
         # JavaScript를 사용한 클립보드 복사
@@ -169,10 +142,40 @@ class MetadataPanel:
         ''')
         ui.notify(f'{label}가 복사되었습니다', type='positive')
     
-    def _apply_parameters(self):
-        """파라미터 적용 (기존 호환성을 위해 유지하지만 _apply_parameters_only로 리다이렉트)"""
-        self._apply_parameters_only()
+    def _apply_parameters_only(self):
+        """파라미터만 적용 (프롬프트 제외)"""
+        if not self.current_metadata:
+            return
+        
+        params = self.current_metadata.get('parameters', {})
+        if not params:
+            ui.notify('적용할 파라미터가 없습니다', type='warning')
+            return
     
+        current_params = self.state.get('current_params')
+    
+        # 파라미터만 적용 (프롬프트 제외)
+        if 'steps' in params:
+            current_params.steps = int(params['steps'])
+        if 'cfg_scale' in params:
+            current_params.cfg_scale = float(params['cfg_scale'])
+        if 'sampler' in params:
+            current_params.sampler = params['sampler']
+        if 'scheduler' in params:
+            current_params.scheduler = params['scheduler']
+        if 'seed' in params:
+            current_params.seed = int(params['seed'])
+        if 'width' in params:
+            current_params.width = int(params['width'])
+        if 'height' in params:
+            current_params.height = int(params['height'])
+    
+        # 상태 업데이트
+        self.state.set('current_params', current_params)
+        self.state._notify('params_updated', current_params)
+    
+        ui.notify('파라미터가 적용되었습니다', type='success')    
+
     def _add_trigger_word(self, word: str):
         """트리거 워드 추가"""
         # 현재 프롬프트 가져오기

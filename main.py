@@ -191,8 +191,8 @@ async def main_page():
             
             /* 레이아웃 안정성을 위한 추가 규칙 */
             .main-layout {
-                width: 100vw !important;
-                height: 100vh !important;
+                width: 95vw !important;
+                height: 95vh !important;
                 overflow: hidden !important;
                 display: flex !important;
                 flex-direction: column !important;
@@ -200,7 +200,7 @@ async def main_page():
             
             .content-row {
                 display: flex !important;
-                width: 100% !important;
+                width: 95% !important;
                 overflow: hidden !important;
                 flex: 1 !important;
                 min-height: 0 !important;

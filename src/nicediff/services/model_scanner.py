@@ -27,7 +27,7 @@ class ModelScanner:
             if model_type == 'outputs': # 출력 폴더는 스캔에서 제외
                 continue
             
-            if model_type == 'vaes':
+            if model_type == 'vae':
                 tasks[model_type] = self._scan_vae_directory(path)
             else:
                 tasks[model_type] = self._scan_directory(path, model_type)
@@ -35,7 +35,7 @@ class ModelScanner:
         list_of_results = await asyncio.gather(*tasks.values())
         result = dict(zip(tasks.keys(), list_of_results))
         
-        print(f"<<< 모든 모델 스캔 완료. VAE 발견: {len(result.get('vaes', {}))}")
+        print(f"<<< 모든 모델 스캔 완료. VAE 발견: {len(result.get('vae', {}))}")
         return result
 
     async def _scan_vae_directory(self, base_path: Path) -> Dict[str, List[Dict[str, Any]]]:

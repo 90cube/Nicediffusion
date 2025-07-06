@@ -69,7 +69,7 @@ class StateManager:
             'current_loras': [],
             'current_params': GenerationParams(),
             'available_checkpoints': {},
-            'available_vaes': {},
+            'available_vae': {},
             'available_loras': {},
             'history': [],
             'is_generating': False,
@@ -107,7 +107,7 @@ class StateManager:
         
         # 이제 스캐너가 'checkpoints' 키로 결과를 반환하므로, 이 코드가 정상 작동합니다.
         self.set('available_checkpoints', all_models_data.get('checkpoints', {}))
-        self.set('available_vaes', all_models_data.get('vaes', {}))
+        self.set('available_vae', all_models_data.get('vae', {}))
         self.set('available_loras', all_models_data.get('loras', {}))        
 
         self.set('status_message', '준비 완료')
@@ -212,9 +212,9 @@ class StateManager:
         
         if recommended_vae:
             # 추천 VAE가 있으면 로드 시도
-            available_vaes = self.get('available_vaes', {})
-            for folder_vaes in available_vaes.values():
-                for vae_info in folder_vaes:
+            available_vae = self.get('available_vae', {})
+            for folder_vae in available_vae.values():
+                for vae_info in folder_vae:
                     if recommended_vae.lower() in vae_info['name'].lower():
                         print(f"✅ 추천 VAE 발견: {vae_info['name']}")
                         await self.load_vae(vae_info['path'])
@@ -266,6 +266,15 @@ class StateManager:
         self._notify('generation_started', {})
         
         params_snapshot = copy.deepcopy(self.get('current_params'))
+        try:
+            # UI로부터 받은 값이 문자열일 수 있으므로, 정수로 강제 변환합니다.
+            batch_size = int(params_snapshot.batch_size)
+            iterations = int(params_snapshot.iterations)
+        except (ValueError, TypeError):
+            # 만약 값이 이상해서 정수로 변환할 수 없다면, 오류를 알리고 기본값으로 설정합니다.
+            ui.notify('배치 사이즈와 반복 횟수는 숫자여야 합니다.', type='negative')
+            batch_size = 1
+            iterations = 1
 
         try:
             total_generations = params_snapshot.iterations * params_snapshot.batch_size
@@ -530,9 +539,9 @@ Steps: {params.steps}, Sampler: {params.sampler}, Scheduler: {params.scheduler},
         """VAE 선택 옵션 리스트 생성"""
         options = ['Automatic', 'None']
         
-        available_vaes = self.get('available_vaes', {})
-        for folder_name, folder_vaes in available_vaes.items():
-            for vae_info in folder_vaes:
+        available_vae = self.get('available_vae', {})
+        for folder_name, folder_vae in available_vae.items():
+            for vae_info in folder_vae:
                 display_name = vae_info['name']
                 if folder_name != 'Root':
                     display_name = f"{folder_name}/{vae_info['name']}"
@@ -542,10 +551,10 @@ Steps: {params.steps}, Sampler: {params.sampler}, Scheduler: {params.scheduler},
 
     def find_vae_by_name(self, vae_name: str) -> Optional[str]:
         """VAE 이름으로 경로 찾기"""
-        available_vaes = self.get('available_vaes', {})
+        available_vae = self.get('available_vae', {})
         
-        for folder_name, folder_vaes in available_vaes.items():
-            for vae_info in folder_vaes:
+        for folder_name, folder_vae in available_vae.items():
+            for vae_info in folder_vae:
                 display_name = vae_info['name']
                 if folder_name != 'Root':
                     display_name = f"{folder_name}/{vae_info['name']}"

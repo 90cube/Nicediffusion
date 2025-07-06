@@ -1,15 +1,18 @@
-# parameter_panel.py (이벤트 핸들링 오류 수정)
+# 파일 경로: src/nicediff/ui/parameter_panel.py
+# (수정 완료)
 
 from nicegui import ui
 import math
-from src.nicediff.core.state_manager import StateManager, GenerationParams
+from ..core.state_manager import StateManager, GenerationParams
 
 class ParameterPanel:
-    """파라미터 패널 (이벤트 핸들링 오류 수정 완료)"""
+    """파라미터 패널 (UI 렌더링에만 집중)"""
     
+    # ... __init__ 및 다른 메서드들은 그대로 유지 ...
     def __init__(self, state_manager: StateManager):
         self.state = state_manager
         
+        # ... (생략) ...
         self.ratios_data = [
             ("1:1", 1/1, "1:1 (정사각형)", 'square'), 
             ("4:3", 4/3, "4:3 (표준 TV)", 'horizontal'),
@@ -25,11 +28,11 @@ class ParameterPanel:
         self.selected_base_orientation = 'square'
         self._is_ratio_inverted = False
         
-        # UI 요소 참조
         self.generate_button = None
         self.width_input = None
         self.height_input = None
         self.model_switch = None
+        self.seed_input = None
 
     def _calculate_dimensions(self):
         target_pixels_map = {"SD15": 512*512, "SDXL": 1024*1024}
@@ -45,22 +48,16 @@ class ParameterPanel:
         width = int((target_pixels * ratio_to_calculate)**0.5)
         height = int((target_pixels / ratio_to_calculate)**0.5)
         
-        width = width - (width % 8)
-        height = height - (height % 8)
-        
-        width = max(128, width)
-        height = max(128, height)
+        width = max(128, width - (width % 8))
+        height = max(128, height - (height % 8))
 
         current_params: GenerationParams = self.state.get('current_params')
         current_params.width = width
         current_params.height = height
         self.state.set('current_params', current_params)
         
-        # UI 업데이트
-        if self.width_input:
-            self.width_input.value = width
-        if self.height_input:
-            self.height_input.value = height
+        if self.width_input: self.width_input.value = width
+        if self.height_input: self.height_input.value = height
 
     def _handle_ratio_click(self, dp_name, r_value, orient):
         self._is_ratio_inverted = not self._is_ratio_inverted if self.selected_display_name == dp_name and orient != 'square' else False
@@ -68,82 +65,60 @@ class ParameterPanel:
         self.selected_ratio_value = r_value
         self.selected_base_orientation = orient
         self._calculate_dimensions()
+        self.ratio_buttons_container.refresh()
 
     async def _on_generate_click(self):
-        """StateManager에 생성을 '요청'만 합니다."""
-        print("🚀 UI에서 생성 요청을 StateManager로 전달합니다...")
         await self.state.generate_image()
     
     def _on_generate_status_change(self, is_generating: bool):
-        """생성 상태 변경 시 버튼 업데이트"""
         if self.generate_button:
             if is_generating:
-                self.generate_button.props('loading color=orange')
-                self.generate_button.set_text('생성 중...')
-                self.generate_button.disable()
+                self.generate_button.props('loading color=orange').set_text('생성 중...').disable()
             else:
-                self.generate_button.props('color=blue')
-                self.generate_button.props(remove='loading')
-                self.generate_button.set_text('생성')
-                self.generate_button.enable()
+                self.generate_button.props('color=blue', remove='loading').set_text('생성').enable()
 
-    def _on_width_change(self, e):
-        """폭 변경 시 호출"""
-        current_params = self.state.get('current_params')
-        try:
-            # NiceGUI 이벤트에서 값 추출 방식 수정
-            value = getattr(e, 'value', None) or getattr(e, 'args', [None])[0]
-            if value is not None:
-                current_params.width = int(value)
-                self.state.set('current_params', current_params)
-        except (ValueError, TypeError, IndexError):
-            pass
-
-    def _on_height_change(self, e):
-        """높이 변경 시 호출"""
-        current_params = self.state.get('current_params')
-        try:
-            # NiceGUI 이벤트에서 값 추출 방식 수정
-            value = getattr(e, 'value', None) or getattr(e, 'args', [None])[0]
-            if value is not None:
-                current_params.height = int(value)
-                self.state.set('current_params', current_params)
-        except (ValueError, TypeError, IndexError):
-            pass
-
-    def _on_param_change(self, param_name: str):
-        """일반 파라미터 변경을 위한 클로저 생성"""
+    def _on_param_change(self, param_name: str, param_type: type):
         def handler(e):
             current_params = self.state.get('current_params')
             try:
-                # NiceGUI 이벤트에서 값 추출 방식 수정
-                value = getattr(e, 'value', None) or getattr(e, 'args', [None])[0]
+                value = getattr(e, 'value', e.args[0] if e.args else None)
                 if value is not None and hasattr(current_params, param_name):
-                    setattr(current_params, param_name, value)
+                    converted_value = param_type(value) 
+                    setattr(current_params, param_name, converted_value)
                     self.state.set('current_params', current_params)
             except (ValueError, TypeError, IndexError, AttributeError):
-                pass
+                print(f"경고: '{param_name}' 값을 {param_type}으로 변환할 수 없습니다.")
         return handler
 
     def _randomize_seed(self):
-        """시드 랜덤화"""
         current_params = self.state.get('current_params')
-        current_params.randomize_seed()
+        current_params.seed = -1
         self.state.set('current_params', current_params)
-        # seed input UI 업데이트
-        if hasattr(self, 'seed_input'):
-            self.seed_input.value = current_params.seed
+        if self.seed_input: self.seed_input.update()
 
     def _handle_model_change(self):
-        """모델 타입 변경 핸들러 (스위치 상태 직접 확인)"""
         if self.model_switch:
             new_model = 'SDXL' if self.model_switch.value else 'SD15'
             self.state.set('sd_model', new_model)
             self._calculate_dimensions()
-            print(f"🔄 모델 타입 변경: {new_model}")
+
+    @ui.refreshable
+    def ratio_buttons_container(self):
+        with ui.row().classes('w-full flex-wrap justify-center gap-1'):
+            for display_name, ratio_value, tooltip_text, orientation in self.ratios_data:
+                is_selected = (self.selected_display_name == display_name and not self._is_ratio_inverted)
+                button_text = display_name
+                if is_selected and self._is_ratio_inverted and orientation != 'square':
+                    if ":" in display_name:
+                        parts = display_name.split(':')
+                        if len(parts) == 2: button_text = f"{parts[1]}:{parts[0]}"
+                
+                btn_props = f'sm {"color=orange" if is_selected else "outline color=orange"}'
+                ui.button(button_text, 
+                          on_click=lambda dp=display_name, rv=ratio_value, o=orientation: self._handle_ratio_click(dp, rv, o)) \
+                    .props(btn_props).tooltip(tooltip_text)
 
     async def render(self):
-        """패널 렌더링"""
         self._calculate_dimensions()
         comfyui_samplers = ["euler", "dpmpp_2m", "dpmpp_sde_gpu", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde_gpu"]
         comfyui_schedulers = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
@@ -152,125 +127,49 @@ class ParameterPanel:
         with ui.column().classes('w-full gap-3'):
             ui.label('생성 설정').classes('text-lg font-bold text-yellow-400')
             
-            # 샘플러 및 스케줄러
             with ui.column().classes('gap-2'):
-                sampler_select = ui.select(
-                    options=comfyui_samplers, 
-                    label='Sampler', 
-                    value=current_params.sampler
-                ).props('dark outlined dense').classes('bg-gray-700')
-                sampler_select.on('update:model-value', self._on_param_change('sampler'))
+                ui.select(options=comfyui_samplers, label='Sampler', value=current_params.sampler) \
+                    .on('update:model-value', self._on_param_change('sampler', str))
                 
-                scheduler_select = ui.select(
-                    options=comfyui_schedulers, 
-                    label='Scheduler', 
-                    value=current_params.scheduler
-                ).props('dark outlined dense').classes('bg-gray-700')
-                scheduler_select.on('update:model-value', self._on_param_change('scheduler'))
+                ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler) \
+                    .on('update:model-value', self._on_param_change('scheduler', str))
             
-            # Steps와 CFG
-            steps_input = ui.number(
-                label='Steps', 
-                value=current_params.steps, 
-                min=1, 
-                max=150
-            ).props('dark outlined dense').classes('bg-gray-700')
-            steps_input.on('update:model-value', self._on_param_change('steps'))
+            ui.number(label='Steps', value=current_params.steps, min=1, max=150) \
+                .on('update:model-value', self._on_param_change('steps', int))
             
-            cfg_input = ui.number(
-                label='CFG Scale', 
-                value=current_params.cfg_scale, 
-                min=1.0, 
-                max=30.0, 
-                step=0.5
-            ).props('dark outlined dense').classes('bg-gray-700')
-            cfg_input.on('update:model-value', self._on_param_change('cfg_scale'))
+            ui.number(label='CFG Scale', value=current_params.cfg_scale, min=1.0, max=30.0, step=0.5) \
+                .on('update:model-value', self._on_param_change('cfg_scale', float))
             
-            # 이미지 크기
             with ui.row().classes('gap-2'):
-                ui.label('Width').classes('text-xs')
-                self.width_input = ui.number(
-                    value=current_params.width,
-                    min=128,
-                    max=2048,
-                    step=8
-                ).props('dark outlined dense').classes('bg-gray-700 w-20')
-                self.width_input.on('update:model-value', self._on_width_change)
+                self.width_input = ui.number(value=current_params.width, min=128, max=2048, step=8) \
+                    .on('update:model-value', self._on_param_change('width', int))
                 
-                ui.label('Height').classes('text-xs')
-                self.height_input = ui.number(
-                    value=current_params.height,
-                    min=128,
-                    max=2048,
-                    step=8
-                ).props('dark outlined dense').classes('bg-gray-700 w-20')
-                self.height_input.on('update:model-value', self._on_height_change)
+                self.height_input = ui.number(value=current_params.height, min=128, max=2048, step=8) \
+                    .on('update:model-value', self._on_param_change('height', int))
             
-            # 모델 타입 스위치 (수정된 이벤트 핸들링)
             with ui.row().classes('w-full flex-center items-center gap-2'):
-                current_model_type = self.state.get('sd_model', 'SD15')
-                self.model_switch = ui.switch(value=(current_model_type == 'SDXL')).props('color=orange')
-                self.model_switch.on('click', self._handle_model_change)  # click 이벤트 사용
+                self.model_switch = ui.switch(value=(self.state.get('sd_model') == 'SDXL')).props('color=orange') \
+                    .on('click', self._handle_model_change)
                 ui.label('SDXL').classes('text-xs text-gray-400')
 
-            # 비율 버튼들
-            with ui.row().classes('w-full flex-wrap justify-center gap-1'):
-                sorted_ratios_data = sorted(self.ratios_data, key=lambda item: item[1])
-                for display_name, ratio_value, tooltip_text, orientation in sorted_ratios_data:
-                    is_selected = (self.selected_display_name == display_name and not self._is_ratio_inverted)
-                    button_text = display_name
-                    if is_selected and self._is_ratio_inverted and orientation != 'square':
-                        if ":" in display_name:
-                            parts = display_name.split(':')
-                            if len(parts) == 2: 
-                                button_text = f"{parts[1]}:{parts[0]}"
-                    
-                    btn_props = f'sm {"color=orange" if is_selected else "outline color=orange"}'
-                    ui.button(
-                        button_text, 
-                        on_click=lambda dp=display_name, rv=ratio_value, o=orientation: self._handle_ratio_click(dp, rv, o)
-                    ).props(btn_props).tooltip(tooltip_text)
+            self.ratio_buttons_container()
             
-            # 배치 및 반복 설정
             with ui.row().classes('w-full gap-2 mt-4'):
-                batch_input = ui.number(
-                    label="배치 사이즈", 
-                    min=1, 
-                    max=32, 
-                    value=current_params.batch_size
-                ).props('dark outlined dense').classes('flex-1').tooltip('한 번에 생성할 이미지 수')
-                batch_input.on('update:model-value', self._on_param_change('batch_size'))
+                ui.number(label="배치 사이즈", min=1, max=32, value=current_params.batch_size) \
+                    .on('update:model-value', self._on_param_change('batch_size', int))
             
-                iterations_input = ui.number(
-                    label="반복 횟수", 
-                    min=1, 
-                    max=100, 
-                    value=current_params.iterations
-                ).props('dark outlined dense').classes('flex-1').tooltip('이 생성 작업을 몇 번 반복할지')
-                iterations_input.on('update:model-value', self._on_param_change('iterations'))
+                ui.number(label="반복 횟수", min=1, max=100, value=current_params.iterations) \
+                    .on('update:model-value', self._on_param_change('iterations', int))
 
-            # 시드 설정
             with ui.row().classes('gap-2 items-center w-full'):
-                self.seed_input = ui.number(
-                    label='Seed', 
-                    value=current_params.seed, 
-                    min=-1
-                ).props('dark outlined dense').classes('bg-gray-700 flex-grow')
-                self.seed_input.on('update:model-value', self._on_param_change('seed'))
+                self.seed_input = ui.number(label='Seed', value=current_params.seed, min=-1) \
+                    .on('update:model-value', self._on_param_change('seed', int))
                 
-                ui.button(
-                    icon='casino', 
-                    on_click=self._randomize_seed
-                ).props('sm round color=blue').tooltip('랜덤 시드')
+                ui.button(icon='casino', on_click=self._randomize_seed)
 
-            # 생성 버튼
-            self.generate_button = ui.button(
-                '생성', 
-                on_click=self._on_generate_click
-            ).props('size=lg color=blue').classes('w-full mt-4')
+            self.generate_button = ui.button('생성', on_click=self._on_generate_click) \
+                .props('size=lg color=blue').classes('w-full mt-4')
             
-            # 생성 상태 변경 이벤트 구독
-            self.state.subscribe('is_generating_changed', self._on_generate_status_change)
-            self.state.subscribe('generation_started', lambda _: self._on_generate_status_change(True))
-            self.state.subscribe('generation_finished', lambda _: self._on_generate_status_change(False))
-            self.state.subscribe('generation_failed', lambda _: self._on_generate_status_change(False))
+            # --- [수정된 부분] ---
+            # 여기서 구독하던 로직을 완전히 제거합니다.
+            # self.state.subscribe(...)
