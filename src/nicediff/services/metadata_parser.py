@@ -28,47 +28,55 @@ class MetadataParser:
 
     @staticmethod
     def _parse_automatic1111_format(text: str) -> Dict[str, Any]:
-        """AUTOMATIC1111 형식 파싱"""
+        """[수정] AUTOMATIC1111 형식 파싱 로직 개선"""
         result = {'prompt': '', 'negative_prompt': '', 'parameters': {}}
         
-        parts = text.split('Negative prompt:', 1)
-        result['prompt'] = parts[0].strip()
+        # 파라미터 블록의 시작점을 찾음 (Steps: 가 가장 일반적)
+        param_match = re.search(r'Steps:\s*\d+', text)
+        param_start_index = param_match.start() if param_match else -1
         
-        if len(parts) > 1:
-            neg_parts = parts[1].split('\n', 1)
-            result['negative_prompt'] = neg_parts[0].strip()
-            
-            if len(neg_parts) > 1:
-                param_text = neg_parts[1]
-                
-                patterns = {
-                    'steps': r'Steps:\s*(\d+)',
-                    'sampler': r'Sampler:\s*([^,]+)',
-                    'scheduler': r'Scheduler:\s*([^,]+)',
-                    'cfg_scale': r'CFG scale:\s*([\d\.]+)',
-                    'seed': r'Seed:\s*(\d+)',
-                    'size': r'Size:\s*(\d+x\d+)',
-                    'model': r'Model:\s*([^,]+)',
-                }
-                
-                for key, pattern in patterns.items():
-                    match = re.search(pattern, param_text, re.IGNORECASE)
-                    if match:
-                        value_str = match.group(1).strip()
-                        try:
-                            if key == 'size':
-                                w, h = value_str.split('x')
-                                result['parameters']['width'] = int(w)
-                                result['parameters']['height'] = int(h)
-                            elif key in ['steps', 'seed']:
-                                result['parameters'][key] = int(value_str)
-                            elif key == 'cfg_scale':
-                                result['parameters'][key] = float(value_str)
-                            else:
-                                result['parameters'][key] = value_str
-                        except (ValueError, IndexError):
-                             print(f"경고: 파라미터 '{key}'의 값 '{value_str}'을 변환할 수 없습니다.")
-                             result['parameters'][key] = value_str
+        # 파라미터 블록과 프롬프트 블록을 분리
+        param_text = text[param_start_index:] if param_start_index != -1 else ""
+        prompt_block = text[:param_start_index].strip() if param_start_index != -1 else text.strip()
+        
+        # 프롬프트 블록에서 긍정/부정 프롬프트 분리
+        neg_prompt_match = re.search(r'Negative prompt:\s*', prompt_block, re.IGNORECASE)
+        if neg_prompt_match:
+            result['prompt'] = prompt_block[:neg_prompt_match.start()].strip()
+            result['negative_prompt'] = prompt_block[neg_prompt_match.end():].strip()
+        else:
+            result['prompt'] = prompt_block
+
+        # 파라미터 파싱 (기존 로직과 유사)
+        if param_text:
+            patterns = {
+                'steps': r'Steps:\s*(\d+)',
+                'sampler': r'Sampler:\s*([^,]+)',
+                'scheduler': r'Scheduler:\s*([^,]+)',
+                'cfg_scale': r'CFG scale:\s*([\d\.]+)',
+                'seed': r'Seed:\s*(\d+)',
+                'size': r'Size:\s*(\d+x\d+)',
+                'model': r'Model:\s*([^,]+)',
+            }
+            for key, pattern in patterns.items():
+                match = re.search(pattern, param_text, re.IGNORECASE)
+                if match:
+                    # (파라미터 값 변환 로직은 기존과 동일하므로 생략)
+                    value_str = match.group(1).strip()
+                    try:
+                        if key == 'size':
+                            w, h = value_str.split('x')
+                            result['parameters']['width'] = int(w)
+                            result['parameters']['height'] = int(h)
+                        elif key in ['steps', 'seed']:
+                            result['parameters'][key] = int(value_str)
+                        elif key == 'cfg_scale':
+                            result['parameters'][key] = float(value_str)
+                        else:
+                            result['parameters'][key] = value_str
+                    except (ValueError, IndexError):
+                            print(f"경고: 파라미터 '{key}'의 값 '{value_str}'을 변환할 수 없습니다.")
+                            result['parameters'][key] = value_str
         return result
     
     @staticmethod
@@ -88,8 +96,8 @@ class MetadataParser:
                         
                         # 상세 디버깅
                         #print("📋 Safetensors 메타데이터 발견:")
-                        for key, value in list(metadata.items())[:10]:
-                            print(f"   - {key}: {str(value)[:100]}...")
+                        #for key, value in list(metadata.items())[:10]:
+                        #    print(f"   - {key}: {str(value)[:100]}...")
                         
                         # 'prompt' 키가 ComfyUI 워크플로우 JSON인지 확인하고 파싱
                         if 'prompt' in metadata and isinstance(metadata['prompt'], str):
@@ -115,7 +123,7 @@ class MetadataParser:
 
                         return metadata
                     else:
-                        print("⚠️ __metadata__ 블록이 없습니다.")
+                        print("없음")
                         
         except Exception as e:
             print(f"Safetensors 메타데이터 추출 오류 ({model_path.name}): {e}")

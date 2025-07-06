@@ -2,136 +2,110 @@
 중앙 이미지 뷰어/캔버스 컴포넌트 (이미지 크기 조정 수정)
 """
 
+
 from nicegui import ui
 from pathlib import Path
 from ..core.state_manager import StateManager
 
 class ImagePad:
-    """이미지 패드 (이미지 크기 조정 수정 완료)"""
+    """이미지 패드 (UI 업데이트 안정성 개선)"""
     
     def __init__(self, state_manager: StateManager):
         self.state = state_manager
-        self.current_image = None
-        self.image_container = None
-        self.is_empty = True
+        self.current_image_path = None
+        
+        # UI 컨테이너 및 요소들을 미리 선언
+        self.empty_container = None
+        self.loading_container = None
+        self.image_display_container = None
         self.current_image_element = None
+        self.loading_label = None
+        self.progress_bar = None
     
     async def render(self):
         """컴포넌트 렌더링"""
-        # 파란색 배경의 이미지 패드 (overflow 제어 추가)
-        with ui.column().classes('w-full h-full items-center justify-center bg-blue-900 rounded-lg overflow-hidden'):
-            self.image_container = ui.column().classes('w-full h-full items-center justify-center overflow-hidden')
-            self._show_empty_state()
+        with ui.column().classes('w-full h-full items-center justify-center bg-blue-900 rounded-lg overflow-hidden relative'):
+            # --- [핵심 변경] ---
+            # 3가지 상태(Empty, Loading, Image)에 대한 UI 뼈대를 미리 한번만 생성합니다.
+            self._setup_ui_skeleton()
+
+        # 초기 상태를 빈 화면으로 설정
+        self._show_empty_state()
         
-        # 이미지 생성 완료 이벤트 구독
+        # 이벤트 구독
         self.state.subscribe('image_generated', self._on_image_generated)
         self.state.subscribe('generation_started', self._on_generation_started)
         self.state.subscribe('generation_progress', self._on_generation_progress)
         self.state.subscribe('generation_failed', self._on_generation_failed)
     
+    def _setup_ui_skeleton(self):
+        """UI의 뼈대를 미리 한번만 생성하는 함수"""
+        # 1. 빈 상태 컨테이너
+        with ui.column().classes('items-center justify-center gap-4') as self.empty_container:
+            ui.icon('image').classes('text-8xl text-white opacity-50')
+            ui.label('생성된 그림 pad').classes('text-4xl font-bold text-white opacity-80')
+            ui.label('이미지를 생성하려면 프롬프트를 입력하고').classes('text-lg text-white opacity-60')
+            ui.label('"생성" 버튼을 클릭하세요').classes('text-lg text-white opacity-60')
+            with ui.row().classes('gap-2 mt-4'):
+                ui.icon('lightbulb').classes('text-yellow-400')
+                ui.label('Tip: 모델을 먼저 선택해주세요').classes('text-sm text-yellow-400')
+
+        # 2. 로딩 상태 컨테이너
+        with ui.column().classes('items-center justify-center gap-4') as self.loading_container:
+            ui.spinner(size='lg', color='white')
+            self.loading_label = ui.label("이미지 생성 중...").classes('text-xl text-white')
+            self.progress_bar = ui.linear_progress(value=0).classes('w-64')
+
+        # 3. 이미지 표시 컨테이너
+        with ui.column().classes('w-full h-full items-center justify-center relative') as self.image_display_container:
+            self.current_image_element = ui.image().classes('max-w-full max-h-full object-contain rounded-lg shadow-2xl')
+            
+            # 이미지 위에 호버 시 나타나는 도구들
+            with ui.row().classes('absolute top-4 right-4 gap-2 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10'):
+                ui.button(icon='fullscreen', on_click=lambda: self._show_fullscreen()).props('round color=white text-color=black size=sm').tooltip('전체화면')
+                ui.button(icon='download', on_click=lambda: self._download_image()).props('round color=white text-color=black size=sm').tooltip('다운로드')
+                ui.button(icon='zoom_in', on_click=self._toggle_zoom).props('round color=white text-color=black size=sm').tooltip('확대/축소')
+                ui.button(icon='delete', on_click=self._delete_image).props('round color=red size=sm').tooltip('삭제')
+            
+            # 이미지 정보 표시 (하단)
+            self.image_info_label = ui.label().classes('absolute bottom-4 left-4 bg-black bg-opacity-50 rounded px-3 py-1 text-white text-sm')
+
+
     def _show_empty_state(self):
-        """빈 상태 표시"""
-        self.image_container.clear()
-        self.is_empty = True
-        self.current_image_element = None
-        
-        with self.image_container:
-            with ui.column().classes('items-center justify-center gap-4'):
-                # 큰 아이콘
-                ui.icon('image').classes('text-8xl text-white opacity-50')
-                
-                # 메인 텍스트
-                ui.label('생성된 그림 pad').classes(
-                    'text-4xl font-bold text-white opacity-80'
-                )
-                
-                # 서브 텍스트
-                ui.label('이미지를 생성하려면 프롬프트를 입력하고').classes(
-                    'text-lg text-white opacity-60'
-                )
-                ui.label('"생성" 버튼을 클릭하세요').classes(
-                    'text-lg text-white opacity-60'
-                )
-                
-                # 힌트
-                with ui.row().classes('gap-2 mt-4'):
-                    ui.icon('lightbulb').classes('text-yellow-400')
-                    ui.label('Tip: 모델을 먼저 선택해주세요').classes(
-                        'text-sm text-yellow-400'
-                    )
-    
+        """빈 상태를 보여줍니다."""
+        if self.empty_container: self.empty_container.visible = True
+        if self.loading_container: self.loading_container.visible = False
+        if self.image_display_container: self.image_display_container.visible = False
+
     def _show_loading_state(self, message: str = "이미지 생성 중..."):
-        """로딩 상태 표시"""
-        self.image_container.clear()
-        self.is_empty = False
-        self.current_image_element = None
-        
-        with self.image_container:
-            with ui.column().classes('items-center justify-center gap-4'):
-                # 로딩 스피너
-                ui.spinner(size='lg', color='white')
-                
-                # 상태 메시지
-                self.loading_label = ui.label(message).classes(
-                    'text-xl text-white'
-                )
-                
-                # 진행률 바
-                self.progress_bar = ui.linear_progress(value=0).classes('w-64')
-    
+        """로딩 상태를 보여줍니다."""
+        if self.empty_container: self.empty_container.visible = False
+        if self.loading_container: self.loading_container.visible = True
+        if self.image_display_container: self.image_display_container.visible = False
+        if self.loading_label: self.loading_label.set_text(message)
+        if self.progress_bar: self.progress_bar.set_value(0)
+
     def _show_image(self, image_path: str):
-        """이미지 표시 (크기 조정 수정)"""
-        self.image_container.clear()
-        self.is_empty = False
-        self.current_image = image_path
+        """이미지를 보여줍니다."""
+        self.current_image_path = image_path
+        if self.empty_container: self.empty_container.visible = False
+        if self.loading_container: self.loading_container.visible = False
+        if self.image_display_container: self.image_display_container.visible = True
         
-        with self.image_container:
-            # 이미지 컨테이너 (상대적 위치 지정)
-            with ui.column().classes('w-full h-full items-center justify-center relative overflow-hidden'):
+        # --- [핵심 변경] ---
+        # 새 이미지 요소를 만드는 대신 .set_source()로 내용만 교체합니다.
+        if self.current_image_element: self.current_image_element.set_source(image_path)
+        
+        # 이미지 정보 업데이트
+        if self.image_info_label:
+            try:
+                from PIL import Image
+                with Image.open(image_path) as img:
+                    width, height = img.size
+                    self.image_info_label.set_text(f'{width} × {height}')
+            except Exception:
+                self.image_info_label.set_text('이미지 정보')
                 
-                # 이미지 표시 (반응형 크기 조정)
-                self.current_image_element = ui.image(image_path).classes(
-                    'max-w-full max-h-full object-contain rounded-lg shadow-2xl'
-                ).style("""
-                    width: auto;
-                    height: auto;
-                    max-width: 100%;
-                    max-height: 100%;
-                    object-fit: contain;
-                """)
-                
-                # 이미지 위에 호버 시 나타나는 도구들
-                with ui.row().classes('absolute top-4 right-4 gap-2 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10'):
-                    ui.button(
-                        icon='fullscreen',
-                        on_click=lambda: self._show_fullscreen(image_path)
-                    ).props('round color=white text-color=black size=sm').tooltip('전체화면')
-                    
-                    ui.button(
-                        icon='download',
-                        on_click=lambda: self._download_image(image_path)
-                    ).props('round color=white text-color=black size=sm').tooltip('다운로드')
-                    
-                    ui.button(
-                        icon='zoom_in',
-                        on_click=lambda: self._toggle_zoom()
-                    ).props('round color=white text-color=black size=sm').tooltip('확대/축소')
-                    
-                    ui.button(
-                        icon='delete',
-                        on_click=self._delete_image
-                    ).props('round color=red size=sm').tooltip('삭제')
-                
-                # 이미지 정보 표시 (하단)
-                with ui.row().classes('absolute bottom-4 left-4 bg-black bg-opacity-50 rounded px-3 py-1 text-white text-sm'):
-                    try:
-                        from PIL import Image
-                        with Image.open(image_path) as img:
-                            width, height = img.size
-                            ui.label(f'{width} × {height}')
-                    except Exception:
-                        ui.label('이미지 정보')
-    
     def _toggle_zoom(self):
         """이미지 확대/축소 토글"""
         if self.current_image_element:
@@ -213,41 +187,38 @@ class ImagePad:
         self._show_error_state(error)
     
     def _download_image(self, image_path):
-        """이미지 다운로드"""
-        try:
-            # 파일 다운로드 링크 생성
-            filename = Path(image_path).name
-            ui.download(image_path, filename)
-            ui.notify(f'{filename} 다운로드가 시작되었습니다', type='success')
-        except Exception as e:
-            ui.notify(f'다운로드 실패: {str(e)}', type='negative')
-    
-    def _show_fullscreen(self, image_path):
-        """전체화면 표시"""
-        with ui.dialog().props('maximized') as dialog, ui.card().classes('w-full h-full bg-black'):
-            with ui.column().classes('w-full h-full items-center justify-center relative'):
-                # 전체화면 이미지
-                ui.image(image_path).classes('max-w-full max-h-full object-contain')
-                
-                # 닫기 버튼
-                ui.button(
-                    icon='close',
-                    on_click=dialog.close
-                ).props('flat round color=white size=lg').classes('absolute top-4 right-4')
-                
-                # 이미지 정보
-                with ui.row().classes('absolute bottom-4 left-4 bg-black bg-opacity-70 rounded px-4 py-2 text-white'):
-                    ui.label(Path(image_path).name).classes('text-lg')
-                    try:
-                        from PIL import Image
-                        with Image.open(image_path) as img:
-                            width, height = img.size
-                            ui.label(f' • {width} × {height}')
-                    except Exception:
-                        pass
-                
-        dialog.open()
-    
+        if self.current_image_path:
+            ui.download(self.current_image_path)
+            
+    def _show_fullscreen(self):
+        """전체화면 표시 (수정 완료)"""
+        if self.current_image_path:
+            with ui.dialog().props('maximized') as dialog, ui.card().classes('w-full h-full bg-black'):
+                with ui.column().classes('w-full h-full items-center justify-center relative'):
+                    # 전체화면 이미지
+                    # --- [수정] image_path -> self.current_image_path ---
+                    ui.image(self.current_image_path).classes('max-w-full max-h-full object-contain')
+                    
+                    # 닫기 버튼
+                    ui.button(
+                        icon='close',
+                        on_click=dialog.close
+                    ).props('flat round color=white size=lg').classes('absolute top-4 right-4')
+                    
+                    # 이미지 정보
+                    with ui.row().classes('absolute bottom-4 left-4 bg-black bg-opacity-70 rounded px-4 py-2 text-white'):
+                        # --- [수정] image_path -> self.current_image_path ---
+                        ui.label(Path(self.current_image_path).name).classes('text-lg')
+                        try:
+                            from PIL import Image
+                            # --- [수정] image_path -> self.current_image_path ---
+                            with Image.open(self.current_image_path) as img:
+                                width, height = img.size
+                                ui.label(f' • {width} × {height}')
+                        except Exception:
+                            pass
+            dialog.open()
+            
     def _delete_image(self):
         """이미지 삭제"""
         # 확인 다이얼로그

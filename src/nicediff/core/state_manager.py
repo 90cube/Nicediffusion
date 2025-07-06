@@ -143,7 +143,8 @@ class StateManager:
             
             # --- [확인 및 추가] ---
             # 모델 로딩 후 메타데이터를 적용하는 로직 호출
-            self.apply_params_from_metadata(model_info)
+            #self.apply_params_from_metadata(model_info)
+            self._notify('model_selection_changed', model_info)
             
             self._notify('model_loading_finished', {'success': True, 'model_info': model_info})
             ui.notify(f"'{model_info['name']}' 모델이 로드되었습니다.", type='success')
@@ -247,8 +248,10 @@ class StateManager:
         finally:
             self.set('is_loading_model', False)
 
+# src/nicediff/core/state_manager.py 의 generate_image 함수를 교체하세요.
+
     async def generate_image(self):
-        """[최종 업그레이드] 배치/반복 생성을 지원하고, 중단 가능한 중앙 생성 메서드"""
+        """[수정] 배치/반복 로직이 올바르게 수정된 생성 메서드"""
         if self.get('is_generating'): 
             ui.notify('이미 생성 중입니다.', type='warning')
             return
@@ -257,62 +260,59 @@ class StateManager:
             ui.notify('모델을 먼저 로드해주세요.', type='warning')
             return
         
-        self.stop_generation_flag.clear() # 중단 플래그 리셋
+        self.stop_generation_flag.clear()
         self.set('is_generating', True)
         self._notify('generation_started', {})
         
         params_snapshot = copy.deepcopy(self.get('current_params'))
         try:
-            # UI로부터 받은 값이 문자열일 수 있으므로, 정수로 강제 변환합니다.
-            batch_size = int(params_snapshot.batch_size)
             iterations = int(params_snapshot.iterations)
-        except (ValueError, TypeError):
-            # 만약 값이 이상해서 정수로 변환할 수 없다면, 오류를 알리고 기본값으로 설정합니다.
-            ui.notify('배치 사이즈와 반복 횟수는 숫자여야 합니다.', type='negative')
-            batch_size = 1
-            iterations = 1
+            batch_size = int(params_snapshot.batch_size)
 
-        try:
-            total_generations = params_snapshot.iterations * params_snapshot.batch_size
-            
             base_seed = params_snapshot.seed
             if base_seed == -1:
                 base_seed = random.randint(0, 2**32 - 1)
-                params_snapshot.seed = base_seed
-                self.set('current_params', params_snapshot)
 
-            for i in range(params_snapshot.iterations):
-                for b in range(params_snapshot.batch_size):
-                    if self.stop_generation_flag.is_set():
-                        ui.notify('생성이 중단되었습니다.', type='info')
-                        return
+            for i in range(iterations):
+                if self.stop_generation_flag.is_set():
+                    ui.notify('생성이 중단되었습니다.', type='info')
+                    break
 
-                    current_seed = base_seed + (i * params_snapshot.batch_size) + b
-                    generator = torch.Generator(device=self.device).manual_seed(current_seed)
-                    
-                    def _generate():
-                        return self.pipeline(
-                            prompt=params_snapshot.prompt,
-                            negative_prompt=params_snapshot.negative_prompt,
-                            width=params_snapshot.width,
-                            height=params_snapshot.height,
-                            num_inference_steps=params_snapshot.steps,
-                            guidance_scale=params_snapshot.cfg_scale,
-                            generator=generator
-                        ).images[0]
-                    
-                    image = await asyncio.to_thread(_generate)
-                    
-                    # 후처리 및 저장
-                    await self.finish_generation(image, params_snapshot, current_seed)
+                current_seed = base_seed + i
+                generator = torch.Generator(device=self.device).manual_seed(current_seed)
+                
+                print(f"🎨 생성 시작 (Iteration {i+1}/{iterations}) - Seed: {current_seed}")
+
+                def _generate():
+                    print(f"🔧 파이프라인 호출 - Size: {int(params_snapshot.width)}x{int(params_snapshot.height)}, Batch: {batch_size}")
+                    return self.pipeline(
+                        prompt=params_snapshot.prompt,
+                        negative_prompt=params_snapshot.negative_prompt,
+                        width=int(params_snapshot.width),
+                        height=int(params_snapshot.height),
+                        num_inference_steps=int(params_snapshot.steps),
+                        guidance_scale=params_snapshot.cfg_scale,
+                        generator=generator,
+                        num_images_per_prompt=batch_size  # <-- [핵심 수정] 배치 사이즈는 여기서 사용
+                    ).images
+                
+                # 파이프라인은 이미지 리스트를 반환합니다.
+                generated_images = await asyncio.to_thread(_generate)
+                
+                # 배치된 각 이미지에 대해 후처리 실행
+                for j, image in enumerate(generated_images):
+                    # 배치 내 각 이미지에 대한 시드는 구별할 수 있도록 임시로 j를 더함
+                    image_seed = current_seed if batch_size == 1 else f"{current_seed}_{j+1}"
+                    print(f"✅ 생성된 이미지 크기: {image.size}")
+                    await self.finish_generation(image, params_snapshot, image_seed)
 
         except Exception as e:
+            # (오류 처리 부분은 기존과 동일)
             print(f"❌ 생성 중 심각한 오류 발생: {e}")
             import traceback
             traceback.print_exc()
             self._notify('generation_failed', {'error': str(e)})
             ui.notify(f'생성 실패: {str(e)}', type='negative')
-            return False
 
         finally:
             self.set('is_generating', False)

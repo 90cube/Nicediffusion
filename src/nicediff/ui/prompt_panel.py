@@ -197,14 +197,14 @@ class PromptPanel:
         StateManager로부터 상태 복원 이벤트를 받았을 때
         프롬프트 입력 UI를 업데이트합니다.
         """
-        # --- [수정된 부분] ---
-        # data.params (오류 발생) -> data['params'] (정상)
-        # 딕셔너리(dict)의 키로 값에 접근합니다.
         params = data.get('params')
 
         # params 객체가 정상적으로 존재하는지 확인 후 UI 업데이트
         if params:
-            if self.positive_prompt_input:
-                self.positive_prompt_input.set_value(params.prompt)
-            if self.negative_prompt_input:
-                self.negative_prompt_input.set_value(params.negative_prompt)
+            # 올바른 속성명 사용: positive_textarea와 negative_textarea
+            if self.positive_textarea:
+                self.positive_textarea.set_value(params.prompt)
+                self._on_positive_change(None)
+            if self.negative_textarea:
+                self.negative_textarea.set_value(params.negative_prompt)
+                self._on_negative_change(None)

@@ -132,31 +132,24 @@ class ModelScanner:
                         'type': model_type,
                     }
                     
-                    # model_type에 따라 필요한 메타데이터만 추출하도록 분기
+                        # model_type에 따라 필요한 메타데이터만 추출하도록 분기
                     if model_type == 'checkpoints':
-                        # 1. 먼저 같은 이름의 PNG 파일에서 메타데이터 찾기 (우선순위 높음)
+                        # --- [수정된 로직 시작] ---
+                        # 1. 모델 타입 정보는 항상 safetensors 파일에서 직접 추출
+                        model_specific_info = self.metadata_parser.get_model_info(file_path)
+                        file_info.update(model_specific_info)
+
+                        # 2. 생성 파라미터 메타데이터는 오직 이름이 같은 .png 파일에서만 가져옴
                         png_path = file_path.with_suffix('.png')
-                        metadata = {}
-                        
                         if png_path.exists():
-                            print(f"📷 PNG 메타데이터 발견: {png_path.name}")
-                            metadata = self.metadata_parser.extract_from_png(png_path)
-                        
-                        # 2. PNG에서 메타데이터를 찾지 못했으면 safetensors에서 추출
-                        if not metadata and file_path.suffix.lower() == '.safetensors':
-                            print(f"📋 Safetensors 메타데이터 사용: {file_path.name}")
-                            metadata = self.metadata_parser.extract_from_safetensors(file_path)
-                        
-                        # 3. 모델 타입 정보 추가
-                        model_info = self.metadata_parser.get_model_info(file_path)
-                        file_info.update(model_info)
-                        
-                        # 4. 메타데이터 병합
-                        if metadata:
-                            if 'metadata' not in file_info:
-                                file_info['metadata'] = {}
-                            file_info['metadata'].update(metadata)
-                        
+                            # print(f"📷 PNG 메타데이터 발견: {png_path.name}") # 디버깅용
+                            png_metadata = self.metadata_parser.extract_from_png(png_path)
+                            # PNG에서 추출한 메타데이터를 file_info의 'metadata'에 덮어씀
+                            file_info['metadata'] = png_metadata
+                        else:
+                            # PNG 파일이 없으면 메타데이터는 비워둠
+                            file_info['metadata'] = {}
+                            
                     elif model_type == 'loras':
                         if file_path.suffix.lower() == '.safetensors':
                             lora_meta = self.metadata_parser.extract_from_safetensors(file_path)
