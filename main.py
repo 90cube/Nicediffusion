@@ -24,12 +24,6 @@ except metadata.PackageNotFoundError:
 
 print("--- [진단 끝, 원래 코드 실행 시작] ---\n\n")
 
-#!/usr/bin/env python3
-"""
-Nicediff - Modular AI Image Generation UI
-Main entry point (반응형 최적화)
-"""
-
 import sys
 from pathlib import Path
 
@@ -46,26 +40,35 @@ state_manager = StateManager()
 
 @ui.page('/')
 async def main_page():
-    """메인 페이지 라우터"""
+    """메인 페이지 라우터 (뷰포트 개선)"""
     # 반응형 디자인을 위한 색상 설정
     ui.colors(primary='#3b82f6', dark='#1e293b')
     
-    # 반응형 메타 태그 및 뷰포트 설정
+    # 반응형 메타 태그 및 뷰포트 설정 (개선)
     ui.add_head_html("""
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
         <style>
-            /* 전체 페이지 스크롤 방지 */
+            /* 전체 페이지 레이아웃 최적화 */
             html, body {
-                overflow: hidden !important;
-                height: 100vh !important;
                 margin: 0 !important;
                 padding: 0 !important;
+                height: 100vh !important;
+                overflow-x: hidden !important; /* 가로 스크롤 방지 */
+                overflow-y: auto !important; /* 세로 스크롤 허용 */
+                box-sizing: border-box;
             }
             
             /* NiceGUI 기본 컨테이너 최적화 */
             .nicegui-content {
                 height: 100vh !important;
-                overflow: hidden !important;
+                max-width: 100vw !important;
+                overflow-x: hidden !important;
+                box-sizing: border-box;
+            }
+            
+            /* 모든 요소에 박스 사이징 적용 */
+            *, *::before, *::after {
+                box-sizing: border-box;
             }
             
             /* 스크롤바 스타일링 (다크 테마) */
@@ -88,10 +91,88 @@ async def main_page():
                 background: #9ca3af;
             }
             
-            /* 작은 화면에서 텍스트 크기 조정 */
+            /* 컨테이너 최대 너비 제한 및 overflow 제어 */
+            .container-responsive {
+                max-width: 100vw !important;
+                overflow-x: hidden !important;
+                box-sizing: border-box;
+            }
+            
+            /* 플렉스 아이템 최소 너비 설정 */
+            .flex-item-min {
+                min-width: 0 !important;
+                flex-shrink: 1 !important;
+                box-sizing: border-box;
+            }
+            
+            /* 우측 패널 너비 제한 */
+            .right-panel-constrain {
+                max-width: 320px !important;
+                min-width: 250px !important;
+                width: 280px !important;
+                flex-shrink: 0 !important;
+                box-sizing: border-box;
+            }
+            
+            /* TopBar 반응형 개선 */
+            .topbar-responsive {
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                max-width: 100vw;
+                overflow-x: hidden;
+                box-sizing: border-box;
+            }
+            
+            /* 반응형 텍스트 크기 */
             @media (max-width: 640px) {
                 .text-responsive {
                     font-size: 0.75rem !important;
+                }
+                
+                /* 모바일에서 TopBar 개선 */
+                .mobile-stack {
+                    flex-direction: column !important;
+                    align-items: stretch !important;
+                }
+                
+                .mobile-stack > * {
+                    width: 100% !important;
+                    margin-bottom: 0.5rem !important;
+                }
+                
+                .mobile-text-sm {
+                    font-size: 0.7rem !important;
+                }
+                
+                /* 모바일에서 우측 패널 조정 */
+                .right-panel-constrain {
+                    width: 220px !important;
+                    min-width: 200px !important;
+                    max-width: 220px !important;
+                }
+            }
+            
+            /* 태블릿 크기 */
+            @media (max-width: 1024px) {
+                .tablet-vertical {
+                    flex-direction: column !important;
+                }
+                
+                .topbar-responsive {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+                
+                .topbar-responsive .vae-selector {
+                    width: 100% !important;
+                    max-width: none !important;
+                }
+                
+                /* 태블릿에서 우측 패널 조정 */
+                .right-panel-constrain {
+                    width: 260px !important;
+                    min-width: 240px !important;
+                    max-width: 280px !important;
                 }
             }
             
@@ -100,6 +181,29 @@ async def main_page():
                 .hide-on-mobile {
                     display: none !important;
                 }
+                
+                .right-panel-constrain {
+                    width: 200px !important;
+                    min-width: 180px !important;
+                    max-width: 200px !important;
+                }
+            }
+            
+            /* 레이아웃 안정성을 위한 추가 규칙 */
+            .main-layout {
+                width: 100vw !important;
+                height: 100vh !important;
+                overflow: hidden !important;
+                display: flex !important;
+                flex-direction: column !important;
+            }
+            
+            .content-row {
+                display: flex !important;
+                width: 100% !important;
+                overflow: hidden !important;
+                flex: 1 !important;
+                min-height: 0 !important;
             }
         </style>
     """)
@@ -126,9 +230,10 @@ async def shutdown():
 
 if __name__ == '__main__':
     ui.run(
-        title="Nicediff",
+        title="Nicediff - AI Image Generation Studio",
         port=8080,
         dark=True,
         reload=False,
-        show=True
+        show=True,
+        favicon='🎨'
     )

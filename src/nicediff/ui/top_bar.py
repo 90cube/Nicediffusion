@@ -1,4 +1,4 @@
-# 파일 경로: src/nicediff/ui/top_bar.py (최종 복원 및 완성본)
+# 파일 경로: src/nicediff/ui/top_bar.py (오류 수정 버전)
 
 from nicegui import ui
 from typing import Dict, List, Any, Optional
@@ -6,7 +6,7 @@ from pathlib import Path
 import asyncio, json, base64
 
 class TopBar:
-    """최종 개편된 상단 바 (모든 헬퍼 메서드 포함)"""
+    """최종 개편된 상단 바 (오류 수정 완료)"""
 
     def __init__(self, state_manager: Any):
         self.state = state_manager
@@ -36,35 +36,40 @@ class TopBar:
 
     # 1. UI의 '틀'을 만드는 render 메서드
     async def render(self):
-        """[최종 수정] 올바른 레이아웃으로 VAE 선택 메뉴를 복원하고, 컨텐츠 영역을 명확히 분리합니다."""
+        """[최종 수정] 반응형 레이아웃으로 TopBar 개선"""
         
-        # 전체를 감싸는 카드
-        with ui.card().tight().classes('w-full'):
+        # 전체를 감싸는 카드 (overflow 제어)
+        with ui.card().tight().classes('w-full overflow-hidden'):
             
-            # 1. 최상단 바: 타이틀, 토글 버튼, VAE 선택 메뉴를 여기에 배치합니다.
-            with ui.row().classes('w-full p-2 bg-gray-900 items-center justify-between'):
-                with ui.row().classes('items-center'):
+            # 1. 최상단 바: 반응형 레이아웃
+            with ui.row().classes('w-full p-2 bg-gray-900 items-center justify-between flex-wrap gap-2'):
+                # 왼쪽: 타이틀과 토글 버튼
+                with ui.row().classes('items-center flex-shrink-0'):
                     ui.label("모델 라이브러리").classes("text-lg font-bold text-white")
                     self.toggle_button = ui.button(icon='expand_less', on_click=self._toggle_visibility).props('flat round color=white size=sm ml-2')
                 
-                with ui.row().classes('items-center gap-2'):
-                    ui.label('VAE:').classes('text-sm text-white')
+                # 오른쪽: VAE 선택 (반응형)
+                with ui.row().classes('items-center gap-2 flex-shrink-0 min-w-0'):
+                    ui.label('VAE:').classes('text-sm text-white flex-shrink-0')
                     self.vae_select = ui.select(options=['Automatic', 'None'], value='Automatic') \
-                        .props('dark outlined dense').classes('w-48') \
+                        .props('dark outlined dense') \
+                        .classes('w-48 min-w-32 max-w-64') \
                         .on('change', lambda e: self._on_vae_change(e.value))
 
-            # 2. 메인 컨텐츠 영역 (토글 가능)
-            self.content_row = ui.grid(columns='35% 1fr').classes('w-full p-2 bg-gray-800 items-start gap-2')
+            # 2. 메인 컨텐츠 영역 (토글 가능, 반응형)
+            self.content_row = ui.row().classes('w-full p-2 bg-gray-800 gap-2 flex-wrap lg:flex-nowrap')
             with self.content_row:
-                # 왼쪽: 모델 앨범
-                with ui.card().tight().classes('w-full h-64'):
-                    self.album_container = ui.scroll_area().classes('w-full h-full')
+                # 왼쪽: 모델 앨범 (반응형 너비)
+                with ui.card().tight().classes('w-full lg:w-2/5 xl:w-1/3 h-64 min-w-0'):
+                    with ui.card_section().classes('p-2'):
+                        ui.label('체크포인트 모델').classes('text-sm font-bold text-white mb-2')
+                    self.album_container = ui.scroll_area().classes('w-full h-52')
                     # 초기 상태 표시
                     with self.album_container:
                          ui.label("모델 로딩 중...").classes("m-4 text-center text-gray-500")
 
-                # 오른쪽: 메타데이터 패널
-                self.metadata_container = ui.card().tight().classes('w-full h-64 bg-gray-700')
+                # 오른쪽: 메타데이터 패널 (반응형 너비)
+                self.metadata_container = ui.card().tight().classes('w-full lg:w-3/5 xl:w-2/3 h-64 bg-gray-700 min-w-0')
                 self._build_metadata_ui_skeleton() # 메타데이터 UI 뼈대 생성
 
         # UI가 모두 생성된 후, 초기 데이터 로딩을 안전하게 요청합니다.
@@ -93,8 +98,20 @@ class TopBar:
 
     async def _on_vaes_updated(self, vaes_by_category: Dict[str, List[Dict[str, Any]]]):
         """VAE 목록이 업데이트되면 드롭다운 메뉴를 채웁니다."""
-        # 이 로직은 StateManager의 VAE 자동선택과 연동될 수 있습니다.
-        pass
+        # VAE 옵션 업데이트
+        vae_options = ['Automatic', 'None']
+        
+        if vaes_by_category:
+            for folder_name, folder_vaes in vaes_by_category.items():
+                for vae_info in folder_vaes:
+                    display_name = vae_info['name']
+                    if folder_name != 'Root':
+                        display_name = f"{folder_name}/{vae_info['name']}"
+                    vae_options.append(display_name)
+        
+        if self.vae_select:
+            self.vae_select.options = vae_options
+            print(f"✅ VAE 옵션 업데이트 완료: {len(vae_options)-2}개 VAE 발견")
 
     # 3. UI 헬퍼 메서드 (UI를 그리거나 업데이트하는 구체적인 로직)
     def _create_model_card(self, model_info: Dict[str, Any]):
@@ -109,21 +126,51 @@ class TopBar:
                 ui.label(model_info['name']).classes('text-xs w-full text-center font-medium h-6 truncate').tooltip(model_info['name'])
 
     def _build_metadata_ui_skeleton(self):
-        """메타데이터 UI의 뼈대를 생성합니다."""
+        """메타데이터 UI의 뼈대를 생성합니다 (반응형 개선)."""
         with self.metadata_container:
-            with ui.column().classes('w-full h-full p-2 gap-1'):
-                self.preview_image = ui.image().classes('w-full h-40 object-contain bg-gray-800 rounded-md')
-                with ui.card_section().classes('p-2 w-full'):
-                    self.prompt_area = ui.markdown().classes('text-xs h-16 overflow-y-auto flex-grow')
-                    self.params_label = ui.label().classes('text-xs text-gray-400 mt-1')
-                    self.apply_button = ui.button('파라미터 적용', on_click=self._apply_metadata_to_params).props('dense size=sm color=blue').classes('w-full mt-2')
-        self._update_metadata_ui() # 초기 빈 상태로 업데이트
+            with ui.card_section().classes('p-2'):
+                ui.label('선택된 모델 정보').classes('text-sm font-bold text-white mb-2')
+            
+            with ui.column().classes('w-full h-52 p-2 gap-2 overflow-hidden'):
+                # 미리보기 이미지 (반응형)
+                self.preview_image = ui.image().classes('w-full h-32 object-contain bg-gray-800 rounded-md flex-shrink-0')
+                
+                # 스크롤 가능한 메타데이터 영역
+                with ui.scroll_area().classes('w-full flex-1 min-h-0'):
+                    with ui.column().classes('w-full gap-2'):
+                        self.prompt_area = ui.markdown().classes('text-xs')
+                        self.params_label = ui.label().classes('text-xs text-gray-400')
+                        self.apply_button = ui.button('파라미터 적용', on_click=self._apply_metadata_to_params).props('dense size=sm color=blue').classes('w-full')
+        
+        self._update_metadata_ui() # 초기 빈 상태로 업데이트 (인자 없이 호출)
 
-    def _update_metadata_ui(self, model_info: Optional[Dict[str, Any]], loading_info: Optional[Dict] = None, error_message: Optional[str] = None):
-        """저장된 selected_model_info를 바탕으로 메타데이터 UI를 업데이트합니다."""
-        if self.selected_model_info:
-            metadata = self.selected_model_info.get('metadata', {})
-            self.preview_image.set_source(self._get_preview_src(self.selected_model_info))
+    def _update_metadata_ui(self, model_info: Optional[Dict[str, Any]] = None, loading_info: Optional[Dict] = None, error_message: Optional[str] = None):
+        """[오류 수정] model_info를 옵셔널 파라미터로 변경하고, 전달되지 않으면 self.selected_model_info를 사용합니다."""
+        
+        # 만약 model_info가 전달되지 않았다면, self.selected_model_info를 사용
+        if model_info is None:
+            model_info = self.selected_model_info
+        
+        # 로딩 상태 처리
+        if loading_info:
+            self.preview_image.set_source('https://placehold.co/256x256/2d3748/e2e8f0?text=Loading...')
+            self.prompt_area.set_content(f"**로딩 중...** {loading_info.get('name', '')}")
+            self.params_label.set_text("모델을 로드하고 있습니다...")
+            self.apply_button.visible = False
+            return
+        
+        # 에러 상태 처리
+        if error_message:
+            self.preview_image.set_source('https://placehold.co/256x256/dc2626/ffffff?text=Error')
+            self.prompt_area.set_content(f"**오류:** {error_message}")
+            self.params_label.set_text("로딩에 실패했습니다")
+            self.apply_button.visible = False
+            return
+        
+        # 정상 상태 처리
+        if model_info:
+            metadata = model_info.get('metadata', {})
+            self.preview_image.set_source(self._get_preview_src(model_info))
             prompt = metadata.get('prompt', '정보 없음')
             self.prompt_area.set_content(f"**프롬프트:** {prompt}")
             params = metadata.get('parameters', {})
@@ -131,6 +178,7 @@ class TopBar:
             self.params_label.set_text(param_str if param_str else "파라미터 정보 없음")
             self.apply_button.visible = bool(params)
         else:
+            # 빈 상태
             self.preview_image.set_source('https://placehold.co/256x256/2d3748/e2e8f0?text=Select+Model')
             self.prompt_area.set_content("**긍정:** 모델을 선택하세요.")
             self.params_label.set_text("파라미터 정보 없음")
@@ -140,36 +188,71 @@ class TopBar:
         """미리보기 이미지 소스를 반환합니다."""
         preview_path = Path(model_info['path']).with_suffix('.png')
         if preview_path.exists():
-            with open(preview_path, "rb") as f:
-                b64_str = base64.b64encode(f.read()).decode('utf-8')
-            return f"data:image/png;base64,{b64_str}"
+            try:
+                with open(preview_path, "rb") as f:
+                    b64_str = base64.b64encode(f.read()).decode('utf-8')
+                return f"data:image/png;base64,{b64_str}"
+            except Exception as e:
+                print(f"미리보기 이미지 로드 실패: {e}")
         return 'https://placehold.co/256x256/2d3748/e2e8f0?text=No+Preview'
 
     # 4. 사용자 행동 핸들러 (사용자 입력을 받아 StateManager에 전달)
     async def _handle_model_select(self, model_info: Dict[str, Any]):
         """모델 카드 클릭 시, StateManager에 '모델 로드'를 직접 요청합니다."""
+        # 먼저 선택 상태를 업데이트
+        self.selected_model_info = model_info
+        self._update_metadata_ui(model_info)
+        
+        # 그 다음 로딩 요청
         await self.state.load_model_pipeline(model_info)
 
-    # --- 새로운 이벤트 핸들러 추가 ---
+    def _on_vae_change(self, vae_value: str):
+        """VAE 선택 변경 처리 (개선)"""
+        print(f"VAE 선택됨: {vae_value}")
+        
+        if vae_value == 'Automatic':
+            # 자동 VAE 선택 - 현재 모델 정보 기준으로 재선택
+            current_model = self.state.get('current_model_info')
+            if current_model:
+                asyncio.create_task(self.state._auto_select_vae(current_model))
+            else:
+                self.state.set('current_vae_path', 'baked_in')
+                
+        elif vae_value == 'None':
+            # VAE 없음
+            self.state.set('current_vae_path', None)
+            ui.notify('VAE가 비활성화되었습니다', type='info')
+            
+        else:
+            # 특정 VAE 선택
+            vae_path = self.state.find_vae_by_name(vae_value)
+            if vae_path:
+                asyncio.create_task(self.state.load_vae(vae_path))
+            else:
+                ui.notify(f'VAE "{vae_value}"를 찾을 수 없습니다', type='warning')
+
+    # --- 이벤트 핸들러 ---
 
     async def _on_model_loading_started(self, data: Dict[str, Any]):
-        """
-        '로딩 시작' 이벤트를 받았을 때만 UI를 로딩 상태로 변경합니다.
-        _update_metadata_ui 메서드를 호출하여 처리합니다.
-        """
-        self._update_metadata_ui(None, loading_info=data)
+        """'로딩 시작' 이벤트를 받았을 때 UI를 로딩 상태로 변경합니다."""
+        self._update_metadata_ui(loading_info=data)
 
     async def _on_model_loading_finished(self, data: Dict[str, Any]):
-        """'로딩 완료' 이벤트를 받았을 때만 UI를 최종 상태로 변경합니다."""
+        """'로딩 완료' 이벤트를 받았을 때 UI를 최종 상태로 변경합니다."""
         if data.get('success'):
-            self._update_metadata_ui(data.get('model_info'))
+            model_info = data.get('model_info')
+            self.selected_model_info = model_info
+            self._update_metadata_ui(model_info)
         else:
-            self._update_metadata_ui(None, error_message=data.get('error'))
+            self._update_metadata_ui(error_message=data.get('error'))
 
     def _apply_metadata_to_params(self):
         """'파라미터 적용' 버튼 클릭 시 StateManager에 파라미터 적용을 요청합니다."""
-        if self.selected_model_info:
+        if self.selected_model_info and hasattr(self.state, 'apply_params_from_metadata'):
             self.state.apply_params_from_metadata(self.selected_model_info)
+            ui.notify('메타데이터 파라미터가 적용되었습니다', type='success')
+        else:
+            ui.notify('적용할 파라미터가 없습니다', type='warning')
 
     def _toggle_visibility(self):
         """모델 라이브러리 접기/펴기"""
@@ -180,4 +263,4 @@ class TopBar:
     async def _on_model_selected(self, model_info: Optional[Dict[str, Any]]):
         """StateManager에서 모델 선택이 변경되었다는 알림을 받았을 때 호출됩니다."""
         self.selected_model_info = model_info
-        self._update_metadata_ui()
+        self._update_metadata_ui()  # 인자 없이 호출 (이제 옵셔널이므로 문제없음)

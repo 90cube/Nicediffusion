@@ -3,6 +3,7 @@
 """
 
 from nicegui import ui
+from typing import Dict, Any, Optional
 from ..core.state_manager import StateManager
 
 class MetadataPanel:
@@ -38,7 +39,7 @@ class MetadataPanel:
                 ui.label('정보가 여기에 표시됩니다').classes('text-teal-400 text-xs text-center')
     
     def _show_metadata(self, metadata: dict, source_type: str = 'model'):
-        """메타데이터 표시"""
+        """메타데이터 표시 (개선된 프롬프트 처리)"""
         self.metadata_content.clear()
         self.current_metadata = metadata
         
@@ -55,92 +56,122 @@ class MetadataPanel:
                 ui.label('설명:').classes('text-sm font-bold text-teal-300 mt-2')
                 ui.label(metadata['description']).classes('text-xs text-white')
             
-            # 프롬프트 정보
-            if metadata.get('prompt'):
+            # 긍정 프롬프트 정보
+            positive_prompt = metadata.get('prompt', '')
+            if positive_prompt:
                 with ui.expansion('긍정 프롬프트', icon='add_circle').classes('w-full mt-2'):
-                    ui.label(metadata['prompt']).classes('text-xs text-white')
-                    ui.button(
-                        '복사',
-                        icon='content_copy',
-                        on_click=lambda: self._copy_to_clipboard(metadata['prompt'], '긍정 프롬프트')
-                    ).props('dense flat color=teal-300')
+                    with ui.column().classes('w-full gap-1'):
+                        ui.label(positive_prompt).classes('text-xs text-white bg-gray-800 p-2 rounded')
+                        with ui.row().classes('gap-1'):
+                            ui.button(
+                                '복사',
+                                icon='content_copy',
+                                on_click=lambda: self._copy_to_clipboard(positive_prompt, '긍정 프롬프트')
+                            ).props('dense flat color=teal-300 size=xs')
+                            ui.button(
+                                '프롬프트에 적용',
+                                icon='arrow_forward',
+                                on_click=lambda: self._apply_prompt_to_input(positive_prompt, 'positive')
+                            ).props('dense flat color=green size=xs')
             
-            if metadata.get('negative_prompt'):
+            # 부정 프롬프트 정보
+            negative_prompt = metadata.get('negative_prompt', '')
+            if negative_prompt:
                 with ui.expansion('부정 프롬프트', icon='remove_circle').classes('w-full mt-2'):
-                    ui.label(metadata['negative_prompt']).classes('text-xs text-white')
-                    ui.button(
-                        '복사',
-                        icon='content_copy',
-                        on_click=lambda: self._copy_to_clipboard(metadata['negative_prompt'], '부정 프롬프트')
-                    ).props('dense flat color=teal-300')
+                    with ui.column().classes('w-full gap-1'):
+                        ui.label(negative_prompt).classes('text-xs text-white bg-gray-800 p-2 rounded')
+                        with ui.row().classes('gap-1'):
+                            ui.button(
+                                '복사',
+                                icon='content_copy',
+                                on_click=lambda: self._copy_to_clipboard(negative_prompt, '부정 프롬프트')
+                            ).props('dense flat color=teal-300 size=xs')
+                            ui.button(
+                                '프롬프트에 적용',
+                                icon='arrow_forward',
+                                on_click=lambda: self._apply_prompt_to_input(negative_prompt, 'negative')
+                            ).props('dense flat color=red size=xs')
             
             # 파라미터 정보
-            if metadata.get('parameters'):
+            params = metadata.get('parameters', {})
+            if params:
                 with ui.expansion('생성 파라미터', icon='tune').classes('w-full mt-2'):
-                    params = metadata['parameters']
-                    param_list = []
-                    
-                    if 'steps' in params:
-                        param_list.append(f"Steps: {params['steps']}")
-                    if 'cfg_scale' in params:
-                        param_list.append(f"CFG: {params['cfg_scale']}")
-                    if 'sampler' in params:
-                        param_list.append(f"Sampler: {params['sampler']}")
-                    if 'seed' in params:
-                        param_list.append(f"Seed: {params['seed']}")
-                    
-                    ui.label(' | '.join(param_list)).classes('text-xs text-white')
-                    
-                    # 파라미터 적용 버튼
-                    ui.button(
-                        '파라미터 적용 →',
-                        icon='arrow_forward',
-                        on_click=self._apply_parameters
-                    ).props('color=teal-300').classes('mt-2')
+                    with ui.column().classes('w-full gap-2'):
+                        # 파라미터 표시
+                        param_items = []
+                        if 'steps' in params:
+                            param_items.append(f"Steps: {params['steps']}")
+                        if 'cfg_scale' in params:
+                            param_items.append(f"CFG: {params['cfg_scale']}")
+                        if 'sampler' in params:
+                            param_items.append(f"Sampler: {params['sampler']}")
+                        if 'scheduler' in params:
+                            param_items.append(f"Scheduler: {params['scheduler']}")
+                        if 'seed' in params:
+                            param_items.append(f"Seed: {params['seed']}")
+                        if 'width' in params and 'height' in params:
+                            param_items.append(f"Size: {params['width']}x{params['height']}")
+                        
+                        ui.label(' | '.join(param_items)).classes('text-xs text-white bg-gray-800 p-2 rounded')
+                        
+                        # 파라미터 적용 버튼
+                        ui.button(
+                            '모든 파라미터 현재 설정에 적용 →',
+                            icon='settings',
+                            on_click=self._apply_parameters
+                        ).props('color=blue size=sm').classes('w-full')
             
             # 트리거 워드 (LoRA용)
-            if metadata.get('trigger_words'):
-                ui.label('트리거 워드:').classes('text-sm font-bold text-teal-300 mt-4')
+            if metadata.get('trigger_words') or metadata.get('suggested_tags'):
+                trigger_words = metadata.get('trigger_words', metadata.get('suggested_tags', []))
+                ui.label('추천 태그:').classes('text-sm font-bold text-teal-300 mt-4')
                 with ui.row().classes('gap-1 flex-wrap mt-1'):
-                    for word in metadata['trigger_words']:
+                    for word in trigger_words[:10]:  # 최대 10개만 표시
                         ui.button(
                             word,
                             on_click=lambda w=word: self._add_trigger_word(w)
                         ).props('dense outline color=teal-300').classes('text-xs')
-    
+
+    def _apply_prompt_to_input(self, prompt_text: str, prompt_type: str):
+        """프롬프트를 입력창에 적용"""
+        current_params = self.state.get('current_params')
+        
+        if prompt_type == 'positive':
+            current_params.prompt = prompt_text
+            ui.notify('긍정 프롬프트가 적용되었습니다', type='success')
+        elif prompt_type == 'negative':
+            current_params.negative_prompt = prompt_text
+            ui.notify('부정 프롬프트가 적용되었습니다', type='success')
+        
+        # 상태 업데이트
+        self.state.set('current_params', current_params)
+        # UI 업데이트 알림
+        self.state._notify('prompt_updated', current_params.prompt)
+        self.state._notify('params_updated', current_params)
+
     def _copy_to_clipboard(self, text: str, label: str):
-        """클립보드에 복사"""
+        """클립보드에 복사 (개선된 방식)"""
         # JavaScript를 사용한 클립보드 복사
+        escaped_text = text.replace('`', '\\`').replace('\\', '\\\\')
         ui.run_javascript(f'''
-            navigator.clipboard.writeText(`{text}`).then(() => {{
-                console.log('Copied to clipboard');
+            navigator.clipboard.writeText(`{escaped_text}`).then(() => {{
+                console.log('Copied to clipboard: {label}');
+            }}).catch(err => {{
+                console.error('Failed to copy: ', err);
+                // Fallback: 임시 textarea 사용
+                const textarea = document.createElement('textarea');
+                textarea.value = `{escaped_text}`;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
             }});
         ''')
         ui.notify(f'{label}가 복사되었습니다', type='positive')
     
     def _apply_parameters(self):
-        """파라미터 적용"""
-        if not self.current_metadata or not self.current_metadata.get('parameters'):
-            return
-        
-        params = self.current_metadata['parameters']
-        current_params = self.state.get('current_params')
-        
-        # 파라미터 업데이트
-        if 'steps' in params:
-            current_params.steps = params['steps']
-        if 'cfg_scale' in params:
-            current_params.cfg_scale = params['cfg_scale']
-        if 'sampler' in params:
-            current_params.sampler = params['sampler']
-        if 'width' in params:
-            current_params.width = params['width']
-        if 'height' in params:
-            current_params.height = params['height']
-        
-        # 상태 알림
-        self.state.set('current_params', current_params)
-        ui.notify('파라미터가 적용되었습니다', type='success')
+        """파라미터 적용 (기존 호환성을 위해 유지하지만 _apply_parameters_only로 리다이렉트)"""
+        self._apply_parameters_only()
     
     def _add_trigger_word(self, word: str):
         """트리거 워드 추가"""

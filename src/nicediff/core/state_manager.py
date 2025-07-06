@@ -1,6 +1,5 @@
 # src/nicediff/core/state_manager.py
-# (수정 및 최종 검토 완료된 버전)
-
+# (오류 수정 및 중복 제거 완료된 버전)
 
 import torch
 import asyncio
@@ -61,7 +60,7 @@ class HistoryItem:
     loras: List[Dict[str, Any]] = field(default_factory=list)
 
 class StateManager:
-    """중앙 상태 관리자"""
+    """중앙 상태 관리자 (오류 수정 완료)"""
     
     def __init__(self):
         self._state: Dict[str, Any] = {
@@ -77,6 +76,9 @@ class StateManager:
             'is_loading_model': False,
             'model_type': 'SD15',
             'is_xl_model': False,
+            'sd_model': 'SD15',  # 추가: UI에서 사용하는 모델 타입
+            'status_message': '준비 중...',
+            'infinite_mode': False,  # 무한 생성 모드
         }
         self._observers: Dict[str, List[Callable]] = {}
         self.pipeline: Optional[DiffusionPipeline] = None
@@ -111,19 +113,24 @@ class StateManager:
         self.set('status_message', '준비 완료')
         print("✅ StateManager: 스캔 결과로 상태 업데이트 완료.")
 
-    # --- 모델 선택 및 로딩 (2단계 로딩) ---
+    # --- 모델 선택 및 로딩 ---
     async def select_model(self, model_info: Dict[str, Any]):
         """1단계: GPU 로딩 없이, 메타데이터 표시를 위해 모델을 '선택'만 합니다."""
         print(f"모델 선택됨 (미리보기용): {model_info['name']}")
         self.set('current_model_info', model_info)
         self.set('sd_model_type', model_info.get('model_type', 'SD15'))
+        
+        # 선택 이벤트 발생
+        self._notify('model_selection_changed', model_info)
 
     async def load_model_pipeline(self, model_info: Dict[str, Any]) -> bool:
         """[최종 수정] 모델 로딩의 모든 과정을 책임지는 중앙 처리 메서드"""
     
         # 이미 로드된 모델이면 중단
         current_model_info = self.get('current_model_info')
-        if current_model_info and current_model_info.get('path') == model_info.get('path'):
+        if (current_model_info and 
+            current_model_info.get('path') == model_info.get('path') and 
+            self.pipeline is not None):
             ui.notify(f"'{model_info['name']}' 모델은 이미 로드되어 있습니다.", type='info')
             return True
 
@@ -133,8 +140,7 @@ class StateManager:
             self._notify('model_loading_started', {'name': model_info['name']})
         
             # 2. 실제 모델을 로드하는 무거운 작업을 수행합니다.
-            # ... (기존의 _load 함수와 await asyncio.to_thread(_load) 로직은 그대로 사용) ...
-            # 이 부분은 CUBE님의 기존 코드가 정확합니다.
+            await self._load_model_heavy_work(model_info)
         
             # 3. 로드 성공 후, 상태를 업데이트합니다.
             self.set('current_model_info', model_info)
@@ -143,12 +149,15 @@ class StateManager:
             await self._auto_select_vae(model_info)
         
             # 5. 최종 성공 상태를 UI에 알립니다.
-            self._notify('model_loading_finished', {'success': True, 'model_info': self.get('current_model_info')})
+            self._notify('model_loading_finished', {'success': True, 'model_info': model_info})
+            ui.notify(f"'{model_info['name']}' 모델이 로드되었습니다.", type='success')
             return True
     
         except Exception as e:
             import traceback
             traceback.print_exc()
+            error_msg = f"모델 로드 실패: {str(e)}"
+            ui.notify(error_msg, type='negative')
             self._notify('model_loading_finished', {'success': False, 'error': str(e)})
             return False
         
@@ -156,13 +165,62 @@ class StateManager:
             # 6. 성공/실패와 관계없이 '로딩 중' 상태를 해제합니다.
             self.set('is_loading_model', False)
 
+    async def _load_model_heavy_work(self, model_info: Dict[str, Any]):
+        """실제 모델 로딩 작업 (Heavy I/O)"""
+        def _load():
+            model_path = model_info['path']
+            model_type = model_info.get('model_type', 'SD15')
+            
+            # 모델 타입에 따라 적절한 파이프라인 선택
+            if model_type == 'SDXL':
+                from diffusers import StableDiffusionXLPipeline
+                pipeline = StableDiffusionXLPipeline.from_single_file(
+                    model_path,
+                    torch_dtype=torch.float16,
+                    use_safetensors=True
+                )
+            else:
+                from diffusers import StableDiffusionPipeline
+                pipeline = StableDiffusionPipeline.from_single_file(
+                    model_path,
+                    torch_dtype=torch.float16,
+                    use_safetensors=True
+                )
+            
+            # GPU로 이동
+            pipeline = pipeline.to(self.device)
+            
+            # 메모리 효율성을 위한 설정
+            if hasattr(pipeline, 'enable_model_cpu_offload'):
+                pipeline.enable_model_cpu_offload()
+            if hasattr(pipeline, 'enable_attention_slicing'):
+                pipeline.enable_attention_slicing()
+            
+            return pipeline
+        
+        # 별도 스레드에서 로딩 수행
+        self.pipeline = await asyncio.to_thread(_load)
+        print(f"✅ 모델 로딩 완료: {model_info['name']}")
+
     async def _auto_select_vae(self, model_info: Dict[str, Any]):
         """A1111 방식의 VAE 자동 선택 로직"""
         print(f"🔍 VAE 자동 선택 프로세스 시작...")
         
         # 메타데이터에서 권장 VAE 찾기
-        # 이름 규칙으로 VAE 찾기
+        metadata = model_info.get('metadata', {})
+        recommended_vae = metadata.get('recommended_vae')
         
+        if recommended_vae:
+            # 추천 VAE가 있으면 로드 시도
+            available_vaes = self.get('available_vaes', {})
+            for folder_vaes in available_vaes.values():
+                for vae_info in folder_vaes:
+                    if recommended_vae.lower() in vae_info['name'].lower():
+                        print(f"✅ 추천 VAE 발견: {vae_info['name']}")
+                        await self.load_vae(vae_info['path'])
+                        return
+        
+        # 기본적으로 내장 VAE 사용
         print("ℹ️ 체크포인트 내장 VAE 사용 (별도 VAE 없음)")
         self.set('current_vae_path', 'baked_in')
         self._notify('vae_auto_selected', 'baked_in')
@@ -170,14 +228,13 @@ class StateManager:
     async def load_vae(self, vae_path: str):
         """VAE 파일을 로드하여 파이프라인에 적용"""
         if not self.pipeline:
-            self._notify('status_update', {'message': '모델을 먼저 로드하세요.', 'type': 'warning'})
+            ui.notify('모델을 먼저 로드하세요.', type='warning')
             return False
         
         self.set('is_loading_model', True) # VAE 로딩도 로딩 상태로 간주
-        self._notify('status_update', {'message': f"VAE '{Path(vae_path).name}' 로드 중...", 'type': 'loading'})
+        ui.notify(f"VAE '{Path(vae_path).name}' 로드 중...", type='info')
         
         try:
-            from diffusers import AutoencoderKL
             def _load_vae():
                 vae = AutoencoderKL.from_single_file(vae_path, torch_dtype=torch.float16)
                 self.pipeline.vae = vae.to(self.device)
@@ -185,86 +242,334 @@ class StateManager:
             await asyncio.to_thread(_load_vae)
             
             self.set('current_vae_path', vae_path)
-            self._notify('status_update', {'message': f"VAE '{Path(vae_path).name}' 적용 완료!", 'type': 'success'})
+            ui.notify(f"VAE '{Path(vae_path).name}' 적용 완료!", type='success')
             return True
         except Exception as e:
             print(f"❌ VAE 로드 실패: {e}")
-            self._notify('status_update', {'message': f"VAE 로드 실패: {e}", 'type': 'error'})
+            ui.notify(f"VAE 로드 실패: {e}", type='negative')
             return False
         finally:
             self.set('is_loading_model', False)
 
     async def generate_image(self):
         """[최종 업그레이드] 배치/반복 생성을 지원하고, 중단 가능한 중앙 생성 메서드"""
-        if self.get('is_generating'): return
+        if self.get('is_generating'): 
+            ui.notify('이미 생성 중입니다.', type='warning')
+            return
+        
+        if not self.pipeline:
+            ui.notify('모델을 먼저 로드해주세요.', type='warning')
+            return
         
         self.stop_generation_flag.clear() # 중단 플래그 리셋
         self.set('is_generating', True)
         self._notify('generation_started', {})
         
-        import copy
         params_snapshot = copy.deepcopy(self.get('current_params'))
 
-        # 이제부터 이 생성 작업(배치)이 끝날 때까지는, UI에서 파라미터를 바꾸더라도
-        # 이 '스냅샷'에 저장된 설정값만을 사용하여 일관성을 유지합니다.
-        
         try:
-            self.set('is_generating', True)
-            self._notify('generation_started', {})
-
             total_generations = params_snapshot.iterations * params_snapshot.batch_size
             
             base_seed = params_snapshot.seed
             if base_seed == -1:
                 base_seed = random.randint(0, 2**32 - 1)
-                # (선택) 랜덤으로 결정된 시드를 UI에도 반영하고 싶다면
                 params_snapshot.seed = base_seed
                 self.set('current_params', params_snapshot)
 
             for i in range(params_snapshot.iterations):
                 for b in range(params_snapshot.batch_size):
                     if self.stop_generation_flag.is_set():
-                        # ... (중단 로직) ...
+                        ui.notify('생성이 중단되었습니다.', type='info')
                         return
 
                     current_seed = base_seed + (i * params_snapshot.batch_size) + b
                     generator = torch.Generator(device=self.device).manual_seed(current_seed)
                     
                     def _generate():
-                        # 파이프라인 호출 시에도 params_snapshot을 사용합니다.
-                        return self.pipeline(prompt=params_snapshot.prompt,
-                                             negative_prompt=params_snapshot.negative_prompt,
-                                             # ... 이하 모든 파라미터 ...
-                                             generator=generator).images[0]
+                        return self.pipeline(
+                            prompt=params_snapshot.prompt,
+                            negative_prompt=params_snapshot.negative_prompt,
+                            width=params_snapshot.width,
+                            height=params_snapshot.height,
+                            num_inference_steps=params_snapshot.steps,
+                            guidance_scale=params_snapshot.cfg_scale,
+                            generator=generator
+                        ).images[0]
                     
                     image = await asyncio.to_thread(_generate)
                     
-                    # 후처리 함수에도 이 스냅샷을 전달하여 일관된 정보로 히스토리를 기록합니다.
-                    await self.finish_generation(image, params_snapshot)
+                    # 후처리 및 저장
+                    await self.finish_generation(image, params_snapshot, current_seed)
 
         except Exception as e:
             print(f"❌ 생성 중 심각한 오류 발생: {e}")
             import traceback
             traceback.print_exc()
             self._notify('generation_failed', {'error': str(e)})
+            ui.notify(f'생성 실패: {str(e)}', type='negative')
             return False
 
         finally:
             self.set('is_generating', False)
             self._notify('generation_finished', {})
 
+    async def finish_generation(self, image: Image.Image, params: GenerationParams, seed: int):
+        """생성 완료 후 후처리"""
+        try:
+            # 출력 폴더 생성
+            output_dir = Path(self.config.get('paths', {}).get('outputs', 'outputs'))
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 파일명 생성
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"{timestamp}_{seed}.png"
+            image_path = output_dir / filename
+            
+            # 메타데이터와 함께 저장
+            metadata = PngImagePlugin.PngInfo()
+            metadata.add_text("parameters", self._build_metadata_string(params, seed))
+            
+            def _save():
+                image.save(image_path, pnginfo=metadata)
+            
+            await asyncio.to_thread(_save)
+            
+            # 썸네일 생성
+            thumbnail_path = output_dir / f"thumb_{filename}"
+            def _save_thumbnail():
+                thumbnail = image.copy()
+                thumbnail.thumbnail((256, 256), Image.Resampling.LANCZOS)
+                thumbnail.save(thumbnail_path)
+            
+            await asyncio.to_thread(_save_thumbnail)
+            
+            # 히스토리에 추가
+            history_item = HistoryItem(
+                image_path=str(image_path),
+                thumbnail_path=str(thumbnail_path),
+                params=params,
+                model=self.get('current_model_info', {}).get('name', 'Unknown')
+            )
+            
+            history = self.get('history', [])
+            history.insert(0, history_item)  # 최신이 앞에
+            history = history[:50]  # 최대 50개만 유지
+            self.set('history', history)
+            
+            # UI 알림
+            self._notify('image_generated', {'path': str(image_path)})
+            ui.notify('이미지 생성 완료!', type='success')
+            
+        except Exception as e:
+            print(f"❌ 후처리 실패: {e}")
+            ui.notify(f'후처리 실패: {str(e)}', type='negative')
+
+    def _build_metadata_string(self, params: GenerationParams, seed: int) -> str:
+        """A1111 형식의 메타데이터 문자열 생성"""
+        model_name = self.get('current_model_info', {}).get('name', 'Unknown')
+        
+        return f"""{params.prompt}
+Negative prompt: {params.negative_prompt}
+Steps: {params.steps}, Sampler: {params.sampler}, Scheduler: {params.scheduler}, CFG scale: {params.cfg_scale}, Seed: {seed}, Size: {params.width}x{params.height}, Model: {model_name}"""
+
+    async def start_infinite_generation(self):
+        """무한 생성 모드 시작"""
+        if self.get('is_generating') and not self.get('infinite_mode'):
+            # 일반 생성 중이면 중지하고 무한 모드로 전환
+            await self.stop_generation()
+            await asyncio.sleep(0.5)  # 잠깐 대기
+        
+        if not self.pipeline:
+            ui.notify('모델을 먼저 로드해주세요.', type='warning')
+            return
+        
+        self.set('infinite_mode', True)
+        ui.notify('무한 생성 모드 시작됨', type='info')
+        
+        try:
+            while self.get('infinite_mode', False):
+                print("🔄 무한 생성 - 새로운 이미지 생성 시작")
+                
+                # 중단 플래그 리셋
+                self.stop_generation_flag.clear()
+                
+                # 단일 이미지 생성 (배치/반복 무시)
+                await self._generate_single_image()
+                
+                # 중단 신호 확인
+                if self.stop_generation_flag.is_set() or not self.get('infinite_mode', False):
+                    break
+                
+                # 다음 생성 전 잠깐 대기 (UI 업데이트 시간)
+                await asyncio.sleep(1)
+                
+        except Exception as e:
+            print(f"❌ 무한 생성 중 오류: {e}")
+            ui.notify(f'무한 생성 오류: {str(e)}', type='negative')
+        
+        finally:
+            # 무한 모드 상태 정리
+            self.set('infinite_mode', False)
+            
+            # 생성 상태 정리 (무한 모드가 아닌 경우에만)
+            if not self.get('infinite_mode', False):
+                self.set('is_generating', False)
+                self._notify('generation_finished', {})
+                
+            print("🏁 무한 생성 모드 완전 종료")
+            ui.notify('무한 생성 모드 중지됨', type='info')
+
+    async def _generate_single_image(self):
+        """단일 이미지 생성 (무한 모드용)"""
+        try:
+            self.set('is_generating', True)
+            self._notify('generation_started', {})
+            
+            params = self.get('current_params')
+            
+            # 시드 처리
+            seed = params.seed
+            if seed == -1:
+                seed = random.randint(0, 2**32 - 1)
+            
+            generator = torch.Generator(device=self.device).manual_seed(seed)
+            
+            def _generate():
+                return self.pipeline(
+                    prompt=params.prompt,
+                    negative_prompt=params.negative_prompt,
+                    width=params.width,
+                    height=params.height,
+                    num_inference_steps=params.steps,
+                    guidance_scale=params.cfg_scale,
+                    generator=generator
+                ).images[0]
+            
+            image = await asyncio.to_thread(_generate)
+            
+            # 후처리 및 저장
+            await self.finish_generation(image, params, seed)
+            
+        except Exception as e:
+            print(f"❌ 단일 이미지 생성 실패: {e}")
+            self._notify('generation_failed', {'error': str(e)})
+        
+        finally:
+            # 무한 모드가 비활성화된 경우에만 상태 정리
+            if not self.get('infinite_mode', False):
+                self.set('is_generating', False)
+                self._notify('generation_finished', {})
+
+    async def stop_infinite_generation(self):
+        """무한 생성 모드 중지"""
+        print("⏹️ 무한 생성 모드 중지 요청")
+        self.set('infinite_mode', False)
+        self.stop_generation_flag.set()
+        
+        # 잠깐 대기 후 상태 정리
+        await asyncio.sleep(0.1)
+        if not self.get('is_generating', False):
+            self._notify('generation_finished', {})
+
     async def stop_generation(self):
         """생성 중단 신호를 보냅니다."""
         print("✋ 생성 중단 요청됨.")
         self.stop_generation_flag.set()
+        
+        # 무한 모드도 함께 중지
+        if self.get('infinite_mode', False):
+            self.set('infinite_mode', False)
 
-    # (보너스 오류 수정) 비어있는 cleanup 메서드 추가
+    def apply_params_from_metadata(self, model_info: Dict[str, Any]):
+        """메타데이터에서 파라미터를 현재 설정에 적용"""
+        metadata = model_info.get('metadata', {})
+        params = metadata.get('parameters', {})
+        
+        if not params:
+            return
+        
+        current_params = self.get('current_params')
+        
+        # 파라미터 적용
+        if 'steps' in params:
+            current_params.steps = int(params['steps'])
+        if 'cfg_scale' in params:
+            current_params.cfg_scale = float(params['cfg_scale'])
+        if 'sampler' in params:
+            current_params.sampler = params['sampler']
+        if 'scheduler' in params:
+            current_params.scheduler = params['scheduler']
+        if 'width' in params:
+            current_params.width = int(params['width'])
+        if 'height' in params:
+            current_params.height = int(params['height'])
+        if 'seed' in params:
+            current_params.seed = int(params['seed'])
+        
+        # 프롬프트 적용
+        if 'prompt' in metadata:
+            current_params.prompt = metadata['prompt']
+        if 'negative_prompt' in metadata:
+            current_params.negative_prompt = metadata['negative_prompt']
+        
+        self.set('current_params', current_params)
+        print("✅ 메타데이터에서 파라미터가 적용되었습니다.")
+
+    def restore_from_history(self, history_id: str):
+        """히스토리에서 설정 복원"""
+        history = self.get('history', [])
+        for item in history:
+            if item.id == history_id:
+                self.set('current_params', item.params)
+                if item.vae:
+                    asyncio.create_task(self.load_vae(item.vae))
+                self._notify('state_restored', {'params': item.params})
+                break
+
+    async def get_vae_options_list(self) -> List[str]:
+        """VAE 선택 옵션 리스트 생성"""
+        options = ['Automatic', 'None']
+        
+        available_vaes = self.get('available_vaes', {})
+        for folder_name, folder_vaes in available_vaes.items():
+            for vae_info in folder_vaes:
+                display_name = vae_info['name']
+                if folder_name != 'Root':
+                    display_name = f"{folder_name}/{vae_info['name']}"
+                options.append(display_name)
+        
+        return options
+
+    def find_vae_by_name(self, vae_name: str) -> Optional[str]:
+        """VAE 이름으로 경로 찾기"""
+        available_vaes = self.get('available_vaes', {})
+        
+        for folder_name, folder_vaes in available_vaes.items():
+            for vae_info in folder_vaes:
+                display_name = vae_info['name']
+                if folder_name != 'Root':
+                    display_name = f"{folder_name}/{vae_info['name']}"
+                
+                if display_name == vae_name or vae_info['name'] == vae_name:
+                    return vae_info['path']
+        
+        return None
+
     async def cleanup(self):
         """애플리케이션 종료 시 정리 작업"""
         print("🧹 애플리케이션 정리 중...")
-        pass # 나중에 필요한 정리 로직 추가
-# (이하 get, set, subscribe 등은 원래 위치에 있으므로 그대로 둡니다)
+        if self.pipeline:
+            # GPU 메모리 정리
+            del self.pipeline
+            torch.cuda.empty_cache()
+        """애플리케이션 종료 시 정리 작업"""
+        print("🧹 애플리케이션 정리 중...")
+        if self.pipeline:
+            # GPU 메모리 정리
+            del self.pipeline
+            torch.cuda.empty_cache()
 
+    # === 기본 상태 관리 메서드 ===
     def get(self, key: str, default: Any = None) -> Any:
         return self._state.get(key, default)
     
@@ -294,14 +599,3 @@ class StateManager:
                         callback(data)
                 except Exception as e:
                     print(f"❌ 옵저버 콜백 오류 ({event}): {e}")
-
-    async def select_model(self, model_info: Dict[str, Any]):
-        """GPU 로딩 없이, 메타데이터만 읽어 모델을 '선택' 상태로 만듭니다."""
-        
-        # ModelScanner가 스캔 시점에 이미 메타데이터를 읽어왔다고 가정합니다.
-        # 따라서 model_info 객체에는 이미 메타데이터가 들어있습니다.
-        # 만약 아니라면 여기서 MetadataParser를 호출하여 메타데이터를 읽어와야 합니다.
-        print(f"모델 선택됨 (메타데이터 표시용): {model_info['name']}")
-        
-        # 'current_model_info' 상태를 업데이트합니다. TopBar는 이 이벤트를 구독합니다.
-        self.set('current_model_info', model_info)

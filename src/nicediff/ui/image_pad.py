@@ -1,5 +1,5 @@
 """
-중앙 이미지 뷰어/캔버스 컴포넌트
+중앙 이미지 뷰어/캔버스 컴포넌트 (이미지 크기 조정 수정)
 """
 
 from nicegui import ui
@@ -7,19 +7,20 @@ from pathlib import Path
 from ..core.state_manager import StateManager
 
 class ImagePad:
-    """이미지 패드"""
+    """이미지 패드 (이미지 크기 조정 수정 완료)"""
     
     def __init__(self, state_manager: StateManager):
         self.state = state_manager
         self.current_image = None
         self.image_container = None
         self.is_empty = True
+        self.current_image_element = None
     
     async def render(self):
         """컴포넌트 렌더링"""
-        # 파란색 배경의 이미지 패드
-        with ui.column().classes('w-full h-full items-center justify-center bg-blue-900 rounded-lg'):
-            self.image_container = ui.column().classes('w-full h-full items-center justify-center')
+        # 파란색 배경의 이미지 패드 (overflow 제어 추가)
+        with ui.column().classes('w-full h-full items-center justify-center bg-blue-900 rounded-lg overflow-hidden'):
+            self.image_container = ui.column().classes('w-full h-full items-center justify-center overflow-hidden')
             self._show_empty_state()
         
         # 이미지 생성 완료 이벤트 구독
@@ -32,6 +33,7 @@ class ImagePad:
         """빈 상태 표시"""
         self.image_container.clear()
         self.is_empty = True
+        self.current_image_element = None
         
         with self.image_container:
             with ui.column().classes('items-center justify-center gap-4'):
@@ -62,6 +64,7 @@ class ImagePad:
         """로딩 상태 표시"""
         self.image_container.clear()
         self.is_empty = False
+        self.current_image_element = None
         
         with self.image_container:
             with ui.column().classes('items-center justify-center gap-4'):
@@ -77,38 +80,88 @@ class ImagePad:
                 self.progress_bar = ui.linear_progress(value=0).classes('w-64')
     
     def _show_image(self, image_path: str):
-        """이미지 표시"""
+        """이미지 표시 (크기 조정 수정)"""
         self.image_container.clear()
         self.is_empty = False
         self.current_image = image_path
         
         with self.image_container:
-            # 이미지 표시
-            img = ui.image(image_path).classes(
-                'max-w-full max-h-full object-contain rounded-lg shadow-2xl'
-            )
+            # 이미지 컨테이너 (상대적 위치 지정)
+            with ui.column().classes('w-full h-full items-center justify-center relative overflow-hidden'):
+                
+                # 이미지 표시 (반응형 크기 조정)
+                self.current_image_element = ui.image(image_path).classes(
+                    'max-w-full max-h-full object-contain rounded-lg shadow-2xl'
+                ).style("""
+                    width: auto;
+                    height: auto;
+                    max-width: 100%;
+                    max-height: 100%;
+                    object-fit: contain;
+                """)
+                
+                # 이미지 위에 호버 시 나타나는 도구들
+                with ui.row().classes('absolute top-4 right-4 gap-2 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10'):
+                    ui.button(
+                        icon='fullscreen',
+                        on_click=lambda: self._show_fullscreen(image_path)
+                    ).props('round color=white text-color=black size=sm').tooltip('전체화면')
+                    
+                    ui.button(
+                        icon='download',
+                        on_click=lambda: self._download_image(image_path)
+                    ).props('round color=white text-color=black size=sm').tooltip('다운로드')
+                    
+                    ui.button(
+                        icon='zoom_in',
+                        on_click=lambda: self._toggle_zoom()
+                    ).props('round color=white text-color=black size=sm').tooltip('확대/축소')
+                    
+                    ui.button(
+                        icon='delete',
+                        on_click=self._delete_image
+                    ).props('round color=red size=sm').tooltip('삭제')
+                
+                # 이미지 정보 표시 (하단)
+                with ui.row().classes('absolute bottom-4 left-4 bg-black bg-opacity-50 rounded px-3 py-1 text-white text-sm'):
+                    try:
+                        from PIL import Image
+                        with Image.open(image_path) as img:
+                            width, height = img.size
+                            ui.label(f'{width} × {height}')
+                    except Exception:
+                        ui.label('이미지 정보')
+    
+    def _toggle_zoom(self):
+        """이미지 확대/축소 토글"""
+        if self.current_image_element:
+            # 현재 스타일 확인하고 토글
+            current_style = getattr(self.current_image_element, '_style', '')
             
-            # 이미지 위에 호버 시 나타나는 도구들
-            with ui.row().classes('absolute top-4 right-4 gap-2 opacity-0 hover:opacity-100 transition-opacity'):
-                ui.button(
-                    icon='download',
-                    on_click=lambda: self._download_image(image_path)
-                ).props('round color=white text-color=black').tooltip('다운로드')
-                
-                ui.button(
-                    icon='fullscreen',
-                    on_click=lambda: self._show_fullscreen(image_path)
-                ).props('round color=white text-color=black').tooltip('전체화면')
-                
-                ui.button(
-                    icon='delete',
-                    on_click=self._delete_image
-                ).props('round color=red').tooltip('삭제')
+            if 'object-fit: cover' in current_style:
+                # 원래 크기로 복원
+                self.current_image_element.style("""
+                    width: auto;
+                    height: auto;
+                    max-width: 100%;
+                    max-height: 100%;
+                    object-fit: contain;
+                """)
+                ui.notify('원본 크기로 조정됨', type='info')
+            else:
+                # 확대 모드
+                self.current_image_element.style("""
+                    width: 100%;
+                    height: 100%;
+                    object-fit: cover;
+                """)
+                ui.notify('확대 모드', type='info')
     
     def _show_error_state(self, error_message: str):
         """오류 상태 표시"""
         self.image_container.clear()
         self.is_empty = True
+        self.current_image_element = None
         
         with self.image_container:
             with ui.column().classes('items-center justify-center gap-4'):
@@ -161,17 +214,38 @@ class ImagePad:
     
     def _download_image(self, image_path):
         """이미지 다운로드"""
-        # TODO: Phase 2에서 구현
-        ui.notify('다운로드 기능은 Phase 2에서 구현됩니다', type='info')
+        try:
+            # 파일 다운로드 링크 생성
+            filename = Path(image_path).name
+            ui.download(image_path, filename)
+            ui.notify(f'{filename} 다운로드가 시작되었습니다', type='success')
+        except Exception as e:
+            ui.notify(f'다운로드 실패: {str(e)}', type='negative')
     
     def _show_fullscreen(self, image_path):
         """전체화면 표시"""
-        with ui.dialog() as dialog, ui.card().classes('w-screen h-screen'):
-            ui.image(image_path).classes('w-full h-full object-contain')
-            ui.button(
-                icon='close',
-                on_click=dialog.close
-            ).props('flat round').classes('absolute top-4 right-4')
+        with ui.dialog().props('maximized') as dialog, ui.card().classes('w-full h-full bg-black'):
+            with ui.column().classes('w-full h-full items-center justify-center relative'):
+                # 전체화면 이미지
+                ui.image(image_path).classes('max-w-full max-h-full object-contain')
+                
+                # 닫기 버튼
+                ui.button(
+                    icon='close',
+                    on_click=dialog.close
+                ).props('flat round color=white size=lg').classes('absolute top-4 right-4')
+                
+                # 이미지 정보
+                with ui.row().classes('absolute bottom-4 left-4 bg-black bg-opacity-70 rounded px-4 py-2 text-white'):
+                    ui.label(Path(image_path).name).classes('text-lg')
+                    try:
+                        from PIL import Image
+                        with Image.open(image_path) as img:
+                            width, height = img.size
+                            ui.label(f' • {width} × {height}')
+                    except Exception:
+                        pass
+                
         dialog.open()
     
     def _delete_image(self):
@@ -183,11 +257,27 @@ class ImagePad:
                 ui.button('취소', on_click=dialog.close).props('flat')
                 ui.button(
                     '삭제',
-                    on_click=lambda: [self._show_empty_state(), dialog.close()]
+                    on_click=lambda: [self._confirm_delete(), dialog.close()]
                 ).props('color=red')
         dialog.open()
     
+    def _confirm_delete(self):
+        """삭제 확인"""
+        if self.current_image:
+            try:
+                Path(self.current_image).unlink(missing_ok=True)
+                # 썸네일도 삭제
+                thumbnail_path = Path(self.current_image).parent / f"thumb_{Path(self.current_image).name}"
+                thumbnail_path.unlink(missing_ok=True)
+                
+                self._show_empty_state()
+                ui.notify('이미지가 삭제되었습니다', type='success')
+            except Exception as e:
+                ui.notify(f'삭제 실패: {str(e)}', type='negative')
+    
     def _retry_generation(self):
         """재생성"""
-        # TODO: Phase 2에서 마지막 파라미터로 재생성
-        ui.notify('재생성 기능은 Phase 2에서 구현됩니다', type='info')
+        # 마지막 파라미터로 재생성 시도
+        import asyncio
+        asyncio.create_task(self.state.generate_image())
+        ui.notify('이미지를 다시 생성합니다', type='info')
