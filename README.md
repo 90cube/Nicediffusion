@@ -1,4 +1,4 @@
-# Nicediffusion
+![image](https://github.com/user-attachments/assets/ab1dea41-f751-4d0f-bc1b-90d238aab139)# Nicediffusion
 
 ![aidraw_simple_flat_logo_--ar_1716_--profile_5h5ugbf_--dref_ht_a5ab635c-b51a-4c00-a63c-383b2a766d5f_3](https://github.com/user-attachments/assets/3e8f7682-e14d-4566-a1d1-3d4f91b9eb0d)
 
@@ -12,12 +12,12 @@
 
 ## 🚀 주요 기능
 
-* [cite_start]**다양한 Diffusion 모델 지원**: SDXL, SD1.5 등 여러 Stable Diffusion 모델과 커스텀 체크포인트 지원 [cite: 1]
-* [cite_start]**고도화된 프롬프트 관리**: T5 CLIP 기반 프롬프트 또는 WD Tagger 기반 태그를 활용한 정확한 이미지 제어 [cite: 1]
-* [cite_start]**ComfyUI 워크플로우 자동화**: 특정 조건에 따른 이미지 생성 파이프라인 자동 실행 (예: 특정 프롬프트 리스트 기반 배치 생성) [cite: 1]
-* [cite_start]**파라미터 스위칭 및 실험**: 이미지 생성 파라미터(CFG, Step 등)를 쉽게 변경하고 비교하는 기능 [cite: 1]
-* [cite_start]**시각적 워크플로우 편집**: ComfyUI의 강력한 노드 기반 인터페이스를 활용한 직관적인 워크플로우 구축 [cite: 1]
-* [cite_start]**후처리 및 업스케일링 통합**: 생성된 이미지의 품질 향상을 위한 자동화된 후처리 과정 (예: Real-ESRGAN, Latent Upscale 등) [cite: 1]
+**다양한 Diffusion 모델 지원**: SDXL, SD1.5 등 여러 Stable Diffusion 모델과 커스텀 체크포인트 지원
+**고도화된 프롬프트 관리**: T5 CLIP 기반 프롬프트 또는 WD Tagger 기반 태그를 활용한 정확한 이미지 제어
+**ComfyUI 워크플로우 자동화**: 특정 조건에 따른 이미지 생성 파이프라인 자동 실행 (예: 특정 프롬프트 리스트 기반 배치 생성)
+**파라미터 스위칭 및 실험**: 이미지 생성 파라미터(CFG, Step 등)를 쉽게 변경하고 비교하는 기능
+**시각적 워크플로우 편집**: ComfyUI의 강력한 노드 기반 인터페이스를 활용한 직관적인 워크플로우 구축
+**후처리 및 업스케일링 통합**: 생성된 이미지의 품질 향상을 위한 자동화된 후처리 과정 (예: Real-ESRGAN, Latent Upscale 등)
 
 ## 🛠️ 설치 및 시작하기
 
