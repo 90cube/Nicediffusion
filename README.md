@@ -2,13 +2,13 @@
 
 ![aidraw_simple_flat_logo_--ar_1716_--profile_5h5ugbf_--dref_ht_a5ab635c-b51a-4c00-a63c-383b2a766d5f_3](https://github.com/user-attachments/assets/3e8f7682-e14d-4566-a1d1-3d4f91b9eb0d)
 
-# NiceDiffusion - ComfyUI 기반의 이미지 생성 자동화 워크플로우
+# NiceDiffusion - Stable diffusion 기반의 이미지 생성 웹 어플리케이션
 
 ## ✨ 프로젝트 소개
 
-**NiceDiffusion**은 AI 이미지 생성 도구인 [ComfyUI](https://github.com/comfyanonymous/ComfyUI)를 기반으로 하여, 더욱 효율적이고 사용자 친화적인 이미지 생성 및 자동화 워크플로우를 제공하기 위해 개발되었습니다. 게임 컨셉 아트, 시각 개발, 다양한 창작 작업에 필요한 고품질 이미지를 빠르고 일관되게 생성하는 것을 목표로 합니다.
-
-이 프로젝트는 단순히 이미지를 생성하는 것을 넘어, ComfyUI의 유연한 노드 기반 시스템을 활용하여 복잡한 워크플로우를 자동화하고, 사용자가 최소한의 노력으로 최대의 결과물을 얻을 수 있도록 돕습니다. 특히 반복적인 작업이나 대량의 이미지 생성이 필요한 경우에 진가를 발휘합니다.
+**NiceDiffusion**은 AI 이미지 생성 도구인 A1111의 WebUI와 [ComfyUI](https://github.com/comfyanonymous/ComfyUI)를 계승할 목적 입니다.
+쉬운 사용에 초점을 맞춰 제작 중이며, 이미지 편집과 더 나아가 컨텐츠 전체 장면의 시놉시스 제작에 도움을 줄 수 있는 툴을 개발 할 예정입니다.
+현재는 Window 버전으로만 제작 중 입니다.
 
 ## 🚀 주요 기능
 
@@ -57,41 +57,6 @@
    pip install torch torchvision torchaudio --index-url [https://download.pytorch.org/whl/cu128](https://download.pytorch.org/whl/cu128)
    ```
 
-3. **ComfyUI 설치 (선택 사항, 워크플로우 직접 로드를 원할 경우)**:
-   NiceDiffusion은 ComfyUI를 백엔드로 사용하지만, 직접 ComfyUI UI를 사용할 필요는 없을 수 있습니다. 필요하다면 다음을 따르세요:
-   
-   * ComfyUI Git 저장소를 NiceDiffusion 폴더와 같은 상위 경로에 클론합니다:
-     
-     ```bash
-     git clone [https://github.com/comfyanonymous/ComfyUI.git](https://github.com/comfyanonymous/ComfyUI.git) ../ComfyUI
-     ```
-   
-   * ComfyUI의 Python 패키지를 설치합니다 (필요한 경우):
-     
-     ```bash
-     cd ../ComfyUI
-     pip install -r requirements.txt --extra-index-url [https://download.pytorch.org/whl/cu128](https://download.pytorch.org/whl/cu128)
-     ```
-
-4. **모델 파일 다운로드**:
-   [cite_start]사용할 Stable Diffusion 모델 체크포인트(예: SDXL, SD1.5)를 `../ComfyUI/models/checkpoints/` 폴더에 다운로드하여 배치합니다. [cite: 1]
-   
-   * [cite_start][Civitai](https://civitai.com/) 또는 [Hugging Face](https://huggingface.co/)에서 모델을 다운로드할 수 있습니다. [cite: 1]
-
-5. **커스텀 노드 설치 (선택 사항)**:
-   워크플로우에 따라 특정 커스텀 노드가 필요할 수 있습니다. ComfyUI Manager를 통해 쉽게 설치할 수 있습니다. [cite_start]`../ComfyUI` 폴더에서 ComfyUI를 실행한 뒤 Manager 탭에서 필요한 노드를 설치합니다. [cite: 1]
-   
-   ```bash
-   # ComfyUI 실행 (ComfyUI 폴더에서)
-   python main.py
-   ```
-
-6. **NiceDiffusion 워크플로우 로드 (선택 사항, ComfyUI와 함께 사용 시)**:
-   [cite_start]`nicediffusion` 저장소에 포함된 `.json` 워크플로우 파일을 ComfyUI에 로드하여 사용합니다. [cite: 1]
-   
-   * [cite_start]ComfyUI를 실행하고, `Load` 버튼을 통해 `nicediffusion/workflows/` 폴더 안에 있는 `.json` 파일을 불러옵니다. [cite: 1]
-   * [cite_start](선택 사항) `nicediffusion/scripts/` 폴더에 있는 Python 스크립트들을 활용하여 자동화된 작업을 실행합니다. [cite: 1]
-
 ## 💡 사용법
 
 NiceDiffusion은 자체 UI를 통해 이미지 생성 작업을 관리합니다.
@@ -121,7 +86,12 @@ NiceDiffusion은 자체 UI를 통해 이미지 생성 작업을 관리합니다.
    - ✅ 파라미터 조정 UI
    - ✅ 메타데이터 추출 및 표시
    - ✅ 프롬프트 프리셋 시스템
+   - ✅ 배치 생성
+   - ✅ 반복 생성
    - ⏳ 에러 처리 개선
+
+   ## 📋 Phase 1 : 기본 기능 강화 및 클래스별 .py 생성
+   
    
    ## 🚀 Phase 2: 고급 기능 구현
    
@@ -141,7 +111,6 @@ NiceDiffusion은 자체 UI를 통해 이미지 생성 작업을 관리합니다.
    
    ### 2C: 고급 기능
    
-   - [ ] 배치 생성
    - [ ] 히스토리 관리 및 복원
    - [ ] 프롬프트 믹싱
    - [ ] Seed 여행 (interpolation)
@@ -228,7 +197,119 @@ NiceDiffusion은 자체 UI를 통해 이미지 생성 작업을 관리합니다.
            return enhanced_prompt
    ```
 
-## 
+## 최종 폴더 구조
+nicediffusion/
+├── .gitignore
+├── README.md
+├── requirements.txt
+├── config.toml
+├── install.py
+├── run.py
+│
+├── assets/
+│   ├── css/
+│   │   └── main.css
+│   └── images/
+│       └── logo.png
+│
+├── plugins/
+│   ├── README.md
+│   │
+│   ├── third_party_sampler/
+│   │   ├── __init__.py
+│   │   ├── plugin.yaml
+│   │   ├── main.py
+│   │   └── requirements.txt
+│   │
+│   └── imgur_uploader/
+│       ├── __init__.py
+│       ├── plugin.yaml
+│       └── main.py
+│
+└── src/
+    └── nicediff/
+        ├── __init__.py
+        ├── main.py
+        │
+        ├── core/
+        │   ├── __init__.py
+        │   ├── plugin_manager.py
+        │   ├── state_manager.py
+        │   ├── logger.py
+        │   └── error_handler.py
+        │
+        ├── services/
+        │   ├── __init__.py
+        │   ├── model_scanner.py
+        │   ├── metadata_parser.py
+        │   └── sampler_mapper.py
+        │
+        ├── image_pad/
+        │   ├── __init__.py
+        │   │
+        │   ├── shared/
+        │   │   ├── __init__.py
+        │   │   └── zoom_controls.py
+        │   │
+        │   └── modes/
+        │       ├── __init__.py
+        │       ├── txt2img/
+        │       │   └── ui.py
+        │       ├── img2img/
+        │       │   └── ui.py
+        │       ├── inpaint/
+        │       │   ├── ui.py
+        │       │   └── web/
+        │       │       └── inpaint_canvas.js
+        │       ├── upscale/
+        │       │   └── ui.py
+        │       └── pose_editor/
+        │           ├── ui.py
+        │           └── web/
+        │               └── pose_editor_main.js
+        │
+        ├── ui/
+        │   ├── __init__.py
+        │   ├── workspace.py
+        │   └── theme.py
+        │
+        ├── components/
+        │   ├── __init__.py
+        │   │
+        │   ├── layout/
+        │   │   ├── __init__.py
+        │   │   ├── top_bar.py
+        │   │   └── utility_sidebar.py
+        │   │
+        │   ├── sidebar_modules/
+        │   │   ├── __init__.py
+        │   │   ├── history_panel.py
+        │   │   ├── generation_mode_selector.py
+        │   │   ├── drawing_tools_panel.py
+        │   │   └── edit_tools_panel.py
+        │   │
+        │   ├── panels/
+        │   │   ├── __init__.py
+        │   │   ├── parameter_panel.py
+        │   │   ├── prompt_panel.py
+        │   │   ├── lora_panel.py
+        │   │   └── metadata_panel.py
+        │   │
+        │   ├── controls/
+        │   │   ├── __init__.py
+        │   │   ├── sampler_controls.py
+        │   │   ├── quality_controls.py
+        │   │   └── memory_controls.py
+        │   │
+        │   └── global_widgets/
+        │       ├── __init__.py
+        │       ├── notification.py
+        │       └── modal.py
+        │
+        └── utils/
+            ├── __init__.py
+            ├── file_utils.py
+            └── image_utils.py
 
 ## 🤝 기여 방법
 
