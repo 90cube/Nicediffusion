@@ -26,8 +26,10 @@
 ### 📋 전제 조건
 
 * [cite_start]Python 3.12 [cite: 1]
+* * [cite_start]CUDA 12.8, Pytourch 2.7.1 (pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128)
 * [cite_start]Git (저장소를 클론하기 위해 필요) [cite: 1]
 * [cite_start]NVIDIA GPU (CUDA 지원, ComfyUI 실행을 위해 필수) [cite: 1]
+
 
 ### ⬇️ 설치 단계
 
