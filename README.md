@@ -202,15 +202,6 @@ NiceDiffusion은 자체 UI를 통해 이미지 생성 작업을 관리합니다.
 ![image](https://github.com/user-attachments/assets/601eade0-a681-4d0c-8dfa-7f15f590eff6)
 
 
-## 🤝 기여 방법
-
-[cite_start]이 프로젝트는 오픈 소스로 운영되며, 여러분의 기여를 환영합니다! [cite: 1]
-
-1. [cite_start]저장소를 Fork 합니다. [cite: 1]
-2. [cite_start]새로운 기능 브랜치를 생성합니다 (`git checkout -b feature/AmazingFeature`). [cite: 1]
-3. [cite_start]변경 사항을 커밋합니다 (`git commit -m 'Add some AmazingFeature'`). [cite: 1]
-4. [cite_start]브랜치를 원격 저장소로 푸시합니다 (`git push origin feature/AmazingFeature`). [cite: 1]
-5. [cite_start]Pull Request를 생성합니다. [cite: 1]
 
 ## 📄 라이선스
 
