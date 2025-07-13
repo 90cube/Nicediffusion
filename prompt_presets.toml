@@ -1,0 +1,34 @@
+# 프롬프트 프리셋 설정 파일
+
+[positive_presets]
+# 긍정 프롬프트 프리셋
+quality = "masterpiece, best quality, highly detailed, sharp focus, professional"
+anime = "anime style, cel shaded, vibrant colors, clean lines"
+realistic = "photorealistic, hyperrealistic, 8k uhd, dslr, high quality, film grain"
+artistic = "artistic, painterly, impressionist, beautiful composition, dramatic lighting"
+fantasy = "fantasy art, magical atmosphere, ethereal, mystical, enchanted"
+
+[negative_presets]
+# 부정 프롬프트 프리셋
+general = "low quality, worst quality, bad anatomy, bad hands, missing fingers, extra digits, fewer digits"
+realistic = "cartoon, anime, illustration, painting, drawing, art, sketch, 3d, render"
+illustration = "photo, realistic, 3d render, photography, photorealistic, hyperrealistic"
+nsfw = "nsfw, nude, naked, explicit content, suggestive"
+watermark = "watermark, signature, text, logo, banner, copyright"
+
+[style_presets]
+# 스타일 조합 프리셋
+portrait = {
+    positive = "portrait, face focus, detailed eyes, detailed face, beautiful lighting",
+    negative = "full body, bad face, bad eyes, cross-eyed, lazy eye"
+}
+
+landscape = {
+    positive = "landscape, scenic view, wide angle, beautiful scenery, nature",
+    negative = "people, characters, portrait, close-up"
+}
+
+cyberpunk = {
+    positive = "cyberpunk style, neon lights, futuristic city, high tech, hologram",
+    negative = "medieval, ancient, rustic, natural, organic"
+}

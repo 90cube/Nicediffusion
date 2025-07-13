@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# Models and outputs
+models/
+outputs/
+
+# OS/Editor
+.DS_Store
+.vscode/
+.idea/
+
+# User config
+config.toml
+
+# Test artifacts
+*.bak
+# test 폴더 내 임시/산출물만 제외
+test/*.bak
+test/*.log
+
+# Installation artifacts
+*.tmp
+*.temp 
