@@ -32,6 +32,7 @@ ROOT_DIR = Path(__file__).parent.absolute()
 sys.path.insert(0, str(ROOT_DIR))
 
 from nicegui import app, ui
+from fastapi.staticfiles import StaticFiles
 from src.nicediff.pages.inference_page import InferencePage
 from src.nicediff.core.state_manager import StateManager
 
@@ -205,12 +206,60 @@ async def main_page():
                 flex: 1 !important;
                 min-height: 0 !important;
             }
+            
+            /* 이미지 패드 Fit/Contain 스타일 */
+            .image-pad-container {
+                background-color: #000000 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                width: 100% !important;
+                height: 100% !important;
+                overflow: hidden !important;
+            }
+            
+            .image-fit-contain {
+                max-width: 100% !important;
+                max-height: 100% !important;
+                width: auto !important;
+                height: auto !important;
+                object-fit: contain !important;
+                object-position: center !important;
+                display: block !important;
+                margin: auto !important;
+                border-radius: 8px !important;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
+            }
+            
+            .image-fit-cover {
+                width: 100% !important;
+                height: 100% !important;
+                object-fit: cover !important;
+                object-position: center !important;
+                border-radius: 8px !important;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
+            }
         </style>
     """)
     
     # Inference 페이지 렌더링
     inference_page = InferencePage(state_manager)
     await inference_page.render()
+
+# 정적 파일 서빙 설정
+@app.on_startup
+async def setup_static_files():
+    """정적 파일 서빙 설정"""
+    try:
+        # outputs 폴더를 정적 파일로 서빙
+        outputs_path = Path(__file__).parent / "outputs"
+        if outputs_path.exists():
+            app.mount("/outputs", StaticFiles(directory=str(outputs_path)), name="outputs")
+            print(f"✅ 정적 파일 서빙 설정 완료: {outputs_path}")
+        else:
+            print(f"⚠️ outputs 폴더가 없습니다: {outputs_path}")
+    except Exception as e:
+        print(f"⚠️ 정적 파일 서빙 설정 실패: {e}")
 
 # 앱 시작 시 초기화
 @app.on_startup
@@ -235,5 +284,6 @@ if __name__ == '__main__':
         dark=True,
         reload=False,
         show=True,
-        favicon='🎨'
+        favicon='🎨',
+        storage_secret='nicediff-secret-key-2024'
     )

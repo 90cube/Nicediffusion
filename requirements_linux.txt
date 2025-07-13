@@ -1,10 +1,10 @@
 # NiceGUI Framework
 nicegui>=2.21.1
 
-# PyTorch (CUDA 지원) - install.sh에서 자동 설치됨
-# torch>=2.7.1
-# torchvision>=0.22.1
-# torchaudio>=2.7.1
+# PyTorch (CUDA 지원)
+torch>=2.7.1
+torchvision>=0.22.1
+torchaudio>=2.7.1
 
 # Diffusion Models
 diffusers>=0.34.0
@@ -14,6 +14,9 @@ safetensors>=0.5.3
 
 # Memory Optimization
 xformers>=0.0.31
+
+# SDE Solvers
+torchsde>=0.2.6
 
 # Image Processing
 Pillow>=11.0.0

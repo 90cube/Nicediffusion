@@ -405,7 +405,9 @@ class StateManager:
                                 image_path=post_result.image_path,
                                 thumbnail_path=post_result.thumbnail_path,
                                 params=params,
-                                model=self.get('current_model_info')['name']
+                                model=self.get('current_model_info')['name'],
+                                vae=self.get('current_vae_path'),
+                                loras=self.get('current_loras', [])
                             )
                             self._add_to_history(history_item.to_dict())
                     
@@ -441,7 +443,9 @@ class StateManager:
                 image_path=save_result['image_path'],
                 thumbnail_path=save_result['thumbnail_path'],
                 params=params,
-                model=model_name
+                model=model_name,
+                vae=self.get('current_vae_path'),
+                loras=self.get('current_loras', [])
             )
             self._add_to_history(history_item.to_dict())
             
@@ -590,9 +594,36 @@ class StateManager:
                 params = item.get('params', {})
                 current_params = self.get('current_params')
                 
-                for key, value in params.items():
-                    if hasattr(current_params, key):
-                        setattr(current_params, key, value)
+                # GenerationParams 객체로 변환
+                if isinstance(params, dict):
+                    for key, value in params.items():
+                        if hasattr(current_params, key):
+                            setattr(current_params, key, value)
+                elif hasattr(params, '__dict__'):
+                    # 이미 GenerationParams 객체인 경우
+                    for key, value in params.__dict__.items():
+                        if hasattr(current_params, key):
+                            setattr(current_params, key, value)
+                
+                # VAE 복원
+                vae = item.get('vae')
+                if vae and vae != 'baked_in':
+                    self.set('current_vae_path', vae)
+                
+                # LoRA 복원
+                loras = item.get('loras', [])
+                if loras:
+                    self.set('current_loras', loras)
+                
+                # 모델 복원 (가능한 경우)
+                model_name = item.get('model')
+                if model_name:
+                    available_checkpoints = self.get('available_checkpoints', {})
+                    for folder_models in available_checkpoints.values():
+                        for model_info in folder_models:
+                            if model_info['name'] == model_name:
+                                asyncio.create_task(self.select_model(model_info))
+                                break
                 
                 self._notify('params_restored', params)
                 self._notify_user('히스토리에서 파라미터가 복원되었습니다.', 'positive')
@@ -680,7 +711,13 @@ class StateManager:
         if event in self._observers:
             for callback in self._observers[event]:
                 try:
-                    callback(data)
+                    # async 함수인지 확인하고 적절히 처리
+                    if asyncio.iscoroutinefunction(callback):
+                        # async 함수는 별도 태스크로 실행
+                        asyncio.create_task(callback(data))
+                    else:
+                        # 동기 함수는 직접 호출
+                        callback(data)
                 except Exception as e:
                     print(f"⚠️ 이벤트 콜백 오류 ({event}): {e}")
 
@@ -765,5 +802,40 @@ class StateManager:
         """히스토리에 아이템 추가"""
         history = self.get('history', [])
         history.insert(0, history_item)  # 최신 항목을 맨 앞에 추가
-        self.set('history', history[:50])  # 최대 50개만 유지
+        
+        # 설정에서 히스토리 제한 가져오기
+        history_limit = self.config.get('ui', {}).get('history_limit', 50)
+        history = history[:history_limit]  # 제한된 개수만 유지
+        
+        self.set('history', history)
+        
+        # 히스토리 업데이트 이벤트 발생
+        self._notify('history_updated', history)
+        
         print(f"📋 히스토리에 추가됨: {history_item.get('model', 'Unknown')}")
+    
+    async def _notify_async(self, event: str, data: Any = None):
+        """비동기 이벤트 발생"""
+        self._notify(event, data)
+
+    def get_history(self) -> List[Dict[str, Any]]:
+        """히스토리 목록 반환"""
+        return self.get('history', [])
+    
+    def clear_history(self):
+        """히스토리 전체 삭제"""
+        self.set('history', [])
+        self._notify('history_updated', [])
+        self._notify_user('히스토리가 삭제되었습니다.', 'info')
+    
+    def clear_all_history(self):
+        """전체 히스토리 삭제 (별칭)"""
+        self.clear_history()
+    
+    def delete_history_item(self, history_id: str):
+        """특정 히스토리 아이템 삭제"""
+        history = self.get('history', [])
+        history = [item for item in history if item.get('id') != history_id]
+        self.set('history', history)
+        self._notify('history_updated', history)
+        self._notify_user('히스토리 항목이 삭제되었습니다.', 'info')
