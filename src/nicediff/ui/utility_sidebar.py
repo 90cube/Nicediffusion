@@ -5,6 +5,7 @@
 from nicegui import ui
 from pathlib import Path
 from ..core.state_manager import StateManager
+import asyncio
 
 class UtilitySidebar:
     """유틸리티 사이드바"""
@@ -33,6 +34,8 @@ class UtilitySidebar:
                     on_click=self.toggle
                 ).props('flat').classes('w-full h-12 text-white text-xs').tooltip('사이드바 열기')
                 
+
+                
                 # 축약된 섹션 표시 (접혀있을 때)
                 with ui.column().classes('w-full').bind_visibility_from(self, 'is_expanded', value=False):
                     ui.button(
@@ -44,6 +47,12 @@ class UtilitySidebar:
                         icon='edit',
                         on_click=lambda: self.toggle() if not self.is_expanded else None
                     ).props('flat').classes('w-full h-10 text-gray-400').tooltip('편집 도구')
+                    
+                    # 리프레시 버튼
+                    ui.button(
+                        icon='refresh',
+                        on_click=self._refresh_sidebar
+                    ).props('flat').classes('w-full h-10 text-gray-400').tooltip('사이드바 새로고침')
             
             # 확장된 내용 (펼쳐졌을 때만 보임)
             with ui.scroll_area().classes('flex-1 w-full').bind_visibility_from(self, 'is_expanded'):
@@ -88,7 +97,7 @@ class UtilitySidebar:
                         button_text = method if self.is_expanded else short_name
                         ui.button(
                             button_text,
-                            on_click=lambda m=method: self._on_method_select(m)
+                            on_click=lambda m=method: asyncio.create_task(self._on_method_select(m))
                         ).props('flat').classes(
                             'w-full h-8 text-white hover:bg-gray-700 border-b border-gray-600 text-xs'
                         ).tooltip(method if not self.is_expanded else '')
@@ -272,10 +281,37 @@ class UtilitySidebar:
         """편집 도구 클릭"""
         ui.notify(f'{tool_name} 도구는 Phase 2에서 구현됩니다', type='info')
     
-    def _on_method_select(self, method: str):
-        """생성 방법 선택"""
-        self.state.set('generation_method', method)
-        ui.notify(f'{method} 모드로 변경되었습니다', type='info')
+    async def _on_method_select(self, method: str):
+        """생성 방법 선택 (순서 보장을 위해 async로 변경)"""
+        # StateManager에 현재 모드 설정
+        self.state.set('current_mode', method)
+        
+        # 모드별 기본 설정
+        if method in ['img2img', 'inpaint', 'upscale']:
+            # i2i 관련 모드일 때 기본 Strength 값 설정
+            current_params = self.state.get('current_params')
+            if not hasattr(current_params, 'strength') or current_params.strength is None:
+                self.state.update_param('strength', 0.8)  # 기본값 0.8
+                print(f"✅ {method} 모드 기본 Strength 값 설정: 0.8")
+            
+            # img2img 모드일 때 이미지 패드 자동 새로고침 (먼저 실행)
+            if method == 'img2img':
+                image_pad = self.state.get('image_pad')
+                print(f"🔍 이미지 패드 참조 확인: {image_pad}")
+                if image_pad:
+                    print(f"🔄 {method} 모드 선택: 이미지 패드 자동 새로고침 시작")
+                    await image_pad._refresh_image_pad()
+                    print(f"✅ {method} 모드 선택: 이미지 패드 자동 새로고침 완료")
+                else:
+                    print(f"❌ {method} 모드 선택: 이미지 패드 참조를 찾을 수 없음")
+        
+        # 이미지 패드 새로고침 완료 후 파라미터 패널 새로고침
+        print(f"🔄 {method} 모드: 파라미터 패널 새로고침 시작")
+        self.state._notify('mode_changed', {'mode': method})
+        print(f"✅ {method} 모드: 파라미터 패널 새로고침 완료")
+        
+        # 슬롯 오류 방지를 위해 notify 제거
+        print(f"🔄 생성 모드 변경: {method}")
     
     def _show_empty_history(self):
         """빈 히스토리 상태 표시"""
@@ -405,3 +441,8 @@ class UtilitySidebar:
             ui.notify(f'폴더 열기 실패: {e}', type='negative')
         except FileNotFoundError:
             ui.notify('시스템 명령어를 찾을 수 없습니다', type='negative')
+
+    def _refresh_sidebar(self):
+        """사이드바 새로고침"""
+        print("🔄 유틸리티 사이드바 새로고침 중...")
+        ui.notify('사이드바가 새로고침되었습니다', type='info')

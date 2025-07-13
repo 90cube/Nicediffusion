@@ -2,6 +2,7 @@
 
 from nicegui import ui
 import math
+import asyncio
 from ..core.state_manager import StateManager, GenerationParams
 
 class ParameterPanel:
@@ -38,6 +39,27 @@ class ParameterPanel:
         self.scheduler_select = None
         self.batch_size_input = None
         self.iterations_input = None
+        self.img2img_switch = None  # i2i 모드 스위치
+        self.strength_slider = None  # Strength(Denoise) 슬라이더
+        self.size_match_toggle = None  # 크기 일치 토글
+        self.clip_skip_input = None
+        
+        # 이벤트 구독 (한 번만 등록)
+        self._setup_event_subscriptions()
+    
+    def _setup_event_subscriptions(self):
+        """이벤트 구독 설정 (중복 방지)"""
+        # StateManager의 params_updated 이벤트 구독 (UI 동기화용)
+        self.state.subscribe('params_updated', self._on_params_updated)
+        # 히스토리 등 다른 곳에서 상태가 복원될 때 UI를 업데이트 하기 위한 구독
+        self.state.subscribe('state_restored', self._on_state_restored)
+        # 메타데이터 파라미터 적용 이벤트 구독 (오직 '파라미터 적용' 버튼 클릭 시에만)
+        self.state.subscribe('metadata_params_apply', self._on_metadata_params_apply)
+        # 모드 변경 이벤트 구독 (Denoise 슬라이더 표시/숨김용)
+        self.state.subscribe('mode_changed', self._on_mode_changed)
+        # 생성 상태 변경 이벤트 구독
+        self.state.subscribe('generation_started', lambda: self._on_generate_status_change(True))
+        self.state.subscribe('generation_finished', lambda: self._on_generate_status_change(False))
 
     def _on_generate_status_change(self, is_generating: bool):
         """[최종 수정] 경합 상태 방지를 위한 최종 안전장치(try-except) 추가"""
@@ -149,7 +171,35 @@ class ParameterPanel:
 
     async def _on_generate_click(self):
         """생성 버튼 클릭"""
+        print(f"🔄 생성 버튼 클릭됨")
+        current_mode = self.state.get('current_mode', 'txt2img')
+        print(f"🔍 현재 모드: {current_mode}")
+        
+        # 규칙 5: img2img 모드에서 이미지가 업로드되지 않았을 때 생성 시도하지 않음
+        if current_mode in ['img2img', 'inpaint', 'upscale']:
+            print(f"🔄 img2img 모드 감지: 이미지 업로드 확인 중...")
+            
+            # StateManager에서 이미지 확인
+            init_image = self.state.get('init_image')
+            print(f"🔍 StateManager.get('init_image') 결과: {init_image}")
+            
+            if init_image is None:
+                print(f"❌ img2img 모드에서 init_image가 None - 생성 중단")
+                ui.notify('img2img 모드에서는 이미지를 먼저 업로드해주세요', type='warning')
+                return
+            else:
+                print(f"✅ img2img 모드에서 이미지 확인됨: 크기={init_image.size}, 모드={init_image.mode}, 타입={type(init_image)}")
+                
+                # 추가 디버그: 이미지 경로도 확인
+                init_image_path = self.state.get('init_image_path')
+                init_image_name = self.state.get('init_image_name')
+                print(f"🔍 추가 이미지 정보: 경로={init_image_path}, 이름={init_image_name}")
+        else:
+            print(f"✅ txt2img 모드: 이미지 업로드 불필요")
+        
+        print(f"🔄 이미지 생성 시작...")
         await self.state.generate_image()
+        print(f"✅ 이미지 생성 요청 완료")
 
     def _on_param_change(self, param_name: str, param_type: type):
         """파라미터 변경 핸들러 팩토리 (StateManager 메서드 호출)"""
@@ -192,6 +242,23 @@ class ParameterPanel:
             is_enabled = self.infinite_generation_switch.value
             self.state.set('infinite_generation', is_enabled)
             print(f"🔄 무한 반복 생성: {'활성화' if is_enabled else '비활성화'}")
+    
+    def _handle_size_match_toggle(self):
+        """크기 일치 토글 처리"""
+        if self.size_match_toggle:
+            is_enabled = self.size_match_toggle.value
+            self.state.update_param('size_match_enabled', is_enabled)
+            print(f"🔄 크기 일치 토글: {'활성화' if is_enabled else '비활성화'}")
+            
+            # 크기 일치가 활성화되면 업로드된 이미지 크기로 파라미터 업데이트
+            if is_enabled:
+                init_image = self.state.get('init_image')
+                if init_image:
+                    width, height = init_image.size
+                    self.state.update_param('width', width)
+                    self.state.update_param('height', height)
+                    print(f"✅ 업로드된 이미지 크기로 파라미터 업데이트: {width}×{height}")
+                    ui.notify(f'파라미터가 업로드된 이미지 크기로 설정되었습니다: {width}×{height}', type='positive')
 
     def _update_ui_from_state(self, params):
         """상태 변경 시 UI 업데이트"""
@@ -250,15 +317,26 @@ class ParameterPanel:
                           on_click=lambda dp=display_name, rv=ratio_value, o=orientation: self._handle_ratio_click(dp, rv, o)) \
                     .props(btn_props).tooltip(tooltip_text)
 
+    @ui.refreshable
     async def render(self):
-        """컴포넌트 렌더링"""
+        """컴포넌트 렌더링 (새로고침 가능)"""
         comfyui_samplers = ["euler", "euler_a", "dpmpp_2m", "dpmpp_sde_gpu", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde_gpu"]
         comfyui_schedulers = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
         current_params = self.state.get('current_params')
 
         with ui.column().classes('w-full gap-3'):
-            ui.label('생성 설정').classes('text-lg font-bold text-yellow-400')
+            # 헤더: 제목과 리프레시 버튼
+            with ui.row().classes('w-full items-center justify-between'):
+                ui.label('생성 설정').classes('text-lg font-bold text-yellow-400')
+                
+                # 리프레시 버튼
+                ui.button(
+                    icon='refresh',
+                    on_click=self._refresh_parameter_panel
+                ).props('round color=white text-color=black size=sm').tooltip('파라미터 패널 새로고침')
             
+
+
             # 샘플러와 스케줄러
             with ui.column().classes('gap-2'):
                 self.sampler_select = ui.select(options=comfyui_samplers, label='Sampler', value=current_params.sampler) \
@@ -294,6 +372,31 @@ class ParameterPanel:
             # 비율 버튼들
             self.ratio_buttons_container()
             
+            # 이미지 크기 적용 버튼 (i2i 모드일 때만, 비율 아래에 표시)
+            current_mode = self.state.get('current_mode', 'txt2img')
+            if current_mode in ['img2img', 'inpaint', 'upscale']:
+                init_image = self.state.get('init_image')
+                if init_image:
+                    with ui.card().classes('w-full bg-blue-900 p-2 mt-2'):
+                        with ui.row().classes('w-full justify-between items-center'):
+                            ui.label('업로드된 이미지').classes('text-sm font-medium text-blue-300')
+                            ui.button(
+                                icon='aspect_ratio',
+                                on_click=self._apply_image_size_to_params
+                            ).props('round color=blue text-color=white size=sm').tooltip('이미지 크기를 파라미터에 적용')
+                        
+                        with ui.row().classes('w-full justify-between text-xs'):
+                            ui.label(f'크기: {init_image.size[0]}×{init_image.size[1]}').classes('text-blue-200')
+                            ui.label(f'모드: {init_image.mode}').classes('text-blue-200')
+                        
+                        # 현재 파라미터와 비교
+                        current_width = getattr(current_params, 'width', 512)
+                        current_height = getattr(current_params, 'height', 512)
+                        if current_width != init_image.size[0] or current_height != init_image.size[1]:
+                            ui.label('⚠️ 파라미터 크기와 다릅니다').classes('text-xs text-yellow-400')
+                        else:
+                            ui.label('✅ 파라미터 크기와 일치합니다').classes('text-xs text-green-400')
+
             # 배치 설정
             with ui.row().classes('w-full gap-2 mt-4'):
                 self.batch_size_input = ui.number(label="배치 사이즈", min=1, max=32, value=current_params.batch_size) \
@@ -321,16 +424,43 @@ class ParameterPanel:
                 
                 ui.button(icon='casino', on_click=self._randomize_seed)
 
+            # img2img 모드 전용 컨트롤들
+            current_mode = self.state.get('current_mode', 'txt2img')
+            if current_mode in ['img2img', 'inpaint', 'upscale']:
+                current_params = self.state.get('current_params')
+                strength_value = getattr(current_params, 'strength', 0.8)
+                size_match_enabled = getattr(current_params, 'size_match_enabled', False)
+                
+                # Denoise Strength 슬라이더
+                with ui.column().classes('w-full gap-2 mt-4') as self.denoise_container:
+                    ui.label('Denoise Strength').classes('text-sm font-medium text-blue-400')
+                    self.strength_slider = ui.slider(
+                        min=0.0, 
+                        max=1.0, 
+                        step=0.01, 
+                        value=strength_value
+                    ).on('update:model-value', self._on_param_change('strength', float))
+                    
+                    # Strength 값 표시
+                    with ui.row().classes('w-full justify-between text-xs text-gray-400'):
+                        ui.label('0.0 (원본 유지)')
+                        ui.label(f'{strength_value:.2f}')
+                        ui.label('1.0 (완전 새로 생성)')
+                    
+                    # Strength 설명
+                    ui.label('이미지 변형 강도: 낮을수록 원본 유지, 높을수록 새로 생성').classes('text-xs text-gray-500')
+                
+                # 크기 일치 토글
+                with ui.row().classes('w-full items-center gap-2 mt-4'):
+                    self.size_match_toggle = ui.switch(value=size_match_enabled).props('color=green') \
+                        .on('click', self._handle_size_match_toggle)
+                    ui.label('크기 일치').classes('text-sm text-green-400')
+                    ui.label('(업로드된 이미지 크기로 생성)').classes('text-xs text-gray-500')
+
             # 생성 버튼
             self.generate_button = ui.button('생성', on_click=self._on_generate_click) \
                 .props('size=lg color=blue').classes('w-full mt-4')
-            
-            # StateManager의 params_updated 이벤트 구독 (UI 동기화용)
-            self.state.subscribe('params_updated', self._on_params_updated)
-            # 히스토리 등 다른 곳에서 상태가 복원될 때 UI를 업데이트 하기 위한 구독
-            self.state.subscribe('state_restored', self._on_state_restored)
-            # 메타데이터 파라미터 적용 이벤트 구독 (오직 '파라미터 적용' 버튼 클릭 시에만)
-            self.state.subscribe('metadata_params_apply', self._on_metadata_params_apply)
+
 
     def _on_params_updated(self, data: dict):
         """StateManager에서 파라미터가 업데이트될 때 UI를 업데이트합니다."""
@@ -431,3 +561,53 @@ class ParameterPanel:
 
         print(f"✅ 메타데이터 파라미터 적용 완료: {list(params.keys())}")
         ui.notify('메타데이터 파라미터가 파라미터 패널에 적용되었습니다!', type='positive')
+
+
+
+    async def _on_mode_changed(self, data):
+        """모드 변경 이벤트 핸들러 (Denoise 슬라이더 표시/숨김용)"""
+        new_mode = data.get('mode', 'txt2img')
+        print(f"🔄 모드 변경 감지: {new_mode} - 파라미터 패널 새로고침")
+        
+        # 무한 루프 방지를 위해 디바운싱 적용
+        if hasattr(self, '_refresh_task') and not self._refresh_task.done():
+            return
+        
+        self._refresh_task = asyncio.create_task(self._refresh_parameter_panel())
+
+    async def _refresh_parameter_panel(self):
+        """파라미터 패널 새로고침"""
+        print("🔄 파라미터 패널 새로고침 중...")
+        
+        try:
+            # @ui.refreshable로 만든 render 함수를 새로고침
+            self.render.refresh()
+            print(f"✅ 파라미터 패널 새로고침 완료")
+        except Exception as e:
+            print(f"❌ 파라미터 패널 새로고침 실패: {e}")
+            # 실패 시 알림만 표시
+            ui.notify('파라미터 패널 새로고침 중 오류가 발생했습니다', type='warning')
+    
+    def _apply_image_size_to_params(self):
+        """업로드된 이미지의 크기를 파라미터에 적용"""
+        try:
+            # 현재 업로드된 이미지 가져오기
+            init_image = self.state.get('init_image')
+            if init_image is None:
+                ui.notify('업로드된 이미지가 없습니다', type='warning')
+                return
+            
+            # 이미지 크기 가져오기
+            width, height = init_image.size
+            
+            # StateManager를 통해 파라미터 업데이트
+            self.state.update_param('width', width)
+            self.state.update_param('height', height)
+            
+            # 성공 알림
+            ui.notify(f'이미지 크기가 파라미터에 적용되었습니다: {width}×{height}', type='positive')
+            print(f"✅ 이미지 크기 파라미터 적용: {width}×{height}")
+            
+        except Exception as e:
+            print(f"❌ 이미지 크기 파라미터 적용 실패: {e}")
+            ui.notify(f'이미지 크기 적용 실패: {e}', type='negative')

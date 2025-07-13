@@ -41,7 +41,11 @@ class StateManager:
             'sd_model': 'SD15',  # 추가: UI에서 사용하는 모델 타입
             'status_message': '준비 중...',
             'infinite_mode': False,  # 무한 생성 모드
+            'current_mode': 'txt2img',  # 현재 생성 모드 (txt2img, img2img, inpaint, upscale)
         }
+        
+        # 크기 일치 토글 기본값 설정
+        self._state['current_params'].size_match_enabled = False
         self._observers: Dict[str, List[Callable]] = {}
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.stop_generation_flag = asyncio.Event()
@@ -342,12 +346,13 @@ class StateManager:
         
         self.stop_generation_flag.clear()
         self.set('is_generating', True)
-        self._notify('generation_started', {})
+        # 생성 시작 이벤트는 실제 생성이 시작될 때만 발생
+        # self._notify('generation_started', {})  # 여기서는 제거
         
         try:
             # 도메인 전략 사용
             pipeline = self.model_loader.get_current_pipeline()
-            strategy = BasicGenerationStrategy(pipeline, self.device)
+            strategy = BasicGenerationStrategy(pipeline, self.device, state=self)
             
             # 파라미터 준비
             params = self.get('current_params')
@@ -363,9 +368,48 @@ class StateManager:
                 'scheduler': params.scheduler,
                 'batch_size': params.batch_size,
                 'clip_skip': getattr(params, 'clip_skip', 1),  # CLIP Skip 추가
+                'strength': getattr(params, 'strength', 0.8),  # i2i Strength 추가
                 'vae': self.get('current_vae_path'),
                 'loras': self.get('current_loras')
             }
+            
+            # i2i 모드 처리
+            current_mode = self.get('current_mode', 'txt2img')
+            if current_mode in ['img2img', 'inpaint', 'upscale']:
+                params_dict['img2img_mode'] = True
+                # init_image는 ImagePad에서 설정되어야 함
+                init_image = self.get('init_image')
+                print(f"🔍 StateManager에서 init_image 확인: {init_image}")
+                if init_image:
+                    print(f"✅ init_image 확인됨: {type(init_image)}, {init_image.size}")
+                else:
+                    print(f"❌ init_image가 None입니다!")
+                    # 글로벌 상태에서 이미지 다시 가져오기
+                    init_image = self._state.get('init_image')
+                    if init_image:
+                        print(f"🔄 글로벌 상태에서 init_image 복구: {init_image.size}")
+                    else:
+                        mode_display = {
+                            'img2img': '이미지 → 이미지',
+                            'inpaint': '인페인팅',
+                            'upscale': '업스케일'
+                        }.get(current_mode, current_mode)
+                        self._notify_user(f'{mode_display} 모드에서는 초기 이미지가 필요합니다. 이미지 패드에서 이미지를 업로드해주세요.', 'warning')
+                        # 즉시 종료하고 finally 블록 실행하지 않음
+                        self.set('is_generating', False)
+                        return
+                
+                # 디버그: 이미지 정보 출력
+                if hasattr(init_image, 'size'):
+                    print(f"🔍 전달할 이미지 크기: {init_image.size}, 모드: {init_image.mode}")
+                else:
+                    print(f"❌ 이미지 객체가 올바르지 않음: {type(init_image)}")
+                
+                params_dict['init_image'] = init_image
+                print(f"🎨 {current_mode} 모드 활성화 - Strength: {params_dict['strength']}")
+            else:
+                params_dict['img2img_mode'] = False
+                print("🎨 txt2img 모드 활성화")
             
             # 반복 생성 처리
             iterations = int(params.iterations)
@@ -382,6 +426,10 @@ class StateManager:
                 params_dict['seed'] = current_seed
                 
                 print(f"🎨 생성 시작 (Iteration {i+1}/{iterations}) - Seed: {current_seed}")
+                
+                # 실제 생성 시작 시에만 이벤트 발생
+                if i == 0:  # 첫 번째 반복에서만
+                    self._notify('generation_started', {})
                 
                 # 전략 실행
                 result = await strategy.execute(params_dict, self.get('current_model_info'))
@@ -678,6 +726,27 @@ class StateManager:
         """상태 값 설정"""
         self._state[key] = value
         self._notify(f'{key}_changed', value)
+    
+    def set_init_image(self, image):
+        """img2img용 이미지 설정 (별도 메서드) - 개선된 버전"""
+        print(f"🔍 set_init_image 호출: 이미지 타입={type(image)}")
+        
+        if image is not None:
+            print(f"🔍 이미지 정보: 크기={image.size}, 모드={image.mode}")
+            # 이미지 객체를 직접 딕셔너리에 저장 (이벤트 시스템 우회)
+            self._state['init_image'] = image
+            print(f"✅ init_image 직접 저장 완료: {image.size}")
+            
+            # 저장 후 확인
+            saved_image = self._state.get('init_image')
+            print(f"🔍 저장 후 확인: 타입={type(saved_image)}, 크기={saved_image.size if saved_image else 'None'}")
+            
+            # 이벤트 발생 (이미지 객체 대신 성공 메시지 전달)
+            self._notify('init_image_changed', {'status': 'success', 'size': image.size})
+        else:
+            print(f"⚠️ init_image가 None으로 설정됨")
+            self._state['init_image'] = None
+            self._notify('init_image_changed', {'status': 'cleared'})
 
     def update_param(self, param_name: str, value: Any):
         """파라미터 업데이트"""

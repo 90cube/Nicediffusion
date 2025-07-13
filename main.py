@@ -280,7 +280,7 @@ async def shutdown():
 if __name__ == '__main__':
     ui.run(
         title="Nicediff - AI Image Generation Studio",
-        port=8080,
+        port=8081,  # 포트 충돌 방지를 위해 8081로 변경
         dark=True,
         reload=False,
         show=True,

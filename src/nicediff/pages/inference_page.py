@@ -60,6 +60,15 @@ class InferencePage:
         # 모든 UI가 화면에 완전히 그려진 후, 필요한 모든 이벤트를 여기서 한번만 연결(구독)합니다.
         print("InferencePage: 모든 UI 렌더링 완료. 이벤트 구독을 시작합니다.")
         
+        # UI 컴포넌트들을 StateManager에 등록 (다른 컴포넌트에서 접근 가능하도록)
+        self.state.set('image_pad', self.image_pad)
+        self.state.set('sidebar', self.sidebar)
+        self.state.set('param_panel', self.param_panel)
+        self.state.set('prompt_panel', self.prompt_panel)
+        self.state.set('lora_panel', self.lora_panel)
+        self.state.set('metadata_panel', self.metadata_panel)
+        self.state.set('top_bar', self.top_bar)
+        
         # 기존 구독
         self.state.subscribe('is_generating_changed', self.param_panel._on_generate_status_change)
         

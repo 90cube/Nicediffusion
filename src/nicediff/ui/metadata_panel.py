@@ -18,7 +18,14 @@ class MetadataPanel:
     async def render(self):
         """컴포넌트 렌더링"""
         with ui.card().classes('w-full h-full p-4 bg-teal-800'):
-            ui.label('메타데이터').classes('text-lg font-bold mb-2 text-white')
+            with ui.row().classes('w-full items-center justify-between mb-2'):
+                ui.label('메타데이터').classes('text-lg font-bold mb-2 text-white')
+                
+                # 리프레시 버튼
+                ui.button(
+                    icon='refresh',
+                    on_click=self._refresh_metadata_panel
+                ).props('flat dense color=white size=sm').tooltip('메타데이터 패널 새로고침')
             
             # 메타데이터 표시 영역
             with ui.scroll_area().classes('w-full h-full'):
@@ -189,3 +196,16 @@ class MetadataPanel:
             self._show_metadata(lora_info['metadata'], 'lora')
         else:
             self._show_empty_state()
+
+    def _refresh_metadata_panel(self):
+        """메타데이터 패널 새로고침"""
+        print("🔄 메타데이터 패널 새로고침 중...")
+        
+        # 현재 선택된 모델 정보로 UI 업데이트
+        current_model_info = self.state.get('current_model_info')
+        if current_model_info:
+            self._show_metadata(current_model_info)
+        else:
+            self._show_empty_state()
+        
+        ui.notify('메타데이터 패널이 새로고침되었습니다', type='info')

@@ -16,6 +16,8 @@ class TopBar:
         self.state.subscribe('vae_updated', self._on_vae_updated)
         self.state.subscribe('model_loading_started', self._on_model_loading_started)
         self.state.subscribe('model_loading_finished', self._on_model_loading_finished)
+        self.state.subscribe('generation_started', self._on_generation_started)
+        self.state.subscribe('generation_finished', self._on_generation_finished)
         
         # 사용자 알림 이벤트 구독 추가
         self.state.subscribe('user_notification', self._on_user_notification)
@@ -62,13 +64,19 @@ class TopBar:
                     ui.label("모델 라이브러리").classes("text-lg font-bold text-white")
                     self.toggle_button = ui.button(icon='expand_less', on_click=self._toggle_visibility).props('flat round color=white size=sm ml-2')
                 
-                # 오른쪽: VAE 선택 (반응형)
+                # 오른쪽: VAE 선택 + 중단 버튼 (반응형)
                 with ui.row().classes('items-center gap-2 flex-shrink-0 min-w-0'):
                     ui.label('VAE:').classes('text-sm text-white flex-shrink-0')
                     self.vae_select = ui.select(options=['Automatic', 'None'], value='Automatic') \
                         .props('dark outlined dense') \
                         .classes('w-48 min-w-32 max-w-64') \
                         .on('change', lambda e: asyncio.create_task(self._on_vae_change(e.value)))
+                    
+                    # 중단 버튼 (처음에는 숨김)
+                    self.stop_button = ui.button(
+                        icon='stop',
+                        on_click=self._stop_generation
+                    ).props('round color=red text-color=white size=sm').classes('invisible').tooltip('생성 중단')
 
             # 2. 메인 컨텐츠 영역 (토글 가능, 반응형)
             self.content_row = ui.row().classes('w-full p-2 bg-gray-800 gap-2 flex-wrap lg:flex-nowrap')
@@ -299,6 +307,24 @@ class TopBar:
         """로딩이 끝나면 스피너를 숨깁니다."""
         if self.loading_spinner:
             self.loading_spinner.set_visibility(False)
+    
+    async def _on_generation_started(self, data: Dict[str, Any]):
+        """생성 시작 시 중단 버튼을 표시합니다."""
+        if hasattr(self, 'stop_button') and self.stop_button:
+            self.stop_button.classes('visible')
+            print("🔄 생성 시작: 중단 버튼 표시")
+    
+    async def _on_generation_finished(self, data: Dict[str, Any]):
+        """생성 완료 시 중단 버튼을 숨깁니다."""
+        if hasattr(self, 'stop_button') and self.stop_button:
+            self.stop_button.classes('invisible')
+            print("✅ 생성 완료: 중단 버튼 숨김")
+    
+    def _stop_generation(self):
+        """생성 중단"""
+        print("🛑 생성 중단 요청")
+        self.state.stop_generation_flag.set()
+        ui.notify('생성이 중단되었습니다', type='warning')
         
         # 로딩 실패 시 알림
         if not data.get('success'):
@@ -401,28 +427,22 @@ class TopBar:
         ui.notify('메타데이터 파라미터가 파라미터 패널에 적용되었습니다', type='success')
 
     def _toggle_visibility(self):
-        """'펼치기/접기'를 '전체화면/원래대로' 기능으로 업그레이드합니다."""
+        """토글 버튼 클릭 시 컨텐츠 영역을 숨기거나 보여줍니다."""
         self.is_expanded = not self.is_expanded
-    
+        
         if self.is_expanded:
-            # 펼칠 때: 전체 화면을 덮는 스타일로 변경
-            self.main_card.classes(
-                remove='max-h-80', # 기존 높이 제한이 있다면 제거
-                add='fixed top-0 left-0 w-screen h-screen z-50' # 전체화면 CSS 클래스
-            )
-            self.content_row.classes(remove='h-64') # 컨텐츠 높이 제한 해제
-            self.toggle_button.props('icon=close') # 아이콘을 닫기 버튼으로
-            self.toggle_button.tooltip('라이브러리 닫기')
-
+            # 펼칠 때: 컨텐츠 영역 표시
+            self.content_row.visible = True
+            self.toggle_button.props('icon=expand_less')
+            self.toggle_button.tooltip('라이브러리 접기')
         else:
-            # 접을 때: 원래 스타일로 복원
-            self.main_card.classes(
-                add='max-h-80', # 원래 높이 제한을 다시 줄 수 있습니다
-                remove='fixed top-0 left-0 w-screen h-screen z-50'
-            )
-            self.content_row.classes(add='h-64') # 컨텐츠 높이 복원
-            self.toggle_button.props('icon=fullscreen') # 아이콘을 전체화면 버튼으로
-            self.toggle_button.tooltip('라이브러리 전체화면')
+            # 접을 때: 컨텐츠 영역 숨김
+            self.content_row.visible = False
+            self.toggle_button.props('icon=expand_more')
+            self.toggle_button.tooltip('라이브러리 펼치기')
+        
+        print(f"🔽 모델 라이브러리 {'펼침' if self.is_expanded else '접음'}")
+        ui.notify(f'모델 라이브러리가 {"펼쳐졌습니다" if self.is_expanded else "접혔습니다"}', type='info')
 
     async def _on_model_selected(self, model_info: Optional[Dict[str, Any]]):
         """StateManager에서 모델 선택이 변경되었다는 알림을 받았을 때 호출됩니다."""

@@ -23,6 +23,16 @@ class PromptPanel:
         current_params = self.state.get('current_params')
         
         with ui.column().classes('w-full gap-3'):
+            # 헤더: 제목과 리프레시 버튼
+            with ui.row().classes('w-full items-center justify-between'):
+                ui.label('프롬프트').classes('text-lg font-bold text-green-400')
+                
+                # 리프레시 버튼
+                ui.button(
+                    icon='refresh',
+                    on_click=self._refresh_prompt_panel
+                ).props('round color=white text-color=black size=sm').tooltip('프롬프트 패널 새로고침')
+            
             # 긍정 프롬프트
             with ui.column().classes('w-full'):
                 with ui.row().classes('items-center justify-between mb-1'):
@@ -384,3 +394,13 @@ class PromptPanel:
             if self.negative_textarea:
                 self.negative_textarea.set_value(params.negative_prompt)
                 self._on_negative_change(None)
+
+    def _refresh_prompt_panel(self):
+        """프롬프트 패널 새로고침"""
+        print("🔄 프롬프트 패널 새로고침 중...")
+        
+        # 현재 파라미터로 UI 업데이트
+        current_params = self.state.get('current_params')
+        self._update_ui_from_state(current_params)
+        
+        ui.notify('프롬프트 패널이 새로고침되었습니다', type='info')

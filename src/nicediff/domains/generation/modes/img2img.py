@@ -26,14 +26,41 @@ class Img2ImgParams:
     scheduler: str
     batch_size: int
     model_type: str = 'SD15'
+    clip_skip: int = 1  # CLIP Skip 추가
 
 
 class Img2ImgMode:
-    """이미지-이미지 생성 모드"""
+    """이미지-이미지 생성 모드 (A1111 스타일)"""
     
     def __init__(self, pipeline: Any, device: str):
         self.pipeline = pipeline
         self.device = device
+    
+    def _encode_image(self, image: Image.Image) -> torch.Tensor:
+        """이미지를 latent space로 인코딩 (A1111 스타일)"""
+        print(f"🔍 이미지 인코딩 시작: 크기={image.size}, 모드={image.mode}")
+        
+        with torch.no_grad():
+            # 이미지 전처리
+            if hasattr(self.pipeline, 'image_processor'):
+                # StableDiffusionImg2ImgPipeline의 경우
+                image_tensor = self.pipeline.image_processor.preprocess(image)
+            else:
+                # 일반 StableDiffusionPipeline의 경우
+                from diffusers.utils import PIL_INTERPOLATION
+                image_tensor = self.pipeline.feature_extractor(
+                    image, 
+                    return_tensors="pt"
+                ).pixel_values
+            
+            image_tensor = image_tensor.to(self.device)
+            
+            # VAE 인코딩
+            latent = self.pipeline.vae.encode(image_tensor).latent_dist.sample()
+            latent = latent * self.pipeline.vae.config.scaling_factor
+            
+            print(f"✅ 이미지 인코딩 완료: latent shape={latent.shape}")
+            return latent
     
     def _validate_init_image(self, init_image: Image.Image, target_width: int, target_height: int) -> Image.Image:
         """초기 이미지 검증 및 리사이즈"""
@@ -87,9 +114,17 @@ class Img2ImgMode:
             pass  # 조용히 무시
     
     async def generate(self, params: Img2ImgParams) -> List[Any]:
-        """이미지-이미지 생성 실행"""
+        """이미지-이미지 생성 실행 (A1111 스타일)"""
         print(f"🎨 Img2Img 생성 시작 - Seed: {params.seed}, Strength: {params.strength}")
         print(f"🔧 파이프라인 호출 - Size: {params.width}x{params.height}, Batch: {params.batch_size}")
+        
+        # 디버그: 초기 이미지 확인
+        print(f"🔍 Img2Img 모드에서 init_image 확인: {params.init_image}")
+        if params.init_image:
+            print(f"🔍 Img2Img 모드에서 이미지 크기: {params.init_image.size}, 모드: {params.init_image.mode}")
+        else:
+            print(f"❌ Img2Img 모드에서 init_image가 None!")
+            return []
         
         # 파라미터 검증
         init_image = self._validate_init_image(params.init_image, params.width, params.height)
@@ -111,20 +146,54 @@ class Img2ImgMode:
             generator.manual_seed(params.seed)
         
         def _generate():
-            """실제 생성 로직"""
-            # img2img 파이프라인 호출
-            result = self.pipeline(
-                prompt=params.prompt,
-                negative_prompt=params.negative_prompt,
-                image=init_image,
-                strength=strength,
-                num_inference_steps=params.steps,
-                guidance_scale=params.cfg_scale,
-                generator=generator,
-                num_images_per_prompt=params.batch_size,
-                # SD15에서 더 나은 품질을 위한 추가 파라미터
-                **({"eta": 1.0} if params.model_type == 'SD15' else {})
+            """실제 생성 로직 (A1111 스타일)"""
+            print(f"🔍 파이프라인 타입: {type(self.pipeline)}")
+            
+            # 1. 이미지 → latent 변환
+            init_latent = self._encode_image(init_image)
+            
+            # 2. 노이즈 추가 (strength에 따라)
+            noise = torch.randn_like(init_latent)
+            
+            # 3. timesteps 계산 (strength에 따라)
+            timesteps = int(strength * params.steps)
+            print(f"🔍 노이즈 주입: strength={strength}, timesteps={timesteps}")
+            
+            # 4. 스케줄러에 노이즈 추가
+            noised_latent = self.pipeline.scheduler.add_noise(
+                init_latent, 
+                noise, 
+                torch.tensor([timesteps], device=self.device)
             )
+            
+            # 5. 파이프라인 호출 (latents 사용)
+            try:
+                # StableDiffusionImg2ImgPipeline 또는 latents를 지원하는 파이프라인
+                result = self.pipeline(
+                    prompt=params.prompt,
+                    negative_prompt=params.negative_prompt,
+                    latents=noised_latent,  # 'image' 대신 'latents' 사용
+                    num_inference_steps=params.steps,
+                    guidance_scale=params.cfg_scale,
+                    generator=generator,
+                    num_images_per_prompt=params.batch_size,
+                    # SD15에서 더 나은 품질을 위한 추가 파라미터
+                    **({"eta": 1.0} if params.model_type == 'SD15' else {})
+                )
+            except TypeError as e:
+                # latents 인자를 지원하지 않는 경우, 기존 방식으로 폴백
+                print(f"⚠️ latents 인자 미지원, 기존 방식으로 폴백: {e}")
+                result = self.pipeline(
+                    prompt=params.prompt,
+                    negative_prompt=params.negative_prompt,
+                    image=init_image,  # 기존 방식
+                    strength=strength,
+                    num_inference_steps=params.steps,
+                    guidance_scale=params.cfg_scale,
+                    generator=generator,
+                    num_images_per_prompt=params.batch_size,
+                    **({"eta": 1.0} if params.model_type == 'SD15' else {})
+                )
             
             # 파이프라인 결과에서 images 반환
             if hasattr(result, 'images'):
