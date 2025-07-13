@@ -36,7 +36,7 @@ class TopBar:
         # 애플리케이션의 핵심 이벤트를 여기서 모두 구독합니다.
         self.state.subscribe('available_checkpoints_changed', self._on_models_updated)
         self.state.subscribe('vae_updated', self._on_vae_updated)
-        self.state.subscribe('model_selection_changed', self._on_model_selected)
+        # self.state.subscribe('model_selection_changed', self._on_model_selected)  # InferencePage에서 중앙 관리
     
     def _on_user_notification(self, data: Dict[str, Any]):
         """사용자 알림 이벤트 핸들러"""

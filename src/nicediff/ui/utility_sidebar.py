@@ -50,6 +50,19 @@ class UtilitySidebar:
                 with ui.column().classes('w-full p-2 gap-2'):  # 패딩 줄임
                     # 히스토리 섹션
                     with ui.expansion('히스토리', icon='history').classes('w-full'):
+                        # 히스토리 헤더 (전체 삭제 버튼 포함)
+                        with ui.row().classes('w-full justify-between items-center mb-1'):
+                            ui.label('생성 기록').classes('text-xs text-gray-400')
+                            with ui.row().classes('gap-1'):
+                                ui.button(
+                                    icon='folder_open',
+                                    on_click=self._open_outputs_folder
+                                ).props('flat round').classes('text-blue-400 hover:text-blue-300 text-xs').tooltip('Outputs 폴더 열기')
+                                ui.button(
+                                    icon='clear_all',
+                                    on_click=self._clear_all_history
+                                ).props('flat round').classes('text-red-400 hover:text-red-300 text-xs').tooltip('전체 삭제')
+                        
                         with ui.scroll_area().classes('w-full h-40'):  # 높이 줄임
                             self.history_container = ui.column().classes('w-full gap-1')  # 갭 줄임
                             self._show_empty_history()
@@ -80,8 +93,8 @@ class UtilitySidebar:
                             'w-full h-8 text-white hover:bg-gray-700 border-b border-gray-600 text-xs'
                         ).tooltip(method if not self.is_expanded else '')
         
-        # 히스토리 업데이트 구독
-        self.state.subscribe('history_updated', self._update_history)
+        # 히스토리 업데이트 구독 (InferencePage에서 중앙 관리하므로 여기서는 구독하지 않음)
+        # self.state.subscribe('history_updated', self._update_history)
 
     def _create_drawing_tools(self):
         """그림 도구 섹션 생성"""
@@ -274,46 +287,121 @@ class UtilitySidebar:
                 ui.label('이미지를 생성하면 여기에 표시됩니다').classes('text-gray-500 text-xs text-center')
     
     async def _update_history(self, history_items):
-        """히스토리 업데이트"""
+        """히스토리 업데이트 (async로 변경)"""
+        print(f"📋 히스토리 업데이트 시작: {len(history_items) if history_items else 0}개 항목")
+        
         if not self.history_container:
+            print("❌ 히스토리 컨테이너가 없습니다")
             return
         
         self.history_container.clear()
+        print("✅ 히스토리 컨테이너 초기화")
         
         if not history_items:
+            print("ℹ️ 히스토리가 비어있음")
             self._show_empty_history()
             return
         
         # 히스토리 아이템 표시 (최신순)
         with self.history_container:
-            for item in history_items[:15]:  # 개수 줄임 (15개)
+            for i, item in enumerate(history_items[:15]):  # 개수 줄임 (15개)
+                print(f"📝 히스토리 항목 {i+1} 처리: {item.get('model', 'Unknown')}")
                 with ui.card().classes('w-full p-1 cursor-pointer hover:bg-gray-700').on(
                     'click',
                     lambda i=item: self._restore_from_history(i)
                 ):
                     with ui.row().classes('gap-1 items-center'):
                         # 썸네일 (크기 줄임)
-                        if hasattr(item, 'thumbnail_path') and Path(item.thumbnail_path).exists():
-                            ui.image(item.thumbnail_path).classes('w-8 h-8 rounded object-cover')
+                        thumbnail_path = item.get('thumbnail_path')
+                        if thumbnail_path and Path(thumbnail_path).exists():
+                            ui.image(thumbnail_path).classes('w-8 h-8 rounded object-cover')
                         else:
                             ui.icon('image').classes('w-8 h-8 text-gray-400')
                         
                         # 정보
                         with ui.column().classes('flex-1 min-w-0'):
                             # 시간
-                            if hasattr(item, 'timestamp'):
-                                time_str = item.timestamp.strftime('%H:%M')
+                            timestamp = item.get('timestamp')
+                            if timestamp:
+                                if isinstance(timestamp, str):
+                                    from datetime import datetime
+                                    try:
+                                        dt = datetime.fromisoformat(timestamp)
+                                        time_str = dt.strftime('%H:%M')
+                                    except:
+                                        time_str = 'Unknown'
+                                else:
+                                    time_str = timestamp.strftime('%H:%M')
                                 ui.label(time_str).classes('text-xs text-gray-400')
                             
                             # 프롬프트 (일부만, 더 짧게)
-                            if hasattr(item, 'params') and hasattr(item.params, 'prompt'):
-                                prompt_preview = item.params.prompt[:20] + '...' if len(item.params.prompt) > 20 else item.params.prompt
+                            params = item.get('params', {})
+                            if isinstance(params, dict):
+                                prompt = params.get('prompt', '')
+                            else:
+                                prompt = getattr(params, 'prompt', '')
+                            
+                            if prompt:
+                                prompt_preview = prompt[:20] + '...' if len(prompt) > 20 else prompt
                                 ui.label(prompt_preview).classes('text-xs text-white truncate')
+                        
+                        # 삭제 버튼
+                        with ui.button(
+                            icon='delete',
+                            on_click=lambda i=item: self._delete_history_item(i)
+                        ).props('flat round').classes('text-red-400 hover:text-red-300 text-xs'):
+                            pass
+        
+        print(f"✅ 히스토리 업데이트 완료: {len(history_items[:15])}개 항목 표시")
+    
+    def _delete_history_item(self, history_item):
+        """히스토리 아이템 삭제"""
+        history_id = history_item.get('id')
+        if history_id:
+            self.state.delete_history_item(history_id)
+        else:
+            ui.notify('삭제할 수 없습니다', type='warning')
     
     def _restore_from_history(self, history_item):
         """히스토리에서 복원"""
-        if hasattr(history_item, 'id'):
-            self.state.restore_from_history(history_item.id)
+        history_id = history_item.get('id')
+        if history_id:
+            self.state.restore_from_history(history_id)
             ui.notify('히스토리에서 복원되었습니다', type='success')
         else:
             ui.notify('복원할 수 없습니다', type='warning')
+
+    def _clear_all_history(self):
+        """전체 히스토리 삭제"""
+        if ui.confirm('정말로 모든 생성 기록을 삭제하시겠습니까?'):
+            self.state.clear_all_history()
+            ui.notify('모든 생성 기록이 삭제되었습니다', type='info')
+            self._show_empty_history()
+
+    def _open_outputs_folder(self):
+        """Outputs 폴더를 엽니다."""
+        import subprocess
+        import platform
+        
+        outputs_path = Path('outputs')
+        if not outputs_path.exists():
+            ui.notify('Outputs 폴더가 존재하지 않습니다', type='warning')
+            return
+        
+        try:
+            system = platform.system()
+            if system == 'Windows':
+                subprocess.run(['explorer', str(outputs_path)], check=True)
+            elif system == 'Linux':
+                subprocess.run(['xdg-open', str(outputs_path)], check=True)
+            elif system == 'Darwin':  # macOS
+                subprocess.run(['open', str(outputs_path)], check=True)
+            else:
+                ui.notify(f'지원하지 않는 운영체제: {system}', type='warning')
+                return
+                
+            ui.notify('Outputs 폴더가 열렸습니다', type='info')
+        except subprocess.CalledProcessError as e:
+            ui.notify(f'폴더 열기 실패: {e}', type='negative')
+        except FileNotFoundError:
+            ui.notify('시스템 명령어를 찾을 수 없습니다', type='negative')

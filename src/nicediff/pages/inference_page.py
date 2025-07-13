@@ -70,6 +70,10 @@ class InferencePage:
         self.state.subscribe('lora_added', self.lora_panel._on_lora_added)
         self.state.subscribe('lora_removed', self.lora_panel._on_lora_removed)
         self.state.subscribe('image_generated', self.image_pad._on_image_generated)
+        self.state.subscribe('generation_started', self.image_pad._on_generation_started)
+        self.state.subscribe('history_updated', self.sidebar._update_history)
+        self.state.subscribe('model_selection_changed', self.top_bar._on_model_selected)
+        self.state.subscribe('model_selection_changed', self.metadata_panel._on_model_selected)
         
         # 사용자 알림 이벤트 구독 (TopBar에서 처리하므로 중복 구독 방지)
         # self.state.subscribe('user_notification', self._on_user_notification)

@@ -25,8 +25,8 @@ class MetadataPanel:
                 self.metadata_content = ui.column().classes('w-full')
                 self._show_empty_state()
         
-        # 이벤트 구독
-        self.state.subscribe('model_selection_changed', self._on_model_selected)
+        # 이벤트 구독 (InferencePage에서 중앙 관리하므로 여기서는 구독하지 않음)
+        # self.state.subscribe('model_selection_changed', self._on_model_selected)
         #self.state.subscribe('lora_selected', self._on_lora_selected) # LoRA 로직은 나중에 추가
     
     def _show_empty_state(self):
