@@ -4,6 +4,7 @@ from nicegui import ui
 import math
 import asyncio
 from ..core.state_manager import StateManager, GenerationParams
+from ..utils.image_filters import get_available_filters, apply_filter
 
 class ParameterPanel:
     """파라미터 패널 (UI 렌더링에만 집중)"""
@@ -43,6 +44,14 @@ class ParameterPanel:
         self.strength_slider = None  # Strength(Denoise) 슬라이더
         self.size_match_toggle = None  # 크기 일치 토글
         self.clip_skip_input = None
+        
+        # 필터 관련 UI 요소들
+        self.filter_select = None
+        self.filter_strength_slider = None
+        self.apply_filter_button = None
+        
+        # 시드 고정 상태
+        self.seed_pinned = False
         
         # 이벤트 구독 (한 번만 등록)
         self._setup_event_subscriptions()
@@ -175,6 +184,11 @@ class ParameterPanel:
         current_mode = self.state.get('current_mode', 'txt2img')
         print(f"🔍 현재 모드: {current_mode}")
         
+        # txt2img 모드에서 시드 고정이 해제되어 있으면 시드 랜덤화
+        if current_mode == 'txt2img' and not self.seed_pinned:
+            print(f"🎲 시드 고정이 해제되어 있음 - 시드 랜덤화 실행")
+            self._randomize_seed()
+        
         # 규칙 5: img2img 모드에서 이미지가 업로드되지 않았을 때 생성 시도하지 않음
         if current_mode in ['img2img', 'inpaint', 'upscale']:
             print(f"🔄 img2img 모드 감지: 이미지 업로드 확인 중...")
@@ -224,17 +238,51 @@ class ParameterPanel:
 
     def _randomize_seed(self):
         """시드 랜덤화"""
-        current_params = self.state.get('current_params')
-        current_params.seed = -1
-        self.state.set('current_params', current_params)
-        if self.seed_input: self.seed_input.update()
+        import random
+        new_seed = random.randint(1, 2147483647)
+        self.state.update_param('seed', new_seed)
+        if self.seed_input:
+            self.seed_input.value = new_seed
+
+    def _toggle_seed_pin(self):
+        """시드 고정 토글"""
+        self.seed_pinned = not self.seed_pinned
+        if hasattr(self, 'seed_pin_button'):
+            # 아이콘 변경: 고정됨 = push_pin, 고정 해제됨 = push_pin_outlined
+            icon_name = 'push_pin' if self.seed_pinned else 'push_pin_outlined'
+            self.seed_pin_button.props(f'icon={icon_name}')
+            
+            # 클래스 변경
+            self.seed_pin_button.classes(
+                f'{"bg-blue-600 text-white" if self.seed_pinned else "text-gray-400 hover:text-white"}'
+            )
+            
+            # 툴팁 변경
+            self.seed_pin_button.tooltip('시드 고정' if not self.seed_pinned else '시드 고정 해제')
+        print(f"🔒 시드 고정: {'활성화' if self.seed_pinned else '비활성화'}")
 
     def _handle_model_change(self):
         """모델 타입 변경 처리"""
         if self.model_switch:
             new_model = 'SDXL' if self.model_switch.value else 'SD15'
             self.state.set('sd_model', new_model)
-            self._calculate_dimensions()
+            
+            # img2img 모드에서는 기존 이미지 크기 유지, txt2img 모드에서만 기본 크기 적용
+            current_mode = self.state.get('current_mode', 'txt2img')
+            if current_mode == 'img2img':
+                # img2img 모드: 기존 이미지 크기 유지
+                init_image = self.state.get('init_image')
+                if init_image:
+                    width, height = init_image.size
+                    self.state.update_param('width', width)
+                    self.state.update_param('height', height)
+                    print(f"✅ img2img 모드: 기존 이미지 크기 유지 {width}×{height}")
+                else:
+                    # 이미지가 없으면 기본 크기 적용
+                    self._calculate_dimensions()
+            else:
+                # txt2img 모드: 기본 크기 적용
+                self._calculate_dimensions()
 
     def _handle_infinite_generation_change(self):
         """무한 반복 생성 토글 처리"""
@@ -335,46 +383,102 @@ class ParameterPanel:
                     on_click=self._refresh_parameter_panel
                 ).props('round color=white text-color=black size=sm').tooltip('파라미터 패널 새로고침')
             
-
-
-            # 샘플러와 스케줄러
-            with ui.column().classes('gap-2'):
-                self.sampler_select = ui.select(options=comfyui_samplers, label='Sampler', value=current_params.sampler) \
-                    .on('update:model-value', self._on_param_change('sampler', str))
+            # 모드 선택 버튼들 (헤더 아래에 작은 크기로 배치)
+            with ui.row().classes('w-full justify-center gap-1 mb-3'):
+                current_mode = self.state.get('current_mode', 'txt2img')
+                modes = [
+                    ('txt2img', 'TXT', 'text_fields'),
+                    ('img2img', 'IMG', 'image'),
+                    ('inpaint', 'INP', 'auto_fix_normal'),
+                    ('upscale', 'UPS', 'zoom_in')
+                ]
                 
-                self.scheduler_select = ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler) \
-                    .on('update:model-value', self._on_param_change('scheduler', str))
+                for mode, short_name, icon in modes:
+                    is_active = current_mode == mode
+                    ui.button(
+                        icon=icon,
+                        on_click=lambda e, m=mode: asyncio.create_task(self._on_mode_button_click(m))
+                    ).props('flat round').classes(
+                        f'text-xs {"bg-blue-600 text-white" if is_active else "text-gray-400 hover:text-white"}'
+                    ).tooltip(mode.upper())
             
-            # Steps와 CFG Scale
-            self.steps_input = ui.number(label='Steps', value=current_params.steps, min=1, max=150) \
-                .on('update:model-value', self._on_param_change('steps', int))
-            
-            self.cfg_input = ui.number(label='CFG Scale', value=current_params.cfg_scale, min=1.0, max=30.0, step=0.5) \
-                .on('update:model-value', self._on_param_change('cfg_scale', float))
-            
-            # 이미지 크기
-            current_sd_model = self.state.get('sd_model', 'SD15')
-            min_size = 512 if current_sd_model == 'SD15' else 768
-            
-            with ui.row().classes('gap-2'):
-                self.width_input = ui.number(value=current_params.width, label='너비', min=min_size, max=2048, step=8) \
-                    .on('update:model-value', self._on_param_change('width', int))
-                
-                self.height_input = ui.number(value=current_params.height, label='높이', min=min_size, max=2048, step=8) \
-                    .on('update:model-value', self._on_param_change('height', int))
-            
-            # 모델 타입 스위치
-            with ui.row().classes('w-full flex-center items-center gap-2'):
-                self.model_switch = ui.switch(value=(self.state.get('sd_model') == 'SDXL')).props('color=orange') \
-                    .on('click', self._handle_model_change)
-                ui.label('SDXL').classes('text-xs text-gray-400')
 
-            # 비율 버튼들
-            self.ratio_buttons_container()
-            
-            # 이미지 크기 적용 버튼 (i2i 모드일 때만, 비율 아래에 표시)
+
+            # txt2img 모드 전용 파라미터 배치
             current_mode = self.state.get('current_mode', 'txt2img')
-            if current_mode in ['img2img', 'inpaint', 'upscale']:
+            if current_mode == 'txt2img':
+                # 샘플러 | 스케줄러
+                with ui.row().classes('w-full gap-2'):
+                    self.sampler_select = ui.select(options=comfyui_samplers, label='Sampler', value=current_params.sampler) \
+                        .on('update:model-value', self._on_param_change('sampler', str)).classes('flex-1')
+                    
+                    self.scheduler_select = ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler) \
+                        .on('update:model-value', self._on_param_change('scheduler', str)).classes('flex-1')
+                
+                # CFG | Steps
+                with ui.row().classes('w-full gap-2'):
+                    self.cfg_input = ui.number(label='CFG', value=current_params.cfg_scale, min=1.0, max=30.0, step=0.5) \
+                        .on('update:model-value', self._on_param_change('cfg_scale', float)).classes('flex-1')
+                    
+                    self.steps_input = ui.number(label='Steps', value=current_params.steps, min=1, max=150) \
+                        .on('update:model-value', self._on_param_change('steps', int)).classes('flex-1')
+                
+                # 너비 | 높이 SDXL 토글
+                current_sd_model = self.state.get('sd_model', 'SD15')
+                min_size = 512 if current_sd_model == 'SD15' else 768
+                
+                with ui.row().classes('w-full gap-2'):
+                    self.width_input = ui.number(value=current_params.width, label='너비', min=min_size, max=2048, step=8) \
+                        .on('update:model-value', self._on_param_change('width', int)).classes('flex-1')
+                    
+                    self.height_input = ui.number(value=current_params.height, label='높이', min=min_size, max=2048, step=8) \
+                        .on('update:model-value', self._on_param_change('height', int)).classes('flex-1')
+                
+                # SDXL 토글
+                with ui.row().classes('w-full justify-center items-center gap-2'):
+                    self.model_switch = ui.switch(value=(self.state.get('sd_model') == 'SDXL')).props('color=orange') \
+                        .on('click', self._handle_model_change)
+                    ui.label('SDXL').classes('text-xs text-gray-400')
+
+                # 종횡비 셋팅 (그대로 유지)
+                self.ratio_buttons_container()
+                
+                # SEED 설정 (기본 랜덤, 시드 고정 버튼)
+                with ui.row().classes('w-full gap-2 items-center'):
+                    self.seed_input = ui.number(label='Seed', value=current_params.seed, min=-1) \
+                        .on('update:model-value', self._on_param_change('seed', int)).classes('flex-1')
+                    
+                    # 시드 고정 버튼 (핀 모양 아이콘) - 고정 크기로 설정
+                    icon_name = 'push_pin' if self.seed_pinned else 'push_pin_outlined'
+                    self.seed_pin_button = ui.button(
+                        icon=icon_name,
+                        on_click=lambda e: self._toggle_seed_pin()
+                    ).props('flat round size=sm').classes(
+                        f'self-center min-w-[32px] min-h-[32px] {"bg-blue-600 text-white" if self.seed_pinned else "text-gray-400 hover:text-white"}'
+                    ).tooltip('시드 고정' if not self.seed_pinned else '시드 고정 해제')
+                
+                # CLIP SKIP
+                clip_skip_value = getattr(current_params, 'clip_skip', 1)
+                self.clip_skip_input = ui.number(label='CLIP Skip', value=clip_skip_value, min=1, max=12, step=1) \
+                    .on('update:model-value', self._on_param_change('clip_skip', int))
+                
+                # 배치 사이즈 | 반복회수 | 무한 반복 생성 토글
+                with ui.row().classes('w-full gap-2 items-center'):
+                    self.batch_size_input = ui.number(label="배치", min=1, max=32, value=current_params.batch_size) \
+                        .on('update:model-value', self._on_param_change('batch_size', int)).classes('flex-1')
+                
+                    self.iterations_input = ui.number(label="반복", min=1, max=100, value=current_params.iterations) \
+                        .on('update:model-value', self._on_param_change('iterations', int)).classes('flex-1')
+                
+                    # 무한 반복 생성 토글 (무한 아이콘)
+                    infinite_generation = self.state.get('infinite_generation', False)
+                    self.infinite_generation_switch = ui.switch(value=infinite_generation).props('color=red') \
+                        .on('click', self._handle_infinite_generation_change)
+                    ui.icon('all_inclusive').classes('text-red-400 text-sm').tooltip('무한 반복 생성')
+            
+            # img2img 모드 전용 컨트롤들 (기존 유지)
+            elif current_mode in ['img2img', 'inpaint', 'upscale']:
+                # 이미지 크기 적용 버튼 (i2i 모드일 때만, 비율 아래에 표시)
                 init_image = self.state.get('init_image')
                 if init_image:
                     with ui.card().classes('w-full bg-blue-900 p-2 mt-2'):
@@ -397,41 +501,11 @@ class ParameterPanel:
                         else:
                             ui.label('✅ 파라미터 크기와 일치합니다').classes('text-xs text-green-400')
 
-            # 배치 설정
-            with ui.row().classes('w-full gap-2 mt-4'):
-                self.batch_size_input = ui.number(label="배치 사이즈", min=1, max=32, value=current_params.batch_size) \
-                    .on('update:model-value', self._on_param_change('batch_size', int))
-            
-                self.iterations_input = ui.number(label="반복 횟수", min=1, max=100, value=current_params.iterations) \
-                    .on('update:model-value', self._on_param_change('iterations', int))
-
-            # CLIP SKIP 추가
-            clip_skip_value = getattr(current_params, 'clip_skip', 1)
-            self.clip_skip_input = ui.number(label='CLIP Skip', value=clip_skip_value, min=1, max=12, step=1) \
-                .on('update:model-value', self._on_param_change('clip_skip', int))
-
-            # 무한 반복 생성 토글
-            infinite_generation = self.state.get('infinite_generation', False)
-            with ui.row().classes('w-full flex-center items-center gap-2 mt-2'):
-                self.infinite_generation_switch = ui.switch(value=infinite_generation).props('color=red') \
-                    .on('click', self._handle_infinite_generation_change)
-                ui.label('무한 반복 생성').classes('text-xs text-red-400')
-
-            # 시드 설정
-            with ui.row().classes('gap-2 items-center w-full'):
-                self.seed_input = ui.number(label='Seed', value=current_params.seed, min=-1) \
-                    .on('update:model-value', self._on_param_change('seed', int))
-                
-                ui.button(icon='casino', on_click=self._randomize_seed)
-
-            # img2img 모드 전용 컨트롤들
-            current_mode = self.state.get('current_mode', 'txt2img')
-            if current_mode in ['img2img', 'inpaint', 'upscale']:
+                # Denoise Strength 슬라이더
                 current_params = self.state.get('current_params')
                 strength_value = getattr(current_params, 'strength', 0.8)
                 size_match_enabled = getattr(current_params, 'size_match_enabled', False)
                 
-                # Denoise Strength 슬라이더
                 with ui.column().classes('w-full gap-2 mt-4') as self.denoise_container:
                     ui.label('Denoise Strength').classes('text-sm font-medium text-blue-400')
                     self.strength_slider = ui.slider(
@@ -456,6 +530,43 @@ class ParameterPanel:
                         .on('click', self._handle_size_match_toggle)
                     ui.label('크기 일치').classes('text-sm text-green-400')
                     ui.label('(업로드된 이미지 크기로 생성)').classes('text-xs text-gray-500')
+                
+                # 이미지 필터 섹션 (I2I 제안서 스타일)
+                with ui.column().classes('w-full gap-2 mt-4') as self.filter_container:
+                    ui.label('이미지 필터').classes('text-sm font-medium text-purple-400')
+                    
+                    # 필터 선택
+                    available_filters = get_available_filters()
+                    filter_options = {filter_name: filter_name.replace('_', ' ').title() for filter_name in available_filters}
+                    
+                    self.filter_select = ui.select(
+                        options=filter_options,
+                        label='필터 선택',
+                        value=None
+                    ).props('outlined')
+                    
+                    # 필터 강도 슬라이더 (일부 필터에만 적용)
+                    ui.label('필터 강도').classes('text-sm font-medium')
+                    self.filter_strength_slider = ui.slider(
+                        min=0.1,
+                        max=3.0,
+                        step=0.1,
+                        value=1.0
+                    ).props('outlined')
+                    
+                    # 필터 적용 버튼
+                    with ui.row().classes('w-full gap-2'):
+                        self.apply_filter_button = ui.button(
+                            '필터 적용',
+                            on_click=self._apply_image_filter
+                        ).props('outlined color=purple')
+                        
+                        ui.button(
+                            '필터 초기화',
+                            on_click=self._reset_image_filter
+                        ).props('outlined color=gray')
+
+
 
             # 생성 버튼
             self.generate_button = ui.button('생성', on_click=self._on_generate_click) \
@@ -611,3 +722,95 @@ class ParameterPanel:
         except Exception as e:
             print(f"❌ 이미지 크기 파라미터 적용 실패: {e}")
             ui.notify(f'이미지 크기 적용 실패: {e}', type='negative')
+    
+    async def _apply_image_filter(self):
+        """이미지 필터 적용 (I2I 제안서 스타일)"""
+        try:
+            # 필터 선택 확인
+            if not self.filter_select or not self.filter_select.value:
+                ui.notify('필터를 선택해주세요', type='warning')
+                return
+            
+            # 이미지 확인
+            init_image = self.state.get('init_image')
+            if not init_image:
+                ui.notify('적용할 이미지가 없습니다', type='warning')
+                return
+            
+            # 필터 강도 가져오기
+            filter_strength = 1.0
+            if self.filter_strength_slider:
+                filter_strength = self.filter_strength_slider.value
+            
+            # 필터 적용
+            filter_name = self.filter_select.value
+            import numpy as np
+            img_array = np.array(init_image)
+            
+            # 필터별 파라미터 설정
+            filter_params = {}
+            if filter_name in ['brightness', 'contrast']:
+                filter_params['factor'] = filter_strength
+            elif filter_name == 'blur':
+                filter_params['kernel_size'] = int(filter_strength * 5) + 1
+            
+            # 필터 적용
+            filtered_array = apply_filter(filter_name, img_array, **filter_params)
+            
+            # 결과를 StateManager에 저장
+            from PIL import Image
+            filtered_image = Image.fromarray(filtered_array)
+            self.state.set('init_image', filtered_image)
+            
+            # ImagePad 업데이트 트리거
+            self.state.set('image_filter_applied', True)
+            
+            ui.notify(f'{filter_name} 필터가 적용되었습니다', type='positive')
+            
+        except Exception as e:
+            print(f"❌ 필터 적용 실패: {e}")
+            ui.notify(f'필터 적용 실패: {str(e)}', type='negative')
+    
+    async def _reset_image_filter(self):
+        """이미지 필터 초기화"""
+        try:
+            # 원본 이미지 경로에서 다시 로드
+            init_image_path = self.state.get('init_image_path')
+            if init_image_path:
+                from PIL import Image
+                original_image = Image.open(init_image_path)
+                self.state.set('init_image', original_image)
+                
+                # ImagePad 업데이트 트리거
+                self.state.set('image_filter_reset', True)
+                
+                ui.notify('필터가 초기화되었습니다', type='positive')
+            else:
+                ui.notify('원본 이미지를 찾을 수 없습니다', type='warning')
+                
+        except Exception as e:
+            print(f"❌ 필터 초기화 실패: {e}")
+            ui.notify(f'필터 초기화 실패: {str(e)}', type='negative')
+
+    async def _on_mode_button_click(self, mode: str):
+        """모드 선택 버튼 클릭 처리"""
+        print(f"🔄 모드 선택: {mode}")
+        
+        # StateManager에 현재 모드 설정
+        self.state.set('current_mode', mode)
+        
+        # 모드별 기본 설정
+        if mode in ['img2img', 'inpaint', 'upscale']:
+            # i2i 관련 모드일 때 기본 Strength 값 설정
+            current_params = self.state.get('current_params')
+            if not hasattr(current_params, 'strength') or current_params.strength is None:
+                self.state.update_param('strength', 0.8)  # 기본값 0.8
+                print(f"✅ {mode} 모드 기본 Strength 값 설정: 0.8")
+        
+        # 모드 변경 이벤트 발생
+        self.state._notify('mode_changed', {'mode': mode})
+        
+        # 파라미터 패널 새로고침
+        self.render.refresh()
+        
+        print(f"✅ 모드 변경 완료: {mode}")
