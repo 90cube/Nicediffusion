@@ -3,9 +3,18 @@
 프롬프트 처리, 토큰화, 파라미터 검증 등을 담당
 """
 
-from typing import Dict, Any, Optional, Tuple
+import re
+from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass
 
+
+@dataclass
+class LoRAInfo:
+    """LoRA 정보"""
+    name: str
+    weight: float
+    original_tag: str
+    path: Optional[str] = None
 
 @dataclass
 class PreProcessResult:
@@ -19,10 +28,13 @@ class PreProcessResult:
     seed: int
     is_valid: bool
     errors: list[str]
+    loras: Optional[List[LoRAInfo]] = None
     
     def __post_init__(self):
         if self.errors is None:
             self.errors = []
+        if self.loras is None:
+            self.loras = []
 
 
 class PreProcessor:
@@ -30,6 +42,8 @@ class PreProcessor:
     
     def __init__(self):
         self.max_tokens = 77  # CLIP 토크나이저 최대 토큰 수
+        # LoRA 패턴: <lora:name:weight> 또는 <lora:name>
+        self.lora_pattern = r'<lora:([^:>]+)(?::([0-9]*\.?[0-9]+))?\s*>'
     
     def validate_dimensions(self, width: int, height: int, model_type: str) -> Tuple[bool, list[str]]:
         """이미지 크기 검증 - 종횡비 미리 설정값 허용"""
@@ -149,6 +163,42 @@ class PreProcessor:
         
         return processed_prompt, processed_negative
     
+    def extract_loras_from_prompt(self, prompt: str) -> Tuple[str, List[LoRAInfo]]:
+        """프롬프트에서 LoRA 태그 추출"""
+        loras = []
+        
+        # LoRA 태그 찾기
+        for match in re.finditer(self.lora_pattern, prompt):
+            lora_name = match.group(1).strip()
+            weight_str = match.group(2)
+            weight = float(weight_str) if weight_str else 1.0
+            
+            loras.append(LoRAInfo(
+                name=lora_name,
+                weight=weight,
+                original_tag=match.group(0)
+            ))
+        
+        # 프롬프트에서 LoRA 태그 제거
+        clean_prompt = re.sub(self.lora_pattern, '', prompt).strip()
+        
+        return clean_prompt, loras
+    
+    def validate_lora_syntax(self, prompt: str) -> List[str]:
+        """LoRA 문법 검증"""
+        errors = []
+        
+        # 잘못된 형식 찾기
+        # <lora:name> (가중치 없음) - 허용
+        # <lora:name:1.2> - 정상
+        # <lora:name:abc> - 오류
+        
+        malformed = re.findall(r'<lora:[^>]*?:[^0-9.][^>]*>', prompt)
+        if malformed:
+            errors.append(f"잘못된 LoRA 가중치: {malformed}")
+        
+        return errors
+    
     def preprocess(self, params: Dict[str, Any], model_type: str, tokenizer=None) -> PreProcessResult:
         """전체 전처리 과정"""
         errors = []
@@ -162,6 +212,11 @@ class PreProcessor:
         cfg_scale = params.get('cfg_scale', 7.0)
         seed = params.get('seed', -1)
         
+        # LoRA 태그 추출 및 검증
+        clean_prompt, loras = self.extract_loras_from_prompt(prompt)
+        lora_errors = self.validate_lora_syntax(prompt)
+        errors.extend(lora_errors)
+        
         # 각종 검증
         is_valid_dim, dim_errors = self.validate_dimensions(width, height, model_type)
         errors.extend(dim_errors)
@@ -172,11 +227,11 @@ class PreProcessor:
         is_valid_cfg, cfg_errors = self.validate_cfg_scale(cfg_scale)
         errors.extend(cfg_errors)
         
-        is_valid_prompt, prompt_errors = self.validate_prompt(prompt)
+        is_valid_prompt, prompt_errors = self.validate_prompt(clean_prompt)
         errors.extend(prompt_errors)
         
-        # 프롬프트 처리
-        processed_prompt, processed_negative = self.process_prompts(prompt, negative_prompt, tokenizer)
+        # 프롬프트 처리 (LoRA 태그가 제거된 깨끗한 프롬프트 사용)
+        processed_prompt, processed_negative = self.process_prompts(clean_prompt, negative_prompt, tokenizer)
         
         # 결과 반환
         is_valid = len(errors) == 0
@@ -190,5 +245,6 @@ class PreProcessor:
             cfg_scale=cfg_scale,
             seed=seed,
             is_valid=is_valid,
-            errors=errors
+            errors=errors,
+            loras=loras
         )

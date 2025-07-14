@@ -124,38 +124,81 @@ class PromptPanel:
     
     def _on_positive_change(self, e):
         """긍정 프롬프트 변경 (StateManager 메서드 호출)"""
-        text = self.state.get('current_params').prompt
+        # 이벤트에서 텍스트 값 가져오기
+        if hasattr(e, 'args'):
+            text = e.args
+        elif hasattr(e, 'value'):
+            text = e.value
+        else:
+            text = self.positive_textarea.value
+        
+        # 문자열이 아닌 경우 처리
+        if not isinstance(text, str):
+            text = str(text) if text is not None else ""
+        
+        # UI 업데이트
         if self.char_count_positive:
             self.char_count_positive.set_text(f'{len(text)}자')
         
         # 토큰 수 계산 및 표시
-        token_count = self.state.calculate_token_count(text)
-        if self.token_count_positive:
-            self.token_count_positive.set_text(f'{token_count} 토큰')
+        try:
+            token_count = self.state.calculate_token_count(text)
+            if self.token_count_positive:
+                self.token_count_positive.set_text(f'{token_count} 토큰')
+            
+            # LoRA 태그 감지 및 표시
+            self._show_detected_loras(text)
+            
+            # 프롬프트 분석 (토큰 수가 50 이상일 때만)
+            if token_count >= 50:
+                analysis = self.state.analyze_prompt(text)
+                self._show_analysis(analysis)
+            else:
+                # 분석 결과 숨기기
+                if hasattr(self, 'analysis_container') and self.analysis_container:
+                    self.analysis_container.visible = False
+        except Exception as e:
+            print(f"⚠️ 토큰 계산 오류: {e}")
+            if self.token_count_positive:
+                self.token_count_positive.set_text('0 토큰')
         
-        # 프롬프트 분석 (토큰 수가 50 이상일 때만)
-        if token_count >= 50:
-            analysis = self.state.analyze_prompt(text)
-            self._show_analysis(analysis)
-        else:
-            # 분석 결과 숨기기
-            if hasattr(self, 'analysis_container') and self.analysis_container:
-                self.analysis_container.visible = False
-        
-        # StateManager 메서드 호출로 변경
-        self.state.update_prompt(text, self.state.get('current_params').negative_prompt)
+        # StateManager에 업데이트
+        current_params = self.state.get('current_params')
+        current_params.prompt = text
+        self.state.set('current_params', current_params)
     
     def _on_negative_change(self, e):
         """부정 프롬프트 변경 (StateManager 메서드 호출)"""
-        text = self.state.get('current_params').negative_prompt
-        self.char_count_negative.set_text(f'{len(text)}자')
+        # 이벤트에서 텍스트 값 가져오기
+        if hasattr(e, 'args'):
+            text = e.args
+        elif hasattr(e, 'value'):
+            text = e.value
+        else:
+            text = self.negative_textarea.value
+        
+        # 문자열이 아닌 경우 처리
+        if not isinstance(text, str):
+            text = str(text) if text is not None else ""
+        
+        # UI 업데이트
+        if self.char_count_negative:
+            self.char_count_negative.set_text(f'{len(text)}자')
         
         # 토큰 수 계산 및 표시
-        token_count = self.state.calculate_token_count(text)
-        self.token_count_negative.set_text(f'{token_count} 토큰')
+        try:
+            token_count = self.state.calculate_token_count(text)
+            if self.token_count_negative:
+                self.token_count_negative.set_text(f'{token_count} 토큰')
+        except Exception as e:
+            print(f"⚠️ 토큰 계산 오류: {e}")
+            if self.token_count_negative:
+                self.token_count_negative.set_text('0 토큰')
         
-        # StateManager 메서드 호출로 변경
-        self.state.update_prompt(self.state.get('current_params').prompt, text)
+        # StateManager에 업데이트
+        current_params = self.state.get('current_params')
+        current_params.negative_prompt = text
+        self.state.set('current_params', current_params)
     
     def _clear_positive_prompt(self):
         """긍정 프롬프트 지우기"""
@@ -357,12 +400,46 @@ class PromptPanel:
                     ui.label(f"  {suggestion}").classes('text-xs')
         
         self.analysis_container.visible = True
+    
+    def _show_detected_loras(self, text: str):
+        """감지된 LoRA 태그 표시"""
+        import re
+        
+        # LoRA 태그 찾기
+        lora_pattern = r'<lora:([^:>]+)(?::([0-9]*\.?[0-9]+))?\s*>'
+        lora_matches = re.findall(lora_pattern, text)
+        
+        if lora_matches and hasattr(self, 'analysis_container') and self.analysis_container:
+            # 분석 컨테이너에 LoRA 정보 추가
+            with self.analysis_container:
+                ui.label("감지된 LoRA:").classes('text-purple-400')
+                for name, weight in lora_matches:
+                    weight = weight or "1.0"
+                    # 매칭 상태 확인
+                    if self.state and hasattr(self.state, 'match_lora_by_name'):
+                        if self.state.match_lora_by_name(name):
+                            ui.label(f"  ✅ {name}: {weight}").classes('text-green-400 text-xs')
+                        else:
+                            ui.label(f"  ❌ {name}: {weight} (찾을 수 없음)").classes('text-red-400 text-xs')
+                    else:
+                        ui.label(f"  {name}: {weight}").classes('text-blue-400 text-xs')
         
     async def _on_prompt_updated(self, prompt: str):
         """외부에서 프롬프트 업데이트"""
-        if self.positive_textarea and self.positive_textarea.value != prompt:
-            self.positive_textarea.set_value(prompt)
-            self._on_positive_change(type('', (), {'args': prompt})())
+        try:
+            if isinstance(prompt, str) and self.positive_textarea and self.positive_textarea.value != prompt:
+                self.positive_textarea.set_value(prompt)
+                # 직접 StateManager 업데이트
+                current_params = self.state.get('current_params')
+                if current_params:
+                    current_params.prompt = prompt
+                    self.state.set('current_params', current_params)
+                    # 토큰 수 업데이트
+                    if self.token_count_positive:
+                        token_count = self.state.calculate_token_count(prompt)
+                        self.token_count_positive.set_text(f'{token_count} 토큰')
+        except Exception as e:
+            print(f"⚠️ 프롬프트 업데이트 오류: {e}")
     
     async def _on_state_restored(self, data: dict):
         """
@@ -373,27 +450,39 @@ class PromptPanel:
     
     def _on_prompt_changed(self, data):
         """프롬프트 변경 이벤트 핸들러"""
-        prompt = data.get('prompt', '')
-        negative_prompt = data.get('negative_prompt', '')
-        
-        # UI 업데이트 (다른 컴포넌트에서 변경된 경우)
-        if self.positive_textarea and self.positive_textarea.value != prompt:
-            self.positive_textarea.set_value(prompt)
-            self.char_count_positive.set_text(f'{len(prompt)}자')
-        
-        if self.negative_textarea and self.negative_textarea.value != negative_prompt:
-            self.negative_textarea.set_value(negative_prompt)
-            self.char_count_negative.set_text(f'{len(negative_prompt)}자')
-
-        # params 객체가 정상적으로 존재하는지 확인 후 UI 업데이트
-        if params:
-            # 올바른 속성명 사용: positive_textarea와 negative_textarea
-            if self.positive_textarea:
-                self.positive_textarea.set_value(params.prompt)
-                self._on_positive_change(None)
-            if self.negative_textarea:
-                self.negative_textarea.set_value(params.negative_prompt)
-                self._on_negative_change(None)
+        try:
+            # data가 문자열인 경우 (LoRA에서 전달되는 경우)
+            if isinstance(data, str):
+                prompt = data
+                negative_prompt = ""
+            # data가 딕셔너리인 경우
+            elif isinstance(data, dict):
+                prompt = data.get('prompt', '')
+                negative_prompt = data.get('negative_prompt', '')
+            else:
+                print(f"⚠️ 알 수 없는 데이터 타입: {type(data)}")
+                return
+            
+            # UI 업데이트 (다른 컴포넌트에서 변경된 경우)
+            if self.positive_textarea and self.positive_textarea.value != prompt:
+                self.positive_textarea.set_value(prompt)
+                if self.char_count_positive:
+                    self.char_count_positive.set_text(f'{len(prompt)}자')
+            
+            if self.negative_textarea and self.negative_textarea.value != negative_prompt:
+                self.negative_textarea.set_value(negative_prompt)
+                if self.char_count_negative:
+                    self.char_count_negative.set_text(f'{len(negative_prompt)}자')
+            
+            # StateManager에 업데이트
+            current_params = self.state.get('current_params')
+            if current_params:
+                current_params.prompt = prompt
+                current_params.negative_prompt = negative_prompt
+                self.state.set('current_params', current_params)
+                
+        except Exception as e:
+            print(f"⚠️ 프롬프트 변경 처리 오류: {e}")
 
     def _refresh_prompt_panel(self):
         """프롬프트 패널 새로고침"""
@@ -404,3 +493,32 @@ class PromptPanel:
         self._update_ui_from_state(current_params)
         
         ui.notify('프롬프트 패널이 새로고침되었습니다', type='info')
+    
+    def _update_ui_from_state(self, params):
+        """상태에서 UI 업데이트"""
+        if not params:
+            return
+        
+        try:
+            # 긍정 프롬프트 업데이트
+            if self.positive_textarea and hasattr(params, 'prompt'):
+                self.positive_textarea.set_value(params.prompt)
+                if self.char_count_positive:
+                    self.char_count_positive.set_text(f'{len(params.prompt)}자')
+                if self.token_count_positive:
+                    token_count = self.state.calculate_token_count(params.prompt)
+                    self.token_count_positive.set_text(f'{token_count} 토큰')
+            
+            # 부정 프롬프트 업데이트
+            if self.negative_textarea and hasattr(params, 'negative_prompt'):
+                self.negative_textarea.set_value(params.negative_prompt)
+                if self.char_count_negative:
+                    self.char_count_negative.set_text(f'{len(params.negative_prompt)}자')
+                if self.token_count_negative:
+                    token_count = self.state.calculate_token_count(params.negative_prompt)
+                    self.token_count_negative.set_text(f'{token_count} 토큰')
+            
+            print("✅ 프롬프트 패널 UI 업데이트 완료")
+            
+        except Exception as e:
+            print(f"⚠️ UI 업데이트 오류: {e}")

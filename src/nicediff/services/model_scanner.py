@@ -38,6 +38,138 @@ class ModelScanner:
         print(f"<<< 모든 모델 스캔 완료. VAE 발견: {len(result.get('vae', {}))}")
         return result
 
+    async def scan_loras(self) -> Dict[str, List[Dict[str, Any]]]:
+        """LoRA 파일들을 스캔하고 하위 폴더까지 검색하여 체크포인트와 비슷한 구조로 반환"""
+        lora_path = self.paths_config.get('loras', Path('models/loras'))
+        return await self._scan_lora_directory(lora_path)
+
+    async def _scan_lora_directory(self, base_path: Path) -> Dict[str, List[Dict[str, Any]]]:
+        """LoRA 디렉토리 전용 스캔 함수 (하위 폴더 포함, PNG 메타데이터 지원)"""
+        if not await asyncio.to_thread(base_path.exists):
+            await asyncio.to_thread(base_path.mkdir, parents=True, exist_ok=True)
+            return {}
+
+        def scan_sync():
+            """LoRA 파일 스캔 (재귀적으로 모든 하위 폴더 탐색)"""
+            result = defaultdict(list)
+            
+            print(f"  -> LoRA 스캔 시작: {base_path}")
+            lora_count = 0
+            
+            # 모든 파일을 재귀적으로 탐색
+            for file_path in base_path.rglob('*'):
+                if file_path.is_file() and file_path.suffix.lower() in {'.safetensors', '.ckpt', '.pt'}:
+                    # LoRA 파일 확인 (파일명에 'lora' 포함 또는 lora 폴더 내)
+                    file_lower = file_path.name.lower()
+                    is_lora_file = (
+                        'lora' in file_lower or
+                        'lora' in str(file_path.parent).lower() or
+                        # 또는 lora 폴더 내의 모든 모델 파일
+                        'lora' in str(base_path).lower()
+                    )
+                    
+                    if is_lora_file:
+                        relative_path = file_path.relative_to(base_path)
+                        folder = str(relative_path.parent) if relative_path.parent != Path('.') else 'Root'
+                        
+                        # 기본 파일 정보
+                        file_info = {
+                            'name': file_path.stem,
+                            'filename': file_path.name,
+                            'path': str(file_path),
+                            'folder': folder,
+                            'size_mb': file_path.stat().st_size / (1024 * 1024),
+                            'type': 'lora',
+                            'base_model': '정보 없음',  # 기본값
+                            'trigger_words': []  # 기본값
+                        }
+                        
+                        # safetensors 파일에서 LoRA 메타데이터 추출
+                        if file_path.suffix.lower() == '.safetensors':
+                            try:
+                                lora_meta = self.metadata_parser.extract_from_safetensors(file_path)
+                                if lora_meta:
+                                    # 베이스 모델 타입 추출
+                                    if 'ss_base_model_version' in lora_meta:
+                                        base_model = lora_meta['ss_base_model_version']
+                                        if 'sd-v1-5' in base_model.lower():
+                                            file_info['base_model'] = 'SD1.5'
+                                        elif 'sdxl' in base_model.lower():
+                                            file_info['base_model'] = 'SDXL'
+                                        else:
+                                            file_info['base_model'] = base_model
+                                    
+                                    # 트리거 워드 추출 (여러 필드에서 시도)
+                                    trigger_words = []
+                                    trigger_fields = [
+                                        'ss_tag_frequency', 'ss_trigger_word', 'ss_trigger_words',
+                                        'trigger_word', 'trigger_words', 'tags'
+                                    ]
+                                    
+                                    for field in trigger_fields:
+                                        if field in lora_meta:
+                                            value = lora_meta[field]
+                                            if isinstance(value, str):
+                                                # 쉼표로 분리하여 트리거 워드 추출
+                                                words = [word.strip() for word in value.split(',') if word.strip()]
+                                                trigger_words.extend(words)
+                                            elif isinstance(value, dict):
+                                                # 딕셔너리인 경우 키들을 트리거 워드로 사용
+                                                trigger_words.extend([k.strip() for k in value.keys() if k.strip()])
+                                    
+                                    # 중복 제거
+                                    file_info['trigger_words'] = list(set(trigger_words))
+                                    file_info['metadata'] = lora_meta
+                                    
+                                    # suggested_tags로도 저장 (UI 호환성)
+                                    if trigger_words:
+                                        file_info['metadata']['suggested_tags'] = trigger_words
+                            except Exception as e:
+                                print(f"LoRA 메타데이터 추출 실패 ({file_path.name}): {e}")
+                        
+                        # 같은 이름의 PNG 파일에서 추가 메타데이터 추출
+                        png_path = file_path.with_suffix('.png')
+                        if png_path.exists():
+                            try:
+                                png_metadata = self.metadata_parser.extract_from_png(png_path)
+                                if png_metadata:
+                                    # PNG에서 트리거 워드가 있으면 추가
+                                    if 'parameters' in png_metadata:
+                                        params = png_metadata['parameters']
+                                        if isinstance(params, str):
+                                            # 프롬프트에서 트리거 워드 추출 시도
+                                            lines = params.split('\n')
+                                            for line in lines:
+                                                if ':' in line:
+                                                    key, value = line.split(':', 1)
+                                                    if any(trigger_key in key.lower() for trigger_key in ['trigger', 'tag']):
+                                                        words = [word.strip() for word in value.split(',') if word.strip()]
+                                                        file_info['trigger_words'].extend(words)
+                                    
+                                    # PNG 메타데이터를 기존 메타데이터와 병합
+                                    if 'metadata' not in file_info:
+                                        file_info['metadata'] = {}
+                                    file_info['metadata'].update(png_metadata)
+                            except Exception as e:
+                                print(f"PNG 메타데이터 추출 실패 ({png_path.name}): {e}")
+                        
+                        # 중복 제거
+                        file_info['trigger_words'] = list(set(file_info['trigger_words']))
+                        
+                        result[folder].append(file_info)
+                        lora_count += 1
+                        print(f"    LoRA 발견: {file_path.relative_to(base_path)}")
+
+            print(f"  -> LoRA 스캔 완료: 총 {lora_count}개")
+
+            # 폴더별 정렬
+            for folder_items in result.values():
+                folder_items.sort(key=lambda x: x['name'].lower())
+            
+            return dict(result)
+        
+        return await asyncio.to_thread(scan_sync)
+
     async def _scan_vae_directory(self, base_path: Path) -> Dict[str, List[Dict[str, Any]]]:
         """VAE 디렉토리 전용 스캔 함수 (하위 폴더 포함)"""
         if not await asyncio.to_thread(base_path.exists):

@@ -63,15 +63,18 @@ class Img2ImgMode:
             return latent
     
     def _validate_init_image(self, init_image: Image.Image, target_width: int, target_height: int) -> Image.Image:
-        """초기 이미지 검증 및 리사이즈"""
+        """초기 이미지 검증 및 리사이즈 (img2img에서는 원본 크기 우선)"""
         if init_image is None:
             raise ValueError("초기 이미지가 필요합니다.")
         
-        # 이미지 크기 조정
-        if init_image.size != (target_width, target_height):
-            print(f"🔄 초기 이미지 크기 조정: {init_image.size} -> ({target_width}, {target_height})")
-            init_image = init_image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        # img2img 모드에서는 원본 이미지 크기를 우선적으로 사용
+        # 파라미터의 width/height는 참고용으로만 사용
+        original_size = init_image.size
+        print(f"🔍 원본 이미지 크기: {original_size}")
+        print(f"🔍 파라미터 크기: ({target_width}, {target_height})")
         
+        # 원본 크기를 그대로 사용 (리사이즈하지 않음)
+        print(f"✅ 원본 이미지 크기 유지: {original_size}")
         return init_image
     
     def _validate_strength(self, strength: float) -> float:
@@ -146,61 +149,57 @@ class Img2ImgMode:
             generator.manual_seed(params.seed)
         
         def _generate():
-            """실제 생성 로직 (A1111 스타일)"""
+            """실제 생성 로직 (단순화된 방식)"""
             print(f"🔍 파이프라인 타입: {type(self.pipeline)}")
+            print(f"🔍 Strength 값 확인: {strength} (0.0=원본 유지, 1.0=완전 새로 생성)")
+            print(f"🔍 전달할 이미지 크기: {init_image.size}")
             
-            # 1. 이미지 → latent 변환
-            init_latent = self._encode_image(init_image)
-            
-            # 2. 노이즈 추가 (strength에 따라)
-            noise = torch.randn_like(init_latent)
-            
-            # 3. timesteps 계산 (strength에 따라)
-            timesteps = int(strength * params.steps)
-            print(f"🔍 노이즈 주입: strength={strength}, timesteps={timesteps}")
-            
-            # 4. 스케줄러에 노이즈 추가
-            noised_latent = self.pipeline.scheduler.add_noise(
-                init_latent, 
-                noise, 
-                torch.tensor([timesteps], device=self.device)
-            )
-            
-            # 5. 파이프라인 호출 (latents 사용)
+            # SDXL 모델의 경우 직접 image 파라미터 사용 (더 안전)
             try:
-                # StableDiffusionImg2ImgPipeline 또는 latents를 지원하는 파이프라인
                 result = self.pipeline(
                     prompt=params.prompt,
                     negative_prompt=params.negative_prompt,
-                    latents=noised_latent,  # 'image' 대신 'latents' 사용
-                    num_inference_steps=params.steps,
-                    guidance_scale=params.cfg_scale,
-                    generator=generator,
-                    num_images_per_prompt=params.batch_size,
-                    # SD15에서 더 나은 품질을 위한 추가 파라미터
-                    **({"eta": 1.0} if params.model_type == 'SD15' else {})
-                )
-            except TypeError as e:
-                # latents 인자를 지원하지 않는 경우, 기존 방식으로 폴백
-                print(f"⚠️ latents 인자 미지원, 기존 방식으로 폴백: {e}")
-                result = self.pipeline(
-                    prompt=params.prompt,
-                    negative_prompt=params.negative_prompt,
-                    image=init_image,  # 기존 방식
+                    image=init_image,  # 직접 이미지 전달
                     strength=strength,
+                    width=init_image.size[0],  # 원본 이미지 크기 사용
+                    height=init_image.size[1],  # 원본 이미지 크기 사용
                     num_inference_steps=params.steps,
                     guidance_scale=params.cfg_scale,
                     generator=generator,
-                    num_images_per_prompt=params.batch_size,
-                    **({"eta": 1.0} if params.model_type == 'SD15' else {})
+                    num_images_per_prompt=params.batch_size
                 )
-            
-            # 파이프라인 결과에서 images 반환
-            if hasattr(result, 'images'):
-                return result.images
-            else:
-                # result 자체가 이미지 리스트인 경우
-                return result if isinstance(result, list) else [result]
+                
+                # 파이프라인 결과에서 images 반환
+                if hasattr(result, 'images'):
+                    return result.images
+                else:
+                    # result 자체가 이미지 리스트인 경우
+                    return result if isinstance(result, list) else [result]
+                    
+            except Exception as e:
+                print(f"❌ 파이프라인 호출 실패: {e}")
+                # 폴백: 더 간단한 방식으로 재시도
+                try:
+                    result = self.pipeline(
+                        prompt=params.prompt,
+                        negative_prompt=params.negative_prompt,
+                        image=init_image,
+                        strength=strength,
+                        width=init_image.size[0],  # 원본 이미지 크기 사용
+                        height=init_image.size[1],  # 원본 이미지 크기 사용
+                        num_inference_steps=params.steps,
+                        guidance_scale=params.cfg_scale,
+                        generator=generator
+                    )
+                    
+                    if hasattr(result, 'images'):
+                        return result.images
+                    else:
+                        return result if isinstance(result, list) else [result]
+                        
+                except Exception as e2:
+                    print(f"❌ 폴백 방식도 실패: {e2}")
+                    return []
         
         # 별도 스레드에서 생성 수행
         generated_images = await asyncio.to_thread(_generate)

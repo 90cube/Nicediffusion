@@ -9,7 +9,7 @@ from ..ui.image_pad import ImagePad
 from ..ui.parameter_panel import ParameterPanel
 from ..ui.prompt_panel import PromptPanel
 from ..ui.lora_panel import LoraPanel
-from ..ui.metadata_panel import MetadataPanel
+from ..ui.lora_load_panel import LoraLoadPanel
 
 class InferencePage:
     """추론 페이지 (UI 컴포넌트 조립 및 이벤트 중앙 관리)"""
@@ -24,7 +24,7 @@ class InferencePage:
         self.param_panel = ParameterPanel(state_manager)
         self.prompt_panel = PromptPanel(state_manager)
         self.lora_panel = LoraPanel(state_manager)
-        self.metadata_panel = MetadataPanel(state_manager)
+        self.lora_load_panel = LoraLoadPanel(state_manager)
 
     def _on_destroy(self):
         """페이지 소멸 시 모든 콜백 구독을 안전하게 해지합니다."""
@@ -51,10 +51,19 @@ class InferencePage:
                     with ui.card().classes('w-full h-48 bg-gray-700 p-4 overflow-y-auto'):
                         await self.prompt_panel.render()
                 
+                # 오른쪽 패널: 파라미터 패널만 배치
                 with ui.column().classes('right-panel-constrain h-full bg-gray-800 p-2 gap-2 overflow-y-auto'):
                     await self.param_panel.render()
-                    await self.lora_panel.render()
-                    await self.metadata_panel.render()
+                
+                # LoRA Load 및 LoRA Info 패널을 세로로 배치
+                with ui.column().classes('w-80 h-full bg-gray-800 p-2 gap-2 overflow-y-auto'):
+                    # LoRA Load 패널 (상단)
+                    with ui.card().classes('w-full flex-1 min-h-0 bg-gray-700 p-2'):
+                        await self.lora_load_panel.render()
+                    
+                    # LoRA Info 패널 (하단)
+                    with ui.card().classes('w-full flex-1 min-h-0 bg-gray-700 p-2'):
+                        await self.lora_panel.render()
 
         # --- [핵심] ---
         # 모든 UI가 화면에 완전히 그려진 후, 필요한 모든 이벤트를 여기서 한번만 연결(구독)합니다.
@@ -66,23 +75,20 @@ class InferencePage:
         self.state.set('param_panel', self.param_panel)
         self.state.set('prompt_panel', self.prompt_panel)
         self.state.set('lora_panel', self.lora_panel)
-        self.state.set('metadata_panel', self.metadata_panel)
+        self.state.set('lora_load_panel', self.lora_load_panel)
         self.state.set('top_bar', self.top_bar)
         
         # 기존 구독
         self.state.subscribe('is_generating_changed', self.param_panel._on_generate_status_change)
         
-        # 새로 추가된 이벤트 구독들
+        # 새로 추가된 이벤트 구독들 (존재하는 메서드만)
         self.state.subscribe('param_changed', self.param_panel._on_param_changed)
         self.state.subscribe('prompt_changed', self.prompt_panel._on_prompt_changed)
         self.state.subscribe('vae_changed', self.top_bar._on_vae_changed)
-        self.state.subscribe('lora_added', self.lora_panel._on_lora_added)
-        self.state.subscribe('lora_removed', self.lora_panel._on_lora_removed)
         self.state.subscribe('image_generated', self.image_pad._on_image_generated)
         self.state.subscribe('generation_started', self.image_pad._on_generation_started)
         self.state.subscribe('history_updated', self.sidebar._update_history)
         self.state.subscribe('model_selection_changed', self.top_bar._on_model_selected)
-        self.state.subscribe('model_selection_changed', self.metadata_panel._on_model_selected)
         
         # 사용자 알림 이벤트 구독 (TopBar에서 처리하므로 중복 구독 방지)
         # self.state.subscribe('user_notification', self._on_user_notification)

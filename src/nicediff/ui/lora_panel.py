@@ -1,5 +1,5 @@
 """
-LoRA 선택 패널
+LoRA Info 패널
 """
 
 from nicegui import ui
@@ -8,172 +8,126 @@ from ..core.state_manager import StateManager
 import asyncio
 
 class LoraPanel:
-    """LoRA 패널"""
+    """LoRA Info 패널"""
     
     def __init__(self, state_manager: StateManager):
         self.state = state_manager
         self.lora_container = None
-        self.no_loras = True
+        self.selected_lora = None
     
     async def render(self):
         """컴포넌트 렌더링"""
-        with ui.card().classes('w-full h-full p-4 bg-gray-700'):
-            with ui.row().classes('w-full items-center justify-between mb-2'):
-                ui.label('LoRA').classes('text-lg font-bold text-cyan-400')
-                
-                # 버튼들: 폴더 열기 + 리프레시
-                with ui.row().classes('gap-2'):
-                    # 리프레시 버튼
-                    ui.button(
-                        icon='refresh',
-                        on_click=self._refresh_lora_panel
-                    ).props('flat dense color=white size=sm').tooltip('LoRA 패널 새로고침')
-                    
-                    # 폴더 열기 버튼
-                    self.folder_button = ui.button(
-                        icon='folder_open',
-                        on_click=self._open_lora_folder
-                    ).props('flat dense color=white size=sm').tooltip('LoRA 폴더 열기')
+        with ui.column().classes('w-full h-full gap-2'):
+            # 헤더
+            with ui.row().classes('w-full items-center justify-between'):
+                ui.label('LoRA Info').classes('text-lg font-bold text-cyan-400')
             
-            # LoRA 목록 컨테이너
-            with ui.scroll_area().classes('w-full h-40'):
+            # LoRA 정보 컨테이너 (전체 높이 사용)
+            with ui.scroll_area().classes('w-full flex-1'):
                 self.lora_container = ui.column().classes('w-full')
                 self._show_empty_state()
         
-        # LoRA 목록 업데이트 구독
-        self.state.subscribe('loras_updated', self._update_lora_list)
+        # LoRA 정보 업데이트 구독
+        self.state.subscribe('lora_info_updated', self._update_lora_info)
     
     def _show_empty_state(self):
         """빈 상태 표시"""
-        self.lora_container.clear()
-        with self.lora_container:
-            with ui.column().classes('w-full items-center justify-center p-4'):
-                ui.icon('folder_open').classes('text-4xl text-gray-500 mb-2')
-                ui.label('LoRA 파일이 없습니다').classes('text-gray-400 text-sm text-center')
-                ui.label('models/lora 폴더에').classes('text-gray-500 text-xs text-center')
-                ui.label('.safetensors 파일을 넣어주세요').classes('text-gray-500 text-xs text-center')
+        if self.lora_container:
+            self.lora_container.clear()
+            with self.lora_container:
+                with ui.column().classes('w-full items-center justify-center p-4'):
+                    ui.icon('auto_awesome').classes('text-4xl text-gray-500 mb-2')
+                    ui.label('LoRA 정보가 없습니다').classes('text-gray-400 text-sm text-center')
+                    ui.label('LoRA Load에서 LoRA를 클릭하면').classes('text-gray-500 text-xs text-center')
+                    ui.label('상세 정보가 표시됩니다').classes('text-gray-500 text-xs text-center')
     
-    async def _update_lora_list(self, loras):
-        """LoRA 목록 업데이트"""
+    async def _update_lora_info(self, lora_info):
+        """선택된 LoRA 정보 업데이트"""
         if not self.lora_container:
             return
         
+        self.selected_lora = lora_info
         self.lora_container.clear()
         
-        if not loras or all(len(items) == 0 for items in loras.values()):
-            # LoRA가 없는 경우
-            self.no_loras = True
+        if not lora_info:
             self._show_empty_state()
             return
         
-        # LoRA가 있는 경우
-        self.no_loras = False
+        # LoRA 이름과 트리거 워드만 표시
         with self.lora_container:
-            # 현재 모델 타입 확인
-            current_model = self.state.get('current_model')
-            model_type = 'SDXL' if current_model and 'xl' in current_model.lower() else 'SD1.5'
+            # LoRA 이름 (큰 글씨)
+            ui.label(lora_info.get('name', 'Unknown')).classes('text-lg font-bold text-white mb-3')
             
-            # 폴더별로 그룹화하여 표시
-            for folder, items in loras.items():
-                if items:
-                    # 폴더명 표시
-                    if folder != 'Root':
-                        ui.label(folder).classes('text-sm font-bold text-cyan-300 mt-2 mb-1')
+            # 트리거 워드 카드
+            metadata = lora_info.get('metadata', {})
+            trigger_words = metadata.get('suggested_tags', [])
+            if trigger_words and len(trigger_words) > 0:
+                with ui.card().classes('w-full mb-3 p-3'):
+                    ui.label('트리거 워드').classes('text-sm font-bold text-cyan-300 mb-2')
                     
-                    # LoRA 아이템들
-                    for item in items:
-                        # 호환성 체크
-                        compatible = item.get('base_model', 'SD1.5') == model_type
-                        
-                        with ui.row().classes('w-full items-center gap-2 p-1'):
-                            # 체크박스
-                            checkbox = ui.checkbox(
-                                text=item['name'][:20] + ('...' if len(item['name']) > 20 else ''),
-                                on_change=lambda e, path=item['path']: self._on_lora_toggle(e, path)
-                            ).classes('flex-1 text-sm')
-                            
-                            # 호환성 표시
-                            if not compatible:
-                                checkbox.disable()
-                                ui.icon('warning').classes('text-yellow-500 text-sm').tooltip(
-                                    f'이 LoRA는 {item.get("base_model", "SD1.5")}용입니다'
-                                )
-                            
-                            # 트리거 워드가 있으면 표시
-                            if item.get('trigger_words'):
-                                ui.icon('info').classes('text-blue-400 text-sm').tooltip(
-                                    f'트리거: {", ".join(item["trigger_words"])}'
-                                )
-    
-    def _on_lora_toggle(self, e, lora_path):
-        """LoRA 선택 토글"""
-        current_loras = self.state.get('current_loras', [])
-        
-        if e.value:
-            # LoRA 추가
-            if lora_path not in current_loras:
-                current_loras.append(lora_path)
-                ui.notify(f'LoRA 추가됨', type='positive')
-        else:
-            # LoRA 제거
-            if lora_path in current_loras:
-                current_loras.remove(lora_path)
-                ui.notify(f'LoRA 제거됨', type='info')
-        
-        self.state.set('current_loras', current_loras)
-    
-    def _open_lora_folder(self):
-        """LoRA 폴더 열기"""
-        import platform
-        import subprocess
-        
-        lora_path = Path(self.state.config.get('paths', {}).get('loras', 'models/loras'))
-        lora_path.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            if platform.system() == 'Windows':
-                subprocess.run(['explorer', str(lora_path)])
-            elif platform.system() == 'Darwin':
-                subprocess.run(['open', str(lora_path)])
+                    # 트리거 워드들을 버튼으로 표시
+                    with ui.row().classes('w-full flex-wrap gap-2'):
+                        for word in trigger_words:
+                            ui.button(
+                                word,
+                                on_click=lambda e, w=word: self._add_trigger_word(w)
+                            ).props('dense flat color=green size=sm').classes('text-xs')
+                    
+                    # 전체 추가 버튼
+                    ui.button(
+                        '모든 트리거 워드 추가',
+                        on_click=lambda: self._add_all_trigger_words(trigger_words)
+                    ).props('flat color=green size=sm').classes('mt-2')
             else:
-                subprocess.run(['xdg-open', str(lora_path)])
-            
-            ui.notify('LoRA 폴더를 열었습니다', type='info')
-        except Exception as e:
-            ui.notify(f'폴더 열기 실패: {e}', type='negative')
+                with ui.card().classes('w-full mb-3 p-3'):
+                    ui.label('트리거 워드').classes('text-sm font-bold text-cyan-300 mb-2')
+                    ui.label('트리거 워드 없음').classes('text-xs text-gray-500 mt-1')
     
-    def _on_lora_added(self, data):
-        """LoRA 추가 이벤트 핸들러"""
-        lora_info = data.get('lora', {})
-        lora_name = lora_info.get('name', 'Unknown')
-        print(f"✅ LoRA 추가됨: {lora_name}")
-        # UI 업데이트 (필요한 경우)
-        # 예: LoRA 목록 새로고침, 선택 상태 업데이트 등
-    
-    def _on_lora_removed(self, data):
-        """LoRA 제거 이벤트 핸들러"""
-        lora_id = data.get('lora_id', '')
-        print(f"✅ LoRA 제거됨: {lora_id}")
-        # UI 업데이트 (필요한 경우)
-        # 예: LoRA 목록 새로고침, 선택 상태 업데이트 등
-
-    def _refresh_lora_panel(self):
-        """LoRA 패널 새로고침"""
-        print("🔄 LoRA 패널 새로고침 중...")
-        
-        # LoRA 목록 다시 스캔
-        asyncio.create_task(self._rescan_loras())
-        
-        ui.notify('LoRA 패널이 새로고침되었습니다', type='info')
-    
-    async def _rescan_loras(self):
-        """LoRA 목록 다시 스캔"""
+    def _add_trigger_word(self, word: str):
+        """트리거 워드를 프롬프트에 추가"""
         try:
-            # StateManager를 통해 LoRA 다시 스캔
-            from ..services.model_scanner import ModelScanner
-            scanner = ModelScanner()
-            loras = await scanner.scan_loras()
-            await self._update_lora_list(loras)
+            # 현재 프롬프트 가져오기
+            current_prompt = self.state.get('prompt', '')
+            
+            # 트리거 워드가 이미 있으면 추가하지 않음
+            if word not in current_prompt:
+                # 프롬프트 끝에 트리거 워드 추가
+                new_prompt = current_prompt + (', ' if current_prompt else '') + word
+                self.state.set('prompt', new_prompt)
+                
+                # 프롬프트 패널 업데이트 트리거
+                self.state._notify('prompt_updated', new_prompt)
+                
+                ui.notify(f'트리거 워드 "{word}" 추가됨', type='positive')
+            else:
+                ui.notify(f'트리거 워드 "{word}"가 이미 프롬프트에 있습니다', type='info')
         except Exception as e:
-            print(f"❌ LoRA 스캔 실패: {e}")
-            ui.notify(f'LoRA 스캔 실패: {str(e)}', type='negative')
+            print(f"트리거 워드 추가 실패: {e}")
+            ui.notify(f'트리거 워드 추가 실패: {str(e)}', type='negative')
+    
+    def _add_all_trigger_words(self, trigger_words: list):
+        """모든 트리거 워드를 프롬프트에 추가"""
+        try:
+            # 현재 프롬프트 가져오기
+            current_prompt = self.state.get('prompt', '')
+            
+            # 이미 있는 트리거 워드 제외
+            new_words = []
+            for word in trigger_words:
+                if word not in current_prompt:
+                    new_words.append(word)
+            
+            if new_words:
+                # 프롬프트에 새 트리거 워드들 추가
+                new_prompt = current_prompt + (', ' if current_prompt else '') + ', '.join(new_words)
+                self.state.set('prompt', new_prompt)
+                
+                # 프롬프트 패널 업데이트 트리거
+                self.state._notify('prompt_updated', new_prompt)
+                
+                ui.notify(f'{len(new_words)}개 트리거 워드 추가됨', type='positive')
+            else:
+                ui.notify('모든 트리거 워드가 이미 프롬프트에 있습니다', type='info')
+        except Exception as e:
+            print(f"트리거 워드 일괄 추가 실패: {e}")
+            ui.notify(f'트리거 워드 일괄 추가 실패: {str(e)}', type='negative')

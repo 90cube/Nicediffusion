@@ -6,7 +6,7 @@ import json
 import tomllib
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 
@@ -460,7 +460,8 @@ class StateManager:
                             self._add_to_history(history_item.to_dict())
                     
                 else:
-                    self._notify_user(f'이미지 생성 실패: {result.error}', 'negative')
+                    error_message = '; '.join(result.errors) if result.errors else '알 수 없는 오류'
+                    self._notify_user(f'이미지 생성 실패: {error_message}', 'negative')
                     break
                     
         except Exception as e:
@@ -822,6 +823,12 @@ class StateManager:
 
     def calculate_token_count(self, text: str) -> int:
         """실제 CLIP 토크나이저를 사용하여 토큰 수 계산"""
+        # text가 딕셔너리인 경우 처리
+        if isinstance(text, dict):
+            text = str(text)
+        elif not isinstance(text, str):
+            text = str(text)
+            
         pipeline = self.model_loader.get_current_pipeline()
         if not text.strip() or not pipeline or not hasattr(pipeline, 'tokenizer'):
             return 0
@@ -908,3 +915,46 @@ class StateManager:
         self.set('history', history)
         self._notify('history_updated', history)
         self._notify_user('히스토리 항목이 삭제되었습니다.', 'info')
+    
+    # --- LoRA 처리 메서드들 ---
+    def match_lora_by_name(self, lora_name: str) -> Optional[str]:
+        """LoRA 이름으로 실제 파일 경로 찾기"""
+        available_loras = self.get('loras', {})
+        
+        # 정확한 매칭 시도
+        for folder_loras in available_loras.values():
+            for lora_info in folder_loras:
+                if lora_info['name'].lower() == lora_name.lower():
+                    return lora_info['path']
+        
+        # 부분 매칭 시도
+        for folder_loras in available_loras.values():
+            for lora_info in folder_loras:
+                if lora_name.lower() in lora_info['name'].lower():
+                    return lora_info['path']
+        
+        return None
+    
+    def process_prompt_with_loras(self, prompt: str) -> Tuple[str, List[Dict]]:
+        """프롬프트 처리 및 LoRA 추출"""
+        from pathlib import Path
+        
+        # 1. LoRA 태그 추출
+        clean_prompt, lora_tags = self.prompt_processor.extract_loras_from_prompt(prompt)
+        
+        # 2. LoRA 파일 매칭
+        matched_loras = []
+        for lora_tag in lora_tags:
+            lora_path = self.match_lora_by_name(lora_tag.name)
+            
+            if lora_path:
+                matched_loras.append({
+                    'path': lora_path,
+                    'name': lora_tag.name,
+                    'weight': lora_tag.weight
+                })
+                print(f"✅ LoRA 매칭: {lora_tag.name} → {Path(lora_path).name}")
+            else:
+                self._notify_user(f"LoRA를 찾을 수 없습니다: {lora_tag.name}", 'warning')
+        
+        return clean_prompt, matched_loras

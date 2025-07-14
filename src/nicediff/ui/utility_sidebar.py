@@ -84,23 +84,14 @@ class UtilitySidebar:
                     with ui.expansion('그림 도구', icon='palette').classes('w-full'):
                         self._create_drawing_tools()
                         
-                # 하단: 생성 방법 버튼들 (항상 보임)
+                # 하단: 리프레시 버튼 (항상 보임)
                 with ui.column().classes('w-full mt-auto border-t border-gray-600'):
-                    methods = [
-                        ('txt2img', 'TXT'),
-                        ('img2img', 'IMG'), 
-                        ('inpaint', 'INP'),
-                        ('upscale', 'UPS')
-                    ]
-                    
-                    for method, short_name in methods:
-                        button_text = method if self.is_expanded else short_name
-                        ui.button(
-                            button_text,
-                            on_click=lambda m=method: asyncio.create_task(self._on_method_select(m))
-                        ).props('flat').classes(
-                            'w-full h-8 text-white hover:bg-gray-700 border-b border-gray-600 text-xs'
-                        ).tooltip(method if not self.is_expanded else '')
+                    ui.button(
+                        icon='refresh',
+                        on_click=self._refresh_sidebar
+                    ).props('flat').classes(
+                        'w-full h-8 text-white hover:bg-gray-700 text-xs'
+                    ).tooltip('사이드바 새로고침')
         
         # 히스토리 업데이트 구독 (InferencePage에서 중앙 관리하므로 여기서는 구독하지 않음)
         # self.state.subscribe('history_updated', self._update_history)
@@ -282,7 +273,7 @@ class UtilitySidebar:
         ui.notify(f'{tool_name} 도구는 Phase 2에서 구현됩니다', type='info')
     
     async def _on_method_select(self, method: str):
-        """생성 방법 선택 (순서 보장을 위해 async로 변경)"""
+        """생성 방법 선택 (조건부 새로고침 로직 적용)"""
         # StateManager에 현재 모드 설정
         self.state.set('current_mode', method)
         
@@ -294,24 +285,79 @@ class UtilitySidebar:
                 self.state.update_param('strength', 0.8)  # 기본값 0.8
                 print(f"✅ {method} 모드 기본 Strength 값 설정: 0.8")
             
-            # img2img 모드일 때 이미지 패드 자동 새로고침 (먼저 실행)
+            # img2img 모드로 전환할 때 최근 생성된 이미지를 자동으로 init_image로 설정
             if method == 'img2img':
-                image_pad = self.state.get('image_pad')
-                print(f"🔍 이미지 패드 참조 확인: {image_pad}")
+                await self._auto_set_recent_image_as_init()
+        
+        # 조건부 새로고침 로직
+        image_pad = self.state.get('image_pad')
+        
+        if method == 'img2img':
+            # img2img 모드로 전환할 때
+            init_image = self.state.get('init_image')
+            if init_image:
+                # 이미지가 있으면 파라미터 패널만 새로고침
+                print(f"🔄 {method} 모드: 이미지 있음 - 파라미터 패널만 새로고침")
+                self.state._notify('mode_changed', {'mode': method})
+            else:
+                # 이미지가 없으면 둘 다 새로고침
+                print(f"🔄 {method} 모드: 이미지 없음 - 이미지 패드와 파라미터 패널 모두 새로고침")
                 if image_pad:
-                    print(f"🔄 {method} 모드 선택: 이미지 패드 자동 새로고침 시작")
                     await image_pad._refresh_image_pad()
-                    print(f"✅ {method} 모드 선택: 이미지 패드 자동 새로고침 완료")
-                else:
-                    print(f"❌ {method} 모드 선택: 이미지 패드 참조를 찾을 수 없음")
+                self.state._notify('mode_changed', {'mode': method})
+        else:
+            # txt2img 등 다른 모드로 전환할 때는 무조건 둘 다 새로고침
+            print(f"🔄 {method} 모드: 다른 모드로 전환 - 이미지 패드와 파라미터 패널 모두 새로고침")
+            if image_pad:
+                await image_pad._refresh_image_pad()
+            self.state._notify('mode_changed', {'mode': method})
         
-        # 이미지 패드 새로고침 완료 후 파라미터 패널 새로고침
-        print(f"🔄 {method} 모드: 파라미터 패널 새로고침 시작")
-        self.state._notify('mode_changed', {'mode': method})
-        print(f"✅ {method} 모드: 파라미터 패널 새로고침 완료")
-        
-        # 슬롯 오류 방지를 위해 notify 제거
         print(f"🔄 생성 모드 변경: {method}")
+    
+    async def _auto_set_recent_image_as_init(self):
+        """최근 생성된 이미지를 img2img의 init_image로 자동 설정"""
+        try:
+            # 히스토리에서 최근 이미지 찾기
+            history = self.state.get_history()
+            if not history:
+                print("ℹ️ 히스토리가 비어있어 자동 이미지 설정을 건너뜁니다")
+                return
+            
+            # 가장 최근 이미지 가져오기
+            latest_item = history[0]  # 최신 항목
+            image_path = latest_item.get('image_path')
+            
+            if not image_path:
+                print("ℹ️ 최근 이미지 경로를 찾을 수 없어 자동 이미지 설정을 건너뜁니다")
+                return
+            
+            # 이미지 파일 존재 확인
+            from pathlib import Path
+            if not Path(image_path).exists():
+                print(f"ℹ️ 이미지 파일이 존재하지 않아 자동 이미지 설정을 건너뜁니다: {image_path}")
+                return
+            
+            # PIL Image로 로드
+            from PIL import Image
+            try:
+                init_image = Image.open(image_path)
+                print(f"✅ 최근 생성된 이미지를 init_image로 설정: {image_path}")
+                
+                # StateManager에 설정
+                self.state.set_init_image(init_image)
+                self.state.set('init_image_path', image_path)
+                self.state.set('init_image_name', f"최근 생성된 이미지 ({Path(image_path).name})")
+                
+                # 성공 알림
+                ui.notify(f'최근 생성된 이미지가 img2img 입력으로 설정되었습니다', type='positive')
+                
+            except Exception as e:
+                print(f"❌ 이미지 로드 실패: {e}")
+                ui.notify(f'이미지 자동 설정 실패: {str(e)}', type='warning')
+                
+        except Exception as e:
+            print(f"❌ 자동 이미지 설정 실패: {e}")
+            # 실패해도 계속 진행 (선택적 기능이므로)
     
     def _show_empty_history(self):
         """빈 히스토리 상태 표시"""

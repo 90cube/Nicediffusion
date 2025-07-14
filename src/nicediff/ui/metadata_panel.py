@@ -16,10 +16,11 @@ class MetadataPanel:
         self.current_metadata = None
     
     async def render(self):
-        """컴포넌트 렌더링"""
-        with ui.card().classes('w-full h-full p-4 bg-teal-800'):
-            with ui.row().classes('w-full items-center justify-between mb-2'):
-                ui.label('메타데이터').classes('text-lg font-bold mb-2 text-white')
+        """컴포넌트 렌더링 (세로 배치용으로 수정)"""
+        with ui.column().classes('w-full h-full gap-2'):
+            # 헤더
+            with ui.row().classes('w-full items-center justify-between'):
+                ui.label('메타데이터').classes('text-lg font-bold text-teal-400')
                 
                 # 리프레시 버튼
                 ui.button(
@@ -27,14 +28,32 @@ class MetadataPanel:
                     on_click=self._refresh_metadata_panel
                 ).props('flat dense color=white size=sm').tooltip('메타데이터 패널 새로고침')
             
-            # 메타데이터 표시 영역
-            with ui.scroll_area().classes('w-full h-full'):
+            # 메타데이터 표시 영역 (전체 높이 사용)
+            with ui.scroll_area().classes('w-full flex-1'):
                 self.metadata_content = ui.column().classes('w-full')
                 self._show_empty_state()
         
         # 이벤트 구독 (InferencePage에서 중앙 관리하므로 여기서는 구독하지 않음)
         # self.state.subscribe('model_selection_changed', self._on_model_selected)
         #self.state.subscribe('lora_selected', self._on_lora_selected) # LoRA 로직은 나중에 추가
+    
+    def _refresh_metadata_panel(self):
+        """메타데이터 패널 새로고침"""
+        print("🔄 메타데이터 패널 새로고침 중...")
+        
+        # 현재 선택된 모델 정보로 메타데이터 다시 표시
+        current_model = self.state.get('current_model')
+        if current_model:
+            # 모델 정보를 다시 가져와서 메타데이터 표시
+            model_info = self.state.get('model_info', {})
+            if model_info:
+                self._show_metadata(model_info, 'model')
+            else:
+                self._show_empty_state()
+        else:
+            self._show_empty_state()
+        
+        ui.notify('메타데이터 패널이 새로고침되었습니다', type='info')
     
     def _show_empty_state(self):
         """빈 상태 표시"""

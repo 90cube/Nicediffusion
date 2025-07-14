@@ -58,6 +58,12 @@ class BasicGenerationStrategy:
                 getattr(self.pipeline, 'tokenizer', None)
             )
             
+            # LoRA 적용
+            if pre_result.loras and self.state:
+                print("🔧 LoRA 적용 시작...")
+                self._apply_loras_to_pipeline(pre_result.loras)
+                print("✅ LoRA 적용 완료")
+            
             if not pre_result.is_valid:
                 result.errors = pre_result.errors
                 print(f"❌ 전처리 실패: {pre_result.errors}")
@@ -191,3 +197,26 @@ class BasicGenerationStrategy:
     def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         """생성 히스토리 조회"""
         return self.post_processor.get_generation_history(limit)
+    
+    def _apply_loras_to_pipeline(self, loras: List[Any]):
+        """파이프라인에 LoRA 적용"""
+        if not self.state:
+            print("⚠️ StateManager가 없어 LoRA를 적용할 수 없습니다.")
+            return
+            
+        for lora in loras:
+            try:
+                # StateManager에서 실제 파일 경로 찾기
+                lora_path = self.state.match_lora_by_name(lora.name)
+                
+                if lora_path:
+                    # diffusers의 LoRA 로딩 방식
+                    self.pipeline.load_lora_weights(
+                        lora_path,
+                        weight=lora.weight
+                    )
+                    print(f"✅ LoRA 적용: {lora.name} (weight: {lora.weight})")
+                else:
+                    print(f"❌ LoRA 파일을 찾을 수 없습니다: {lora.name}")
+            except Exception as e:
+                print(f"❌ LoRA 로드 실패 {lora.name}: {e}")

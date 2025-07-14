@@ -1,0 +1,839 @@
+# LayeredCanvas 통합 가이드
+
+## 1. 기존 파이프라인과의 통합 전략
+
+### 1.1 데이터 플로우 설계
+```
+[Canvas에서 이미지 작업] 
+    ↓
+[JavaScript에서 export] 
+    ↓
+[Python으로 전송 (base64 또는 blob)]
+    ↓
+[StateManager에 저장]
+    ↓
+[Generation Strategy 실행]
+    ↓
+[후처리 파이프라인 (기존 그대로)]
+    ↓
+[결과 이미지를 Canvas로 다시 전송]
+    ↓
+[스플릿 뷰로 비교 표시]
+```
+
+### 1.2 StateManager 확장 포인트
+- `current_canvas_image`: 현재 캔버스의 이미지 상태
+- `current_mask`: inpaint용 마스크
+- `generation_mode`: 현재 모드 (txt2img, img2img, inpaint 등)
+- `canvas_history`: 캔버스 작업 히스토리 (undo/redo용)
+
+### 1.3 기존 코드와의 호환성 유지
+- `GenerationParams`는 그대로 사용
+- `BasicGenerationStrategy`를 상속받아 각 모드별 전략 구현
+- 후처리(`PostProcessor`)는 변경 없이 그대로 사용
+- 히스토리 시스템도 기존 구조 유지
+
+## 2. Canvas 모드별 동작 정의
+
+### 2.1 View Mode (기본)
+- 생성된 이미지 표시
+- 확대/축소, 팬 기능
+- 이미지 정보 표시
+- 히스토리에서 이미지 불러오기
+
+### 2.2 Img2Img Mode
+- 이미지 드래그 앤 드롭
+- 클립보드 붙여넣기
+- 크롭/리사이즈 도구
+- Denoising Strength 실시간 프리뷰
+
+### 2.3 Inpaint Mode
+- Img2Img 기능 + 마스크 도구
+- 브러시/지우개
+- 선택 도구 (사각형, 원형, 올가미)
+- 마스크 반전/확장/축소
+
+### 2.4 Edit Mode
+- 기본 이미지 편집 도구
+- 밝기/대비 조정
+- 색상 보정
+- 필터 적용
+
+### 2.5 Upscale Mode
+- 업스케일 알고리즘 선택
+- 타일 기반 업스케일
+- 디테일 강화 옵션
+
+## 3. 스플릿 뷰 구현 가이드
+
+### 3.1 레이아웃 구조
+```
+[Canvas Container]
+├── [Original Canvas] (왼쪽 50%)
+├── [Divider] (드래그 가능한 구분선)
+└── [Result Canvas] (오른쪽 50%)
+```
+
+### 3.2 동기화 기능
+- 줌 레벨 동기화
+- 팬 위치 동기화
+- 커서 위치 미러링
+- A/B 토글 스위치
+
+### 3.3 비교 도구
+- 차이점 하이라이트
+- 투명도 슬라이더 (블렌딩)
+- 전/후 빠른 전환 (스페이스바)
+
+## 4. 이벤트 흐름 설계
+
+### 4.1 이미지 로드 → 생성 → 표시
+1. Canvas에 이미지 로드 (드롭/붙여넣기/히스토리)
+2. `canvasManager.exportForGeneration()` 호출
+3. Python `receive_canvas_data()` 메서드에서 수신
+4. StateManager에 이미지/마스크 저장
+5. Generation Strategy 실행
+6. 후처리 완료 후 `image_generated` 이벤트 발생
+7. Canvas의 결과 영역에 표시
+
+### 4.2 모드 전환 흐름
+1. UtilitySidebar에서 모드 선택
+2. StateManager의 `generation_mode` 업데이트
+3. Canvas에 모드 변경 알림
+4. 해당 모드의 JavaScript 모듈 로드
+5. UI 업데이트 (도구, 파라미터 패널 등)
+
+## 5. 히스토리 통합 가이드
+
+### 5.1 히스토리 데이터 구조
+```
+history_item = {
+    'id': unique_id,
+    'timestamp': datetime,
+    'mode': 'img2img',  # 생성 모드
+    'source_image': path,  # 원본 이미지
+    'result_image': path,  # 결과 이미지
+    'mask': path,  # 마스크 (inpaint인 경우)
+    'params': GenerationParams,
+    'canvas_state': {  # 캔버스 상태 스냅샷
+        'layers': [],
+        'zoom': 1.0,
+        'position': {x, y}
+    }
+}
+```
+
+### 5.2 히스토리에서 복원
+1. 히스토리 아이템 클릭
+2. 원본 이미지를 Canvas에 로드
+3. 파라미터 복원
+4. 마스크 복원 (있는 경우)
+5. 모드 자동 전환
+
+## 6. 향후 확장성 고려사항
+
+### 6.1 디렉팅 탭을 위한 준비
+- Canvas 상태를 JSON으로 직렬화/역직렬화
+- 다중 캔버스 인스턴스 관리
+- 캔버스 간 드래그 앤 드롭 지원
+- 노드 기반 워크플로우와의 연동
+
+### 6.2 모듈화 원칙
+- 각 도구를 독립적인 클래스로 구현
+- 플러그인 시스템 고려
+- 커스텀 도구 추가 가능한 구조
+
+### 6.3 성능 최적화
+- 큰 이미지 처리 시 웹워커 사용
+- 레이어 캐싱 전략
+- 프리뷰 품질 조절
+
+## 7. 구현 순서 제안
+
+### Phase 1: 기본 Canvas 통합
+1. ImagePad를 LayeredCanvas로 교체
+2. View 모드 구현 (기존 기능 유지)
+3. JavaScript ↔ Python 통신 설정
+
+### Phase 2: Img2Img 구현
+1. 이미지 로드 기능
+2. StateManager 연동
+3. 생성 파이프라인 통합
+4. 결과 표시
+
+### Phase 3: 스플릿 뷰
+1. 이중 캔버스 레이아웃
+2. 동기화 기능
+3. 비교 도구
+
+### Phase 4: Inpaint 구현
+1. 마스크 도구
+2. 마스크 export
+3. InpaintStrategy 구현
+
+### Phase 5: 고급 기능
+1. Edit 모드
+2. Upscale 모드
+3. 히스토리 고도화
+
+## 8. 주의사항
+
+### 8.1 기존 코드 호환성
+- 기존 txt2img 워크플로우는 그대로 유지
+- 후처리 파이프라인 변경 없음
+- 히스토리 시스템 확장만 진행
+
+### 8.2 상태 관리
+- Canvas 상태와 Python 상태 동기화
+- 모드 전환 시 상태 보존
+- 에러 발생 시 복구 메커니즘
+
+### 8.3 UX 일관성
+- 모든 모드에서 일관된 조작감
+- 단축키 체계 통일
+- 시각적 피드백 제공
+
+
+
+# 이미지 크기 자동 감지 및 선택 시스템 설계 가이드
+
+## 1. UI/UX 설계
+
+### 1.1 파라미터 패널 확장
+```
+[이미지 크기 설정 섹션]
+├── [원본 이미지 정보] (읽기 전용)
+│   ├── 원본: 1920 x 1080
+│   └── 종횡비: 16:9
+├── [크기 선택 토글 그룹]
+│   ├── (●) 원본 크기 사용
+│   └── (○) 사용자 지정 크기
+└── [사용자 지정 크기] (토글 OFF시 비활성화)
+    ├── 너비: [512-2048]
+    ├── 높이: [512-2048]
+    └── 종횡비 유지 [체크박스]
+```
+
+### 1.2 모드별 크기 처리 전략
+
+#### Img2Img
+- 원본 크기 사용 시: 이미지 그대로 처리
+- 사용자 지정 시: 리사이즈 옵션 제공
+  - Stretch (늘이기)
+  - Fit (비율 유지 + 패딩)
+  - Fill (비율 유지 + 크롭)
+  - Pad (캔버스 확장)
+
+#### Inpaint
+- 원본 크기 유지 권장
+- 크기 변경 시 마스크도 함께 리사이즈
+- Inpaint Area 옵션과 연동
+  - Whole Image: 전체 이미지 크기 사용
+  - Only Masked: 마스크 영역만 처리
+
+#### Upscale
+- 배율 기반 크기 계산
+- 타일 처리 시 최대 크기 제한
+- VRAM 사용량 예측 표시
+
+#### ControlNet
+- 참조 이미지와 생성 크기 매칭
+- 프리프로세서별 최적 해상도 제안
+- 다중 ControlNet 사용 시 크기 동기화
+
+## 2. 상태 관리 설계
+
+### 2.1 StateManager 확장
+```python
+# 추가할 상태들
+self._state.update({
+    'source_image_size': {'width': 0, 'height': 0},  # 원본 이미지 크기
+    'use_source_size': False,  # 원본 크기 사용 여부
+    'size_mode': 'custom',  # 'source' or 'custom'
+    'resize_mode': 'stretch',  # stretch, fit, fill, pad
+    'maintain_aspect_ratio': True,  # 종횡비 유지
+    'upscale_factor': 2.0,  # 업스케일 배율
+    'controlnet_reference_size': {},  # ControlNet 참조 이미지 크기
+})
+```
+
+### 2.2 이벤트 흐름
+1. 이미지 로드 → 크기 감지
+2. `source_image_loaded` 이벤트 발생
+3. 파라미터 패널에서 크기 정보 표시
+4. 사용자 선택에 따라 크기 결정
+5. 생성 시 적용
+
+## 3. Canvas와의 통합
+
+### 3.1 이미지 로드 시 크기 감지
+```javascript
+// LayeredCanvas에 추가할 메서드
+detectImageSize(image) {
+    return {
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+        aspectRatio: (image.width / image.height).toFixed(2)
+    };
+}
+
+// 이미지 로드 후 Python에 전송
+onImageLoaded(image) {
+    const sizeInfo = this.detectImageSize(image);
+    window.pywebview.api.update_source_image_size(sizeInfo);
+}
+```
+
+### 3.2 크기 변경 시 프리뷰
+```javascript
+// 실시간 크기 변경 프리뷰
+previewResize(mode, targetWidth, targetHeight) {
+    const previewCtx = this.layers.preview.getContext('2d');
+    
+    switch(mode) {
+        case 'stretch':
+            // 단순 늘이기
+            previewCtx.drawImage(this.sourceImage, 0, 0, targetWidth, targetHeight);
+            break;
+            
+        case 'fit':
+            // 비율 유지 + 여백
+            const scale = Math.min(targetWidth/this.sourceImage.width, 
+                                 targetHeight/this.sourceImage.height);
+            // 중앙 정렬로 그리기
+            break;
+            
+        case 'fill':
+            // 비율 유지 + 크롭
+            const scale = Math.max(targetWidth/this.sourceImage.width, 
+                                 targetHeight/this.sourceImage.height);
+            // 중앙 크롭으로 그리기
+            break;
+    }
+}
+```
+
+## 4. 파라미터 패널 UI 로직
+
+### 4.1 토글 상호작용
+```python
+# ParameterPanel에 추가할 UI 로직 가이드
+
+def render_size_section():
+    # 원본 이미지 정보 표시 (항상 표시)
+    with ui.card():
+        source_size = state.get('source_image_size')
+        if source_size['width'] > 0:
+            ui.label(f"원본: {source_size['width']} × {source_size['height']}")
+            ui.label(f"종횡비: {source_size['width']/source_size['height']:.2f}")
+        else:
+            ui.label("이미지를 먼저 로드하세요")
+    
+    # 크기 선택 라디오 버튼
+    size_mode = ui.radio(
+        options=['source', 'custom'],
+        labels=['원본 크기 사용', '사용자 지정'],
+        value=state.get('size_mode')
+    ).on('change', on_size_mode_change)
+    
+    # 사용자 지정 크기 입력 (조건부 활성화)
+    with ui.column().bind_visibility_from(size_mode, value='custom'):
+        # 너비/높이 입력 필드
+        # 종횡비 유지 체크박스
+        # 리사이즈 모드 선택
+```
+
+### 4.2 크기 자동 계산
+```python
+def calculate_dimensions():
+    """선택된 모드에 따라 최종 크기 계산"""
+    
+    if state.get('size_mode') == 'source':
+        # 원본 크기 사용
+        source = state.get('source_image_size')
+        return source['width'], source['height']
+    
+    elif state.get('generation_mode') == 'upscale':
+        # 업스케일은 배율 기반
+        source = state.get('source_image_size')
+        factor = state.get('upscale_factor')
+        return int(source['width'] * factor), int(source['height'] * factor)
+    
+    else:
+        # 사용자 지정 크기
+        return state.get('current_params').width, state.get('current_params').height
+```
+
+## 5. 모드별 특수 처리
+
+### 5.1 Inpaint 크기 처리
+```python
+# Inpaint 전략에서 크기 처리
+class InpaintStrategy:
+    def prepare_inputs(self, image, mask, params):
+        target_size = self.calculate_target_size()
+        
+        if params.inpaint_area == 'only_masked':
+            # 마스크 영역만 크롭
+            bbox = self.get_mask_bbox(mask)
+            cropped_image = self.crop_to_bbox(image, bbox)
+            cropped_mask = self.crop_to_bbox(mask, bbox)
+            
+            # 처리 후 원본에 다시 합성 필요
+            self.need_recomposite = True
+            self.original_bbox = bbox
+            
+        else:
+            # 전체 이미지 처리
+            if target_size != image.size:
+                image = self.resize_image(image, target_size)
+                mask = self.resize_mask(mask, target_size)
+```
+
+### 5.2 ControlNet 크기 동기화
+```python
+# ControlNet 사용 시 크기 처리
+def sync_controlnet_size():
+    """ControlNet 참조 이미지와 생성 크기 동기화"""
+    
+    control_images = state.get('controlnet_images', {})
+    if not control_images:
+        return
+    
+    # 모든 참조 이미지의 크기 확인
+    sizes = [img.size for img in control_images.values()]
+    
+    # 크기가 다른 경우 경고
+    if len(set(sizes)) > 1:
+        show_warning("ControlNet 이미지들의 크기가 다릅니다")
+    
+    # 첫 번째 이미지 크기를 기준으로 제안
+    if sizes and state.get('use_source_size'):
+        suggested_size = sizes[0]
+        update_suggested_size(suggested_size)
+```
+
+## 6. VRAM 및 성능 고려사항
+
+### 6.1 크기별 VRAM 사용량 예측
+```python
+def estimate_vram_usage(width, height, mode):
+    """크기와 모드에 따른 VRAM 사용량 예측"""
+    
+    base_usage = {
+        'txt2img': 4.0,  # GB
+        'img2img': 4.5,
+        'inpaint': 5.0,
+        'upscale': 6.0,
+    }
+    
+    # 크기에 따른 배수 계산
+    pixels = width * height
+    base_pixels = 512 * 512
+    size_multiplier = pixels / base_pixels
+    
+    estimated = base_usage.get(mode, 4.0) * size_multiplier
+    
+    # 경고 표시
+    if estimated > available_vram():
+        show_warning(f"예상 VRAM 사용량: {estimated:.1f}GB")
+```
+
+### 6.2 자동 크기 제한
+```python
+def apply_size_limits():
+    """모델 타입과 VRAM에 따른 크기 제한"""
+    
+    model_type = state.get('model_type')
+    vram = get_available_vram()
+    
+    # 최대 크기 계산
+    if model_type == 'SDXL':
+        if vram < 8:
+            max_size = 1024
+        elif vram < 12:
+            max_size = 1536
+        else:
+            max_size = 2048
+    else:  # SD1.5
+        if vram < 6:
+            max_size = 768
+        elif vram < 8:
+            max_size = 1024
+        else:
+            max_size = 1536
+    
+    return max_size
+```
+
+## 7. 구현 우선순위
+
+### Phase 1: 기본 크기 감지
+1. 이미지 로드 시 크기 감지
+2. 원본/사용자 지정 토글
+3. 기본 리사이즈 (stretch)
+
+### Phase 2: 고급 리사이즈
+1. Fit/Fill/Pad 모드
+2. 종횡비 유지 옵션
+3. 실시간 프리뷰
+
+### Phase 3: 모드별 최적화
+1. Inpaint 영역별 처리
+2. Upscale 타일 처리
+3. ControlNet 동기화
+
+### Phase 4: 성능 최적화
+1. VRAM 사용량 예측
+2. 자동 크기 제한
+3. 배치 처리 최적화
+
+이 가이드를 따라 구현하면 사용자가 각 모드에서 최적의 크기를 선택할 수 있고, 실수로 메모리 부족이 발생하는 것을 방지할 수 있습니다.
+
+# ui.upload 크기 문제 해결 및 ImagePad 통합 방안
+
+네, 맞습니다! ui.upload의 기본 크기가 작은 문제가 있고, 업로드 후 ImagePad로 보내는 방식이 가장 직관적입니다.
+
+## 1. ui.upload 크기 및 스타일 커스터마이징
+
+### 1.1 CSS로 크기 조정
+```python
+# ui.upload 자체는 크기 조정이 제한적이므로 wrapper 사용
+with ui.card().classes('w-full h-full p-0'):
+    upload = ui.upload(
+        on_upload=handle_upload,
+        accept='image/*',
+        multiple=False,
+        auto_upload=True
+    ).props('flat bordered')
+    
+    # CSS 주입으로 스타일 커스터마이징
+    ui.add_head_html('''
+    <style>
+        /* Upload 영역 크기 조정 */
+        .q-uploader {
+            width: 100% !important;
+            min-height: 400px !important;
+            border: 2px dashed #4a5568 !important;
+            background: rgba(45, 55, 72, 0.3) !important;
+        }
+        
+        .q-uploader__header {
+            background: transparent !important;
+        }
+        
+        /* 드래그 오버 시 효과 */
+        .q-uploader--drag-over {
+            border-color: #3b82f6 !important;
+            background: rgba(59, 130, 246, 0.1) !important;
+        }
+    </style>
+    ''')
+```
+
+### 1.2 더 나은 방법: 커스텀 업로드 영역
+```python
+def create_custom_upload_area(self):
+    """커스텀 드래그 앤 드롭 영역"""
+    
+    # 숨겨진 input 파일
+    ui.html('''
+    <input 
+        type="file" 
+        id="hidden-file-input" 
+        accept="image/*" 
+        style="display: none;"
+        onchange="window.handleFileSelect(event)"
+    >
+    ''')
+    
+    # 큰 드롭 영역
+    drop_area = ui.card().classes(
+        'w-full h-full min-h-[400px] flex items-center justify-center cursor-pointer'
+    ).style(
+        'border: 3px dashed #4a5568; background: rgba(45, 55, 72, 0.5);'
+    )
+    
+    with drop_area:
+        with ui.column().classes('items-center gap-4'):
+            ui.icon('cloud_upload', size='64px').classes('text-gray-400')
+            ui.label('이미지를 드래그하거나 클릭하여 업로드').classes('text-xl text-gray-300')
+            ui.label('지원 형식: JPG, PNG, WebP').classes('text-sm text-gray-500')
+    
+    # 클릭 이벤트
+    drop_area.on('click', '''
+        document.getElementById('hidden-file-input').click();
+    ''')
+    
+    # 드래그 앤 드롭 이벤트
+    ui.run_javascript('''
+        const dropArea = document.querySelector('.drop-area');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight(e) {
+            dropArea.classList.add('border-blue-500', 'bg-blue-900/20');
+        }
+        
+        function unhighlight(e) {
+            dropArea.classList.remove('border-blue-500', 'bg-blue-900/20');
+        }
+        
+        dropArea.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const files = e.dataTransfer.files;
+            handleFiles(files);
+        }
+        
+        window.handleFileSelect = function(e) {
+            const files = e.target.files;
+            handleFiles(files);
+        }
+        
+        function handleFiles(files) {
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('image/')) {
+                    // 파일 처리
+                    window.processImageFile(file);
+                }
+            }
+        }
+    ''')
+```
+
+## 2. 업로드 → ImagePad 플로우
+
+### 2.1 통합 플로우 설계
+```python
+class ImagePad:
+    def __init__(self, state_manager: StateManager):
+        self.state = state_manager
+        self.current_mode = 'view'  # view, upload, edit
+        
+    @ui.refreshable
+    def content_area(self):
+        """모드에 따라 다른 콘텐츠 표시"""
+        mode = self.state.get('generation_mode', 'txt2img')
+        
+        if mode == 'txt2img':
+            # 기존 빈 상태 또는 생성된 이미지 표시
+            self._show_generation_view()
+            
+        elif mode in ['img2img', 'inpaint'] and not self.state.get('init_image'):
+            # 업로드 필요한 상태
+            self._show_upload_view()
+            
+        else:
+            # 이미지가 로드된 상태
+            self._show_image_editor()
+    
+    def _show_upload_view(self):
+        """업로드 뷰"""
+        with ui.column().classes('w-full h-full items-center justify-center'):
+            # 임시 업로드 영역
+            self.temp_upload = ui.upload(
+                on_upload=self._handle_upload_complete,
+                accept='image/*',
+                max_file_size=50_000_000
+            ).props('flat').style('display: none;')
+            
+            # 큰 클릭 가능 영역
+            with ui.card().classes(
+                'w-3/4 h-3/4 min-h-[400px] flex items-center justify-center cursor-pointer hover:bg-gray-800'
+            ).on('click', lambda: self.temp_upload.run_method('pickFiles')):
+                
+                with ui.column().classes('items-center gap-4'):
+                    ui.icon('add_photo_alternate', size='96px').classes('text-blue-400')
+                    ui.label('클릭하여 이미지 선택').classes('text-2xl text-white')
+                    ui.label('또는 이미지를 여기에 드래그').classes('text-gray-400')
+                    
+                    with ui.row().classes('gap-2 mt-4'):
+                        ui.button(
+                            '클립보드에서 붙여넣기',
+                            icon='content_paste',
+                            on_click=self._paste_from_clipboard
+                        ).props('outline')
+                        
+                        ui.button(
+                            '히스토리에서 선택',
+                            icon='history',
+                            on_click=self._select_from_history
+                        ).props('outline')
+    
+    async def _handle_upload_complete(self, e):
+        """업로드 완료 처리"""
+        try:
+            # 1. 이미지 데이터 처리
+            from PIL import Image
+            import io
+            
+            image = Image.open(io.BytesIO(e.content))
+            
+            # 2. StateManager에 저장
+            self.state.set('init_image', image)
+            self.state.set('source_image_size', {
+                'width': image.width,
+                'height': image.height
+            })
+            
+            # 3. 뷰 전환
+            self.current_mode = 'edit'
+            self.content_area.refresh()
+            
+            # 4. 알림
+            ui.notify(f'이미지 로드 완료: {image.width}×{image.height}', type='positive')
+            
+        except Exception as ex:
+            ui.notify(f'이미지 로드 실패: {str(ex)}', type='negative')
+    
+    def _show_image_editor(self):
+        """이미지 편집 뷰"""
+        init_image = self.state.get('init_image')
+        if not init_image:
+            return
+        
+        with ui.column().classes('w-full h-full relative'):
+            # 이미지 표시
+            # Canvas 또는 img 태그로 표시
+            
+            # 툴바
+            with ui.row().classes('absolute top-4 right-4 gap-2 bg-gray-900/80 p-2 rounded'):
+                ui.button(
+                    icon='swap_horiz',
+                    on_click=self._toggle_comparison
+                ).props('round dense').tooltip('원본/편집 비교')
+                
+                ui.button(
+                    icon='refresh',
+                    on_click=self._reset_image
+                ).props('round dense').tooltip('이미지 재설정')
+                
+                ui.button(
+                    icon='delete',
+                    on_click=self._clear_image
+                ).props('round dense color=red').tooltip('이미지 제거')
+```
+
+### 2.2 드래그 앤 드롭 전체 영역 지원
+```python
+def setup_global_drag_drop(self):
+    """전체 ImagePad 영역에 드래그 앤 드롭 설정"""
+    
+    ui.run_javascript('''
+        // ImagePad 전체를 드롭 존으로
+        const imagePad = document.querySelector('.image-pad-container');
+        
+        if (imagePad) {
+            imagePad.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                imagePad.classList.add('drag-hover');
+            });
+            
+            imagePad.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                imagePad.classList.remove('drag-hover');
+            });
+            
+            imagePad.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                imagePad.classList.remove('drag-hover');
+                
+                const files = Array.from(e.dataTransfer.files);
+                const imageFile = files.find(f => f.type.startsWith('image/'));
+                
+                if (imageFile) {
+                    // 파일을 base64로 변환
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                        // Python으로 전송
+                        await window.uploadImageToServer(event.target.result);
+                    };
+                    reader.readAsDataURL(imageFile);
+                }
+            });
+        }
+    ''')
+```
+
+## 3. 추천 구현 방식
+
+### 3.1 하이브리드 접근
+```python
+class ImagePad:
+    async def render(self):
+        """모드에 따라 적응형 UI"""
+        
+        # 컨테이너 설정
+        self.container = ui.column().classes(
+            'w-full h-full image-pad-container relative bg-gray-850 rounded-lg overflow-hidden'
+        )
+        
+        with self.container:
+            # 상태에 따른 조건부 렌더링
+            await self._render_content()
+        
+        # 전역 드래그 앤 드롭 설정
+        self._setup_drag_drop()
+        
+        # 키보드 단축키 (Ctrl+V)
+        self._setup_keyboard_shortcuts()
+    
+    @ui.refreshable
+    async def _render_content(self):
+        """동적 콘텐츠 렌더링"""
+        mode = self.state.get('generation_mode')
+        has_image = bool(self.state.get('init_image'))
+        
+        if mode == 'txt2img' or (mode in ['img2img', 'inpaint'] and has_image):
+            # 이미지 표시/편집 모드
+            await self._render_image_view()
+        else:
+            # 업로드 대기 모드
+            await self._render_upload_prompt()
+    
+    async def _render_upload_prompt(self):
+        """큰 업로드 프롬프트"""
+        with ui.column().classes('w-full h-full items-center justify-center'):
+            # 아이콘과 안내 텍스트
+            ui.icon('cloud_upload', size='120px').classes('text-gray-600 mb-4')
+            ui.label('이미지를 업로드하세요').classes('text-2xl text-white mb-2')
+            ui.label('드래그 & 드롭, 클릭, 또는 Ctrl+V').classes('text-gray-400')
+            
+            # 숨겨진 업로드 컴포넌트
+            self.uploader = ui.upload(
+                on_upload=self._process_upload,
+                accept='image/*',
+                auto_upload=True
+            ).style('position: absolute; opacity: 0; pointer-events: none;')
+            
+            # 전체 영역 클릭 가능
+            self.container.on('click', lambda: self.uploader.run_method('pickFiles'))
+```
+
+이 방식의 장점:
+1. **큰 업로드 영역**: 전체 ImagePad가 드롭 존
+2. **직관적인 UX**: 상태에 따라 적절한 UI 표시
+3. **다양한 입력 방법**: 드래그, 클릭, 붙여넣기, 히스토리
+4. **일관된 경험**: 모든 모드에서 동일한 영역 사용
+
+이렇게 구현하면 사용자가 자연스럽게 이미지를 업로드하고 편집할 수 있습니다.
