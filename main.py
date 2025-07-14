@@ -293,7 +293,7 @@ router = APIRouter()
 state_manager = StateManager()
 image_pad = ImagePad(state_manager)
 
-@router.post('/api/upload_image')
+@app.post('/api/upload_image')
 async def upload_image(file: UploadFile = File(...)):
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert('RGB')
@@ -301,8 +301,8 @@ async def upload_image(file: UploadFile = File(...)):
     image_pad.set_uploaded_image(np_image)
     return {'success': True, 'shape': np_image.shape}
 
-# FastAPI 라우터를 NiceGUI 앱에 등록
-app.add_router(router)
+# FastAPI 라우터를 NiceGUI 앱에 등록 (제거 - NiceGUI는 add_router 지원 안함)
+# app.add_router(router)
 
 if __name__ == '__main__':
     ui.run(
