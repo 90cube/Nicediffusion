@@ -5,6 +5,15 @@ try:
 except ImportError:
     import importlib_metadata as metadata
 
+import base64
+import io
+import numpy as np
+from fastapi import FastAPI, UploadFile, File, APIRouter
+from nicegui import app
+from PIL import Image
+from src.nicediff.ui.image_pad.image_pad import ImagePad
+from src.nicediff.core.state_manager import StateManager
+
 print("\n\n--- [파이썬 환경 진단 시작] ---\n")
 print(f"1. 현재 실행 중인 파이썬 경로:")
 print(f"   L> {sys.executable}\n")
@@ -276,6 +285,24 @@ async def shutdown():
     print("🔄 Nicediff 종료 중...")
     await state_manager.cleanup()
     print("👋 종료 완료")
+
+# FastAPI 라우터 생성
+router = APIRouter()
+
+# ImagePad 인스턴스 참조 (StateManager에서 가져오거나 싱글턴으로 관리)
+state_manager = StateManager()
+image_pad = ImagePad(state_manager)
+
+@router.post('/api/upload_image')
+async def upload_image(file: UploadFile = File(...)):
+    contents = await file.read()
+    image = Image.open(io.BytesIO(contents)).convert('RGB')
+    np_image = np.array(image)
+    image_pad.set_uploaded_image(np_image)
+    return {'success': True, 'shape': np_image.shape}
+
+# FastAPI 라우터를 NiceGUI 앱에 등록
+app.add_router(router)
 
 if __name__ == '__main__':
     ui.run(
