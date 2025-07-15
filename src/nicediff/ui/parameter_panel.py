@@ -372,9 +372,9 @@ class ParameterPanel:
         comfyui_schedulers = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
         current_params = self.state.get('current_params')
 
-        with ui.column().classes('w-full gap-3'):
+        with ui.column().classes('w-full gap-2 min-w-0 overflow-hidden'):
             # 헤더: 제목과 리프레시 버튼
-            with ui.row().classes('w-full items-center justify-between'):
+            with ui.row().classes('w-full items-center justify-between min-w-0'):
                 ui.label('생성 설정').classes('text-lg font-bold text-yellow-400')
                 
                 # 리프레시 버튼
@@ -384,7 +384,7 @@ class ParameterPanel:
                 ).props('round color=white text-color=black size=sm').tooltip('파라미터 패널 새로고침')
             
             # 모드 선택 버튼들 (헤더 아래에 작은 크기로 배치)
-            with ui.row().classes('w-full justify-center gap-1 mb-3'):
+            with ui.row().classes('w-full justify-center gap-1 mb-3 min-w-0'):
                 current_mode = self.state.get('current_mode', 'txt2img')
                 modes = [
                     ('txt2img', 'TXT', 'text_fields'),
@@ -408,34 +408,34 @@ class ParameterPanel:
             current_mode = self.state.get('current_mode', 'txt2img')
             if current_mode == 'txt2img':
                 # 샘플러 | 스케줄러
-                with ui.row().classes('w-full gap-2'):
+                with ui.row().classes('w-full gap-1 min-w-0'):
                     self.sampler_select = ui.select(options=comfyui_samplers, label='Sampler', value=current_params.sampler) \
-                        .on('update:model-value', self._on_param_change('sampler', str)).classes('flex-1')
+                        .on('update:model-value', self._on_param_change('sampler', str)).classes('flex-1 min-w-0')
                     
                     self.scheduler_select = ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler) \
-                        .on('update:model-value', self._on_param_change('scheduler', str)).classes('flex-1')
+                        .on('update:model-value', self._on_param_change('scheduler', str)).classes('flex-1 min-w-0')
                 
                 # CFG | Steps
-                with ui.row().classes('w-full gap-2'):
+                with ui.row().classes('w-full gap-1 min-w-0'):
                     self.cfg_input = ui.number(label='CFG', value=current_params.cfg_scale, min=1.0, max=30.0, step=0.5) \
-                        .on('update:model-value', self._on_param_change('cfg_scale', float)).classes('flex-1')
+                        .on('update:model-value', self._on_param_change('cfg_scale', float)).classes('flex-1 min-w-0')
                     
                     self.steps_input = ui.number(label='Steps', value=current_params.steps, min=1, max=150) \
-                        .on('update:model-value', self._on_param_change('steps', int)).classes('flex-1')
+                        .on('update:model-value', self._on_param_change('steps', int)).classes('flex-1 min-w-0')
                 
                 # 너비 | 높이 SDXL 토글
                 current_sd_model = self.state.get('sd_model', 'SD15')
                 min_size = 512 if current_sd_model == 'SD15' else 768
                 
-                with ui.row().classes('w-full gap-2'):
+                with ui.row().classes('w-full gap-1 min-w-0'):
                     self.width_input = ui.number(value=current_params.width, label='너비', min=min_size, max=2048, step=8) \
-                        .on('update:model-value', self._on_param_change('width', int)).classes('flex-1')
+                        .on('update:model-value', self._on_param_change('width', int)).classes('flex-1 min-w-0')
                     
                     self.height_input = ui.number(value=current_params.height, label='높이', min=min_size, max=2048, step=8) \
-                        .on('update:model-value', self._on_param_change('height', int)).classes('flex-1')
+                        .on('update:model-value', self._on_param_change('height', int)).classes('flex-1 min-w-0')
                 
                 # SDXL 토글
-                with ui.row().classes('w-full justify-center items-center gap-2'):
+                with ui.row().classes('w-full justify-center items-center gap-2 min-w-0'):
                     self.model_switch = ui.switch(value=(self.state.get('sd_model') == 'SDXL')).props('color=orange') \
                         .on('click', self._handle_model_change)
                     ui.label('SDXL').classes('text-xs text-gray-400')
@@ -444,9 +444,9 @@ class ParameterPanel:
                 self.ratio_buttons_container()
                 
                 # SEED 설정 (기본 랜덤, 시드 고정 버튼)
-                with ui.row().classes('w-full gap-2 items-center'):
+                with ui.row().classes('w-full gap-1 items-center min-w-0'):
                     self.seed_input = ui.number(label='Seed', value=current_params.seed, min=-1) \
-                        .on('update:model-value', self._on_param_change('seed', int)).classes('flex-1')
+                        .on('update:model-value', self._on_param_change('seed', int)).classes('flex-1 min-w-0')
                     
                     # 시드 고정 버튼 (핀 모양 아이콘) - 고정 크기로 설정
                     icon_name = 'push_pin' if self.seed_pinned else 'push_pin_outlined'
@@ -460,15 +460,15 @@ class ParameterPanel:
                 # CLIP SKIP
                 clip_skip_value = getattr(current_params, 'clip_skip', 1)
                 self.clip_skip_input = ui.number(label='CLIP Skip', value=clip_skip_value, min=1, max=12, step=1) \
-                    .on('update:model-value', self._on_param_change('clip_skip', int))
+                    .on('update:model-value', self._on_param_change('clip_skip', int)).classes('w-full min-w-0')
                 
                 # 배치 사이즈 | 반복회수 | 무한 반복 생성 토글
-                with ui.row().classes('w-full gap-2 items-center'):
+                with ui.row().classes('w-full gap-1 items-center min-w-0'):
                     self.batch_size_input = ui.number(label="배치", min=1, max=32, value=current_params.batch_size) \
-                        .on('update:model-value', self._on_param_change('batch_size', int)).classes('flex-1')
+                        .on('update:model-value', self._on_param_change('batch_size', int)).classes('flex-1 min-w-0')
                 
                     self.iterations_input = ui.number(label="반복", min=1, max=100, value=current_params.iterations) \
-                        .on('update:model-value', self._on_param_change('iterations', int)).classes('flex-1')
+                        .on('update:model-value', self._on_param_change('iterations', int)).classes('flex-1 min-w-0')
                 
                     # 무한 반복 생성 토글 (무한 아이콘)
                     infinite_generation = self.state.get('infinite_generation', False)
@@ -480,7 +480,7 @@ class ParameterPanel:
             elif current_mode in ['img2img', 'inpaint', 'upscale']:
                 # 이미지 크기 적용 버튼 (i2i 모드일 때만, 비율 아래에 표시)
                 init_image = self.state.get('init_image')
-                if init_image:
+                if init_image is not None:
                     with ui.card().classes('w-full bg-blue-900 p-2 mt-2'):
                         with ui.row().classes('w-full justify-between items-center'):
                             ui.label('업로드된 이미지').classes('text-sm font-medium text-blue-300')
@@ -490,13 +490,28 @@ class ParameterPanel:
                             ).props('round color=blue text-color=white size=sm').tooltip('이미지 크기를 파라미터에 적용')
                         
                         with ui.row().classes('w-full justify-between text-xs'):
-                            ui.label(f'크기: {init_image.size[0]}×{init_image.size[1]}').classes('text-blue-200')
-                            ui.label(f'모드: {init_image.mode}').classes('text-blue-200')
+                            # numpy 배열 처리
+                            if hasattr(init_image, 'shape'):
+                                # numpy 배열인 경우
+                                width, height = init_image.shape[1], init_image.shape[0]
+                            else:
+                                # PIL Image인 경우
+                                width, height = init_image.size[0], init_image.size[1]
+                            ui.label(f'크기: {width}×{height}').classes('text-blue-200')
+                            ui.label(f'모드: {getattr(init_image, "mode", "N/A")}').classes('text-blue-200')
                         
                         # 현재 파라미터와 비교
                         current_width = getattr(current_params, 'width', 512)
                         current_height = getattr(current_params, 'height', 512)
-                        if current_width != init_image.size[0] or current_height != init_image.size[1]:
+                        # numpy 배열 비교 문제 해결
+                        image_size = init_image.size
+                        if isinstance(image_size, (list, tuple)):
+                            image_width, image_height = image_size[0], image_size[1]
+                        else:
+                            # numpy 배열인 경우
+                            image_width, image_height = int(image_size[0]), int(image_size[1])
+                        
+                        if current_width != image_width or current_height != image_height:
                             ui.label('⚠️ 파라미터 크기와 다릅니다').classes('text-xs text-yellow-400')
                         else:
                             ui.label('✅ 파라미터 크기와 일치합니다').classes('text-xs text-green-400')

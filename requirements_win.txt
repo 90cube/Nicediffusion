@@ -1,17 +1,14 @@
 # NiceGUI Framework
 nicegui>=2.21.1
 
+# Web Framework
+fastapi>=0.104.1
+
 # Diffusion Models
 diffusers>=0.34.0
 transformers>=4.53.2
 accelerate>=1.8.1
 safetensors>=0.5.3
-
-# Memory Optimization
-xformers>=0.0.31
-
-# SDE Solvers
-torchsde>=0.2.6
 
 # Image Processing
 Pillow>=11.0.0
@@ -19,8 +16,10 @@ Pillow>=11.0.0
 # Scientific Computing
 numpy>=2.1.2
 
-# Web Server
+# Web Server (Windows 호환)
 uvicorn>=0.35.0
+
+# HTTP Client
 aiohttp>=3.12.14
 httpx>=0.28.1
 

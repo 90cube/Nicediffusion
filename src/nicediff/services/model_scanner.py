@@ -20,11 +20,14 @@ class ModelScanner:
     async def scan_all_models(self) -> Dict[str, Any]:
         """모든 모델 타입을 병렬로 스캔하고 결과를 반환하는 유일한 공개 메서드."""
         print(">>> 통합 모델 스캔 시작 (VAE 지원 포함)...")
+        print(f"🔍 스캔 대상 경로: {self.paths_config}")
         tasks = {}
         
         # 설정된 스캔 대상 타입에 대해서만 작업을 생성합니다.
         for model_type, path in self.paths_config.items():
+            print(f"📁 {model_type} 스캔 준비: {path}")
             if model_type == 'outputs': # 출력 폴더는 스캔에서 제외
+                print(f"⏭️ {model_type} 스캔 제외 (출력 폴더)")
                 continue
             
             if model_type == 'vae':
@@ -32,10 +35,15 @@ class ModelScanner:
             else:
                 tasks[model_type] = self._scan_directory(path, model_type)
             
+        print(f"🚀 스캔 작업 시작: {list(tasks.keys())}")
         list_of_results = await asyncio.gather(*tasks.values())
         result = dict(zip(tasks.keys(), list_of_results))
         
         print(f"<<< 모든 모델 스캔 완료. VAE 발견: {len(result.get('vae', {}))}")
+        print(f"📊 스캔 결과 요약:")
+        for model_type, data in result.items():
+            total_items = sum(len(items) for items in data.values())
+            print(f"   {model_type}: {total_items}개")
         return result
 
     async def _scan_vae_directory(self, base_path: Path) -> Dict[str, List[Dict[str, Any]]]:
@@ -110,13 +118,16 @@ class ModelScanner:
 
     async def _scan_directory(self, base_path: Path, model_type: str) -> Dict[str, List[Dict[str, Any]]]:
         """지정된 디렉토리 하나를 스캔하는 비공개 헬퍼 함수."""
+        print(f"🔍 {model_type} 스캔 시작: {base_path}")
         if not await asyncio.to_thread(base_path.exists):
+            print(f"⚠️ {model_type} 경로가 존재하지 않음: {base_path}")
             await asyncio.to_thread(base_path.mkdir, parents=True, exist_ok=True)
             return {}
 
         def scan_sync():
             """실제 파일 시스템 I/O를 수행하는 동기 함수"""
             result = defaultdict(list)
+            print(f"📂 {model_type} 파일 스캔 중: {base_path}")
             
             for file_path in base_path.rglob('*'):
                 if file_path.is_file() and file_path.suffix.lower() in self.model_extensions:
@@ -151,11 +162,26 @@ class ModelScanner:
                             file_info['metadata'] = {}
                             
                     elif model_type == 'loras':
-                        if file_path.suffix.lower() == '.safetensors':
-                            lora_meta = self.metadata_parser.extract_from_safetensors(file_path)
-                            if 'ss_base_model_version' in lora_meta:
-                                file_info['base_model'] = lora_meta['ss_base_model_version']
-                            file_info['metadata'] = lora_meta
+                        # --- [LoRA 스캔 로직 개선] ---
+                        print(f"🎯 LoRA 발견: {file_path.relative_to(base_path)}")
+                        # 1. LoRA 메타데이터는 safetensors 파일에서 직접 추출
+                        lora_specific_info = self.metadata_parser.get_lora_info(file_path)
+                        file_info.update(lora_specific_info)
+                        
+                        # 2. 생성 파라미터 메타데이터는 오직 이름이 같은 .png 파일에서만 가져옴
+                        png_path = file_path.with_suffix('.png')
+                        if png_path.exists():
+                            # print(f"📷 LoRA PNG 메타데이터 발견: {png_path.name}") # 디버깅용
+                            png_metadata = self.metadata_parser.extract_from_png(png_path)
+                            # PNG에서 추출한 메타데이터를 file_info의 'metadata'에 덮어씀
+                            file_info['metadata'] = png_metadata
+                        else:
+                            # PNG 파일이 없으면 safetensors 메타데이터 사용
+                            if file_path.suffix.lower() == '.safetensors':
+                                lora_meta = self.metadata_parser.extract_from_safetensors(file_path)
+                                file_info['metadata'] = lora_meta
+                            else:
+                                file_info['metadata'] = {}
                     
                     result[folder].append(file_info)
 

@@ -64,12 +64,12 @@ class TopBar:
                     ui.label("모델 라이브러리").classes("text-lg font-bold text-white")
                     self.toggle_button = ui.button(icon='expand_less', on_click=self._toggle_visibility).props('flat round color=white size=sm ml-2')
                 
-                # 오른쪽: VAE 선택 + 중단 버튼 (반응형)
-                with ui.row().classes('items-center gap-2 flex-shrink-0 min-w-0'):
+                # 오른쪽: VAE 선택 + 중단 버튼 (반응형) - 파라미터 패널과 정렬
+                with ui.row().classes('items-center gap-2 flex-shrink-0 min-w-0 w-72 justify-end'):
                     ui.label('VAE:').classes('text-sm text-white flex-shrink-0')
                     self.vae_select = ui.select(options=['Automatic', 'None'], value='Automatic') \
                         .props('dark outlined dense') \
-                        .classes('w-48 min-w-32 max-w-64') \
+                        .classes('w-40 min-w-32 max-w-40') \
                         .on('change', lambda e: asyncio.create_task(self._on_vae_change(e.value)))
                     
                     # 중단 버튼 (처음에는 숨김)
@@ -81,8 +81,8 @@ class TopBar:
             # 2. 메인 컨텐츠 영역 (토글 가능, 반응형)
             self.content_row = ui.row().classes('w-full p-2 bg-gray-800 gap-2 flex-wrap lg:flex-nowrap')
             with self.content_row:
-                # 왼쪽: 모델 앨범 (반응형 너비)
-                with ui.card().tight().classes('w-full lg:w-2/5 xl:w-1/3 h-64 min-w-0'):
+                # 왼쪽: 모델 앨범 (반응형 너비) - 전체 가로 70%
+                with ui.card().tight().classes('w-full lg:w-7/10 xl:w-7/10 h-64 min-w-0'):
                     with ui.card_section().classes('p-2'):
                         ui.label('체크포인트 모델').classes('text-sm font-bold text-white mb-2')
                     self.album_container = ui.scroll_area().classes('w-full h-52')
@@ -90,8 +90,8 @@ class TopBar:
                     with self.album_container:
                          ui.label("모델 로딩 중...").classes("m-4 text-center text-gray-500")
 
-                # 오른쪽: 메타데이터 패널 (반응형 너비)
-                self.metadata_container = ui.card().tight().classes('w-full lg:w-3/5 xl:w-2/3 h-64 bg-gray-700 min-w-0')
+                # 오른쪽: 메타데이터 패널 (반응형 너비) - 전체 가로 30%
+                self.metadata_container = ui.card().tight().classes('w-full lg:w-3/10 xl:w-3/10 h-64 bg-gray-700 min-w-0')
                 self._build_metadata_ui_skeleton() # 메타데이터 UI 뼈대 생성
 
         # UI가 모두 생성된 후, 초기 데이터 로딩을 안전하게 요청합니다.
@@ -156,13 +156,13 @@ class TopBar:
                     .classes('absolute-center bg-gray-800 bg-opacity-70 p-4 rounded-full z-10') \
                     .set_visibility(False)
 
-                self.preview_image = ui.image().classes('w-full h-32 object-contain bg-gray-800 rounded-md flex-shrink-0')
+                # 그림 제거 - preview_image 삭제
                 
-                # 스크롤 가능한 메타데이터 영역
+                # 스크롤 가능한 메타데이터 영역 (그림 제거로 인해 더 많은 공간 확보)
                 with ui.scroll_area().classes('w-full flex-1 min-h-0'):
                     with ui.column().classes('w-full gap-2'):
-                        self.prompt_area = ui.markdown().classes('text-xs')
-                        self.params_label = ui.label().classes('text-xs text-gray-400')
+                        self.prompt_area = ui.markdown().classes('text-sm')  # 텍스트 크기 증가
+                        self.params_label = ui.label().classes('text-sm text-gray-400')  # 텍스트 크기 증가
                         
                         # 버튼들을 분리: 긍정/부정 프롬프트 복사 + 파라미터 적용
                         with ui.row().classes('w-full gap-2'):
@@ -183,7 +183,7 @@ class TopBar:
         
         # 로딩 상태 처리
         if loading_info:
-            self.preview_image.set_source('https://placehold.co/256x256/2d3748/e2e8f0?text=Loading...')
+            # preview_image 제거됨
             self.prompt_area.set_content(f"**로딩 중...** {loading_info.get('name', '')}")
             self.params_label.set_text("모델을 로드하고 있습니다...")
             self.apply_button.visible = False
@@ -191,7 +191,7 @@ class TopBar:
         
         # 에러 상태 처리
         if error_message:
-            self.preview_image.set_source('https://placehold.co/256x256/dc2626/ffffff?text=Error')
+            # preview_image 제거됨
             self.prompt_area.set_content(f"**오류:** {error_message}")
             self.params_label.set_text("로딩에 실패했습니다")
             self.apply_button.visible = False
@@ -200,7 +200,7 @@ class TopBar:
         # 정상 상태 처리
         if model_info:
             metadata = model_info.get('metadata', {})
-            self.preview_image.set_source(self._get_preview_src(model_info))
+            # preview_image 제거됨
             
             # 긍정/부정 프롬프트 분리 표시
             positive_prompt = metadata.get('prompt', '').strip()
@@ -237,7 +237,7 @@ class TopBar:
             self.apply_button.visible = has_params
         else:
             # 빈 상태
-            self.preview_image.set_source('https://placehold.co/256x256/2d3748/e2e8f0?text=Select+Model')
+            # preview_image 제거됨
             self.prompt_area.set_content("**긍정:** 모델을 선택하세요.")
             self.params_label.set_text("파라미터 정보 없음")
             self.copy_positive_button.visible = False

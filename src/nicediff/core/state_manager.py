@@ -99,6 +99,11 @@ class StateManager:
         
         self.set('status_message', '준비 완료')
         print("✅ StateManager: 스캔 결과로 상태 업데이트 완료.")
+        
+        # LoRA 목록 업데이트 이벤트 발생
+        loras_data = all_models_data.get('loras', {})
+        self._notify('loras_updated', loras_data)
+        print(f"📢 LoRA 업데이트 이벤트 발생: {sum(len(items) for items in loras_data.values())}개 LoRA")
 
     # --- 모델 선택 및 로딩 ---
     async def select_model(self, model_info: Dict[str, Any]):
@@ -902,9 +907,71 @@ class StateManager:
         self.clear_history()
     
     def delete_history_item(self, history_id: str):
-        """특정 히스토리 아이템 삭제"""
+        """히스토리 아이템 삭제"""
         history = self.get('history', [])
         history = [item for item in history if item.get('id') != history_id]
         self.set('history', history)
         self._notify('history_updated', history)
-        self._notify_user('히스토리 항목이 삭제되었습니다.', 'info')
+        self._notify_user('히스토리 아이템이 삭제되었습니다.', 'info')
+    
+    # --- LoRA 관련 메서드들 ---
+    async def load_lora(self, lora_info: Dict[str, Any], weight: float = 1.0) -> bool:
+        """LoRA 로드"""
+        try:
+            success = await self.model_loader.load_lora(lora_info, weight)
+            if success:
+                # 로드된 LoRA 목록 업데이트
+                loaded_loras = self.model_loader.get_loaded_loras()
+                self.set('loaded_loras', loaded_loras)
+                self._notify('loras_updated', loaded_loras)
+                self._notify_user(f"LoRA '{lora_info['name']}' 로드 완료", 'positive')
+                return True
+            else:
+                self._notify_user(f"LoRA '{lora_info['name']}' 로드 실패", 'negative')
+                return False
+        except Exception as e:
+            print(f"❌ LoRA 로드 오류: {e}")
+            self._notify_user(f"LoRA 로드 오류: {str(e)}", 'negative')
+            return False
+    
+    async def unload_lora(self, lora_name: str) -> bool:
+        """특정 LoRA 언로드"""
+        try:
+            success = await self.model_loader.unload_lora(lora_name)
+            if success:
+                # 로드된 LoRA 목록 업데이트
+                loaded_loras = self.model_loader.get_loaded_loras()
+                self.set('loaded_loras', loaded_loras)
+                self._notify('loras_updated', loaded_loras)
+                self._notify_user(f"LoRA '{lora_name}' 언로드 완료", 'positive')
+                return True
+            else:
+                self._notify_user(f"LoRA '{lora_name}' 언로드 실패", 'negative')
+                return False
+        except Exception as e:
+            print(f"❌ LoRA 언로드 오류: {e}")
+            self._notify_user(f"LoRA 언로드 오류: {str(e)}", 'negative')
+            return False
+    
+    async def unload_all_loras(self) -> bool:
+        """모든 LoRA 언로드"""
+        try:
+            success = await self.model_loader.unload_all_loras()
+            if success:
+                # 로드된 LoRA 목록 업데이트
+                loaded_loras = self.model_loader.get_loaded_loras()
+                self.set('loaded_loras', loaded_loras)
+                self._notify('loras_updated', loaded_loras)
+                self._notify_user("모든 LoRA 언로드 완료", 'positive')
+                return True
+            else:
+                self._notify_user("모든 LoRA 언로드 실패", 'negative')
+                return False
+        except Exception as e:
+            print(f"❌ 모든 LoRA 언로드 오류: {e}")
+            self._notify_user(f"모든 LoRA 언로드 오류: {str(e)}", 'negative')
+            return False
+    
+    def get_loaded_loras(self) -> List[Dict[str, Any]]:
+        """로드된 LoRA 목록 반환"""
+        return self.model_loader.get_loaded_loras()

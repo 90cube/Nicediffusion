@@ -394,61 +394,64 @@ class MetadataParser:
     
     @staticmethod
     def get_model_info(model_path: Path) -> Dict[str, Any]:
-        """
-        모델의 전체 정보를 추출합니다.
-        """
-        model_type, base_model = MetadataParser.detect_model_type(model_path)
-        
-        info = {
-            'model_type': model_type,
-            'base_model': base_model,
-            'is_xl': model_type == 'SDXL',
-            'is_sd3': model_type == 'SD3',
-            'default_size': (1024, 1024) if model_type in ['SDXL', 'SD3'] else (512, 512),
-            'metadata': {}  # 빈 메타데이터 딕셔너리 초기화
+        """모델 파일에서 기본 정보 추출"""
+        model_info = {
+            'model_type': 'SD15',  # 기본값
+            'base_model': 'SD1.5',  # 기본값
+            'metadata': {}
         }
         
-        # 추가 메타데이터 병합
-        if model_path.suffix == '.safetensors':
-            metadata = MetadataParser.extract_from_safetensors(model_path)
-            
-            # 전체 메타데이터 저장
-            info['metadata'] = metadata
-            
-            # VAE 정보 추출
-            if 'ss_vae_name' in metadata:
-                info['recommended_vae'] = metadata['ss_vae_name']
-            if 'vae' in metadata:
-                info['recommended_vae'] = metadata['vae']
-            if 'sd_vae' in metadata:
-                info['recommended_vae'] = metadata['sd_vae']
-            
-            # 학습 정보 추출
-            if 'ss_training_comment' in metadata:
-                info['training_comment'] = metadata['ss_training_comment']
-            if 'ss_num_train_images' in metadata:
-                info['num_train_images'] = metadata['ss_num_train_images']
-            if 'ss_learning_rate' in metadata:
-                info['learning_rate'] = metadata['ss_learning_rate']
-            if 'ss_unet_lr' in metadata:
-                info['unet_lr'] = metadata['ss_unet_lr']
-            if 'ss_text_encoder_lr' in metadata:
-                info['text_encoder_lr'] = metadata['ss_text_encoder_lr']
-            
-            # 트리거 워드
-            if 'ss_tag_frequency' in metadata:
-                try:
-                    tag_freq = json.loads(metadata['ss_tag_frequency'])
-                    # 가장 빈번한 태그 추출
-                    all_tags = {}
-                    for dataset_tags in tag_freq.values():
-                        for tag, freq in dataset_tags.items():
-                            all_tags[tag] = all_tags.get(tag, 0) + freq
+        try:
+            # safetensors 파일인 경우 메타데이터 추출
+            if model_path.suffix.lower() == '.safetensors':
+                metadata = MetadataParser.extract_from_safetensors(model_path)
+                model_info['metadata'] = metadata
+                
+                # 모델 타입 감지
+                model_type, _ = MetadataParser.detect_model_type(model_path)
+                model_info['model_type'] = model_type
+                
+                # base_model 설정
+                if model_type == 'SDXL':
+                    model_info['base_model'] = 'SDXL'
+                else:
+                    model_info['base_model'] = 'SD1.5'
                     
-                    # 상위 10개 태그
-                    top_tags = sorted(all_tags.items(), key=lambda x: x[1], reverse=True)[:10]
-                    info['suggested_tags'] = [tag for tag, _ in top_tags]
-                except:
-                    pass
+        except Exception as e:
+            print(f"모델 정보 추출 실패 ({model_path.name}): {e}")
         
-        return info
+        return model_info
+    
+    @staticmethod
+    def get_lora_info(lora_path: Path) -> Dict[str, Any]:
+        """LoRA 파일에서 기본 정보 추출"""
+        lora_info = {
+            'base_model': 'SD1.5',  # 기본값
+            'metadata': {}
+        }
+        
+        try:
+            # safetensors 파일인 경우 메타데이터 추출
+            if lora_path.suffix.lower() == '.safetensors':
+                metadata = MetadataParser.extract_from_safetensors(lora_path)
+                lora_info['metadata'] = metadata
+                
+                # LoRA 기본 모델 정보 추출
+                if 'ss_base_model_version' in metadata:
+                    base_model = metadata['ss_base_model_version']
+                    if 'xl' in base_model.lower() or 'sdxl' in base_model.lower():
+                        lora_info['base_model'] = 'SDXL'
+                    else:
+                        lora_info['base_model'] = 'SD1.5'
+                elif 'ss_sd_model_name' in metadata:
+                    # SD 모델명에서 추정
+                    model_name = metadata['ss_sd_model_name'].lower()
+                    if 'xl' in model_name or 'sdxl' in model_name:
+                        lora_info['base_model'] = 'SDXL'
+                    else:
+                        lora_info['base_model'] = 'SD1.5'
+                        
+        except Exception as e:
+            print(f"LoRA 정보 추출 실패 ({lora_path.name}): {e}")
+        
+        return lora_info

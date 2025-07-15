@@ -1,0 +1,244 @@
+# LoRA 문법 분석 및 적용 가이드
+
+현재 코드를 확인해보니 `<lora:name:weight>` 문법을 자동으로 파싱하는 기능이 **구현되어 있지 않습니다**. 현재는 LoRA 패널에서 체크박스로 선택하는 방식만 지원합니다.
+
+## 1. 현재 구현 상태
+
+### 1.1 현재 LoRA 처리 방식
+```python
+# state_manager.py
+self._state['current_loras'] = []  # 파일 경로 리스트만 저장
+
+# lora_panel.py
+def _on_lora_toggle(self, e, lora_path):
+    """LoRA 선택 토글"""
+    current_loras = self.state.get('current_loras', [])
+    if e.value:
+        current_loras.append(lora_path)  # 경로만 추가
+```
+
+### 1.2 생성 시 LoRA 적용 (미구현)
+```python
+# basic_strategy.py
+params_dict = {
+    # ...
+    'loras': self.get('current_loras')  # 경로만 전달
+}
+```
+
+## 2. LoRA 문법 파싱 구현 방안
+
+### 2.1 프롬프트 프로세서 확장
+```python
+# prompt_processor.py에 추가
+class PromptProcessor:
+    def __init__(self):
+        # 기존 패턴에 LoRA 패턴 추가
+        self.lora_pattern = r'<lora:([^:>]+)(?::([0-9]*\.?[0-9]+))?\s*>'
+        
+    def extract_loras_from_prompt(self, prompt: str) -> Tuple[str, List[Dict[str, Any]]]:
+        """프롬프트에서 LoRA 태그 추출"""
+        loras = []
+        
+        # LoRA 태그 찾기
+        for match in re.finditer(self.lora_pattern, prompt):
+            lora_name = match.group(1).strip()
+            weight_str = match.group(2)
+            weight = float(weight_str) if weight_str else 1.0
+            
+            loras.append({
+                'name': lora_name,
+                'weight': weight,
+                'original_tag': match.group(0)
+            })
+        
+        # 프롬프트에서 LoRA 태그 제거
+        clean_prompt = re.sub(self.lora_pattern, '', prompt).strip()
+        
+        return clean_prompt, loras
+    
+    def validate_lora_syntax(self, prompt: str) -> List[str]:
+        """LoRA 문법 검증"""
+        errors = []
+        
+        # 잘못된 형식 찾기
+        # <lora:name> (가중치 없음) - 허용
+        # <lora:name:1.2> - 정상
+        # <lora:name:abc> - 오류
+        
+        malformed = re.findall(r'<lora:[^>]*?:[^0-9.][^>]*>', prompt)
+        if malformed:
+            errors.append(f"잘못된 LoRA 가중치: {malformed}")
+        
+        return errors
+```
+
+### 2.2 StateManager에서 LoRA 매칭
+```python
+# state_manager.py 수정
+class StateManager:
+    def match_lora_by_name(self, lora_name: str) -> Optional[str]:
+        """LoRA 이름으로 실제 파일 경로 찾기"""
+        available_loras = self.get('available_loras', {})
+        
+        # 정확한 매칭 시도
+        for folder_loras in available_loras.values():
+            for lora_info in folder_loras:
+                if lora_info['name'].lower() == lora_name.lower():
+                    return lora_info['path']
+        
+        # 부분 매칭 시도
+        for folder_loras in available_loras.values():
+            for lora_info in folder_loras:
+                if lora_name.lower() in lora_info['name'].lower():
+                    return lora_info['path']
+        
+        return None
+    
+    def process_prompt_with_loras(self, prompt: str) -> Tuple[str, List[Dict]]:
+        """프롬프트 처리 및 LoRA 추출"""
+        # 1. LoRA 태그 추출
+        clean_prompt, lora_tags = self.prompt_processor.extract_loras_from_prompt(prompt)
+        
+        # 2. LoRA 파일 매칭
+        matched_loras = []
+        for lora_tag in lora_tags:
+            lora_path = self.match_lora_by_name(lora_tag['name'])
+            
+            if lora_path:
+                matched_loras.append({
+                    'path': lora_path,
+                    'name': lora_tag['name'],
+                    'weight': lora_tag['weight']
+                })
+                print(f"✅ LoRA 매칭: {lora_tag['name']} → {Path(lora_path).name}")
+            else:
+                self._notify_user(f"LoRA를 찾을 수 없습니다: {lora_tag['name']}", 'warning')
+        
+        return clean_prompt, matched_loras
+```
+
+### 2.3 생성 전략 수정
+```python
+# basic_strategy.py 수정
+class BasicGenerationStrategy:
+    async def execute(self, params: Dict[str, Any], model_info: Dict[str, Any]):
+        # 프롬프트에서 LoRA 추출
+        prompt = params['prompt']
+        clean_prompt, prompt_loras = self.state.process_prompt_with_loras(prompt)
+        
+        # 체크박스로 선택한 LoRA와 병합
+        checkbox_loras = params.get('loras', [])
+        all_loras = self._merge_loras(prompt_loras, checkbox_loras)
+        
+        # 파이프라인에 LoRA 적용
+        if all_loras:
+            self._apply_loras_to_pipeline(all_loras)
+        
+        # 깨끗한 프롬프트로 생성
+        params['prompt'] = clean_prompt
+        # ... 생성 진행
+    
+    def _apply_loras_to_pipeline(self, loras: List[Dict]):
+        """파이프라인에 LoRA 적용"""
+        for lora in loras:
+            try:
+                # diffusers의 LoRA 로딩 방식
+                self.pipeline.load_lora_weights(
+                    lora['path'],
+                    weight=lora['weight']
+                )
+                print(f"✅ LoRA 적용: {lora['name']} (weight: {lora['weight']})")
+            except Exception as e:
+                print(f"❌ LoRA 로드 실패 {lora['name']}: {e}")
+```
+
+### 2.4 프롬프트 패널 UI 피드백
+```python
+# prompt_panel.py 수정
+class PromptPanel:
+    def _on_positive_change(self, e):
+        """프롬프트 변경 시 LoRA 태그 감지"""
+        text = self.state.get('current_params').prompt
+        
+        # LoRA 태그 찾기
+        lora_matches = re.findall(r'<lora:([^:>]+)(?::([0-9]*\.?[0-9]+))?\s*>', text)
+        
+        if lora_matches:
+            # LoRA 태그 하이라이트 또는 정보 표시
+            self._show_detected_loras(lora_matches)
+    
+    def _show_detected_loras(self, loras):
+        """감지된 LoRA 표시"""
+        with self.analysis_container:
+            if loras:
+                ui.label("감지된 LoRA:").classes('text-purple-400')
+                for name, weight in loras:
+                    weight = weight or "1.0"
+                    # 매칭 상태 확인
+                    if self.state.match_lora_by_name(name):
+                        ui.label(f"  ✅ {name}: {weight}").classes('text-green-400 text-xs')
+                    else:
+                        ui.label(f"  ❌ {name}: {weight} (찾을 수 없음)").classes('text-red-400 text-xs')
+```
+
+## 3. 전체 구현 플로우
+
+### 3.1 사용자 입력
+```
+1girl, beautiful, <lora:style_lora:0.8>, masterpiece, <lora:character_lora:1.2>
+```
+
+### 3.2 처리 과정
+1. **프롬프트 입력** → LoRA 태그 감지 및 표시
+2. **생성 시작** → LoRA 태그 추출
+3. **LoRA 매칭** → 파일 경로 찾기
+4. **파이프라인 적용** → LoRA 가중치 로드
+5. **클린 프롬프트** → `1girl, beautiful, masterpiece`로 생성
+
+### 3.3 최소 구현 코드
+```python
+# 간단한 구현 (state_manager.py에 추가)
+def prepare_generation_params(self, params):
+    """생성 전 파라미터 준비"""
+    prompt = params['prompt']
+    
+    # LoRA 태그 추출 및 제거
+    import re
+    lora_pattern = r'<lora:([^:>]+)(?::([0-9]*\.?[0-9]+))?\s*>'
+    
+    loras = []
+    for match in re.finditer(lora_pattern, prompt):
+        name = match.group(1)
+        weight = float(match.group(2) or 1.0)
+        
+        # 실제 경로 찾기
+        path = self.match_lora_by_name(name)
+        if path:
+            loras.append({'path': path, 'weight': weight})
+    
+    # 프롬프트에서 LoRA 태그 제거
+    clean_prompt = re.sub(lora_pattern, '', prompt).strip()
+    
+    # 파라미터 업데이트
+    params['prompt'] = clean_prompt
+    params['parsed_loras'] = loras
+    
+    return params
+```
+
+## 4. 권장사항
+
+### 4.1 단계적 구현
+1. **Phase 1**: 프롬프트에서 LoRA 태그 파싱만
+2. **Phase 2**: 파일 매칭 및 경고 표시
+3. **Phase 3**: 실제 파이프라인 적용
+4. **Phase 4**: UI에서 자동완성 지원
+
+### 4.2 사용자 경험 개선
+- LoRA 이름 자동완성
+- 잘못된 문법 실시간 경고
+- 사용 가능한 LoRA 목록 표시
+- 드래그 앤 드롭으로 LoRA 태그 삽입
+
+현재는 이 기능이 없으므로 구현이 필요합니다!
