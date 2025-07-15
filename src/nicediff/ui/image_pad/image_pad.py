@@ -66,29 +66,27 @@ class ImagePad:
             
             # 중앙 컨테이너
             with ui.column().classes('w-full h-full flex items-center justify-center relative'):
-                # Canvas 요소
+                # 메인 이미지 표시 영역
                 ui.html('''
-                    <canvas id="imagepad-canvas" style="width:100%;height:100%;max-width:800px;max-height:600px;border:1px solid #333;z-index:1;"></canvas>
-                ''')
-                
-                # 대체 이미지 표시 영역 (Canvas가 안 될 때 사용)
-                ui.html('''
-                    <div id="image-display-area" style="width:100%;height:100%;max-width:800px;max-height:600px;display:none;z-index:1;">
-                        <img id="displayed-image" style="width:100%;height:100%;object-fit:contain;border:1px solid #333;" />
-                    </div>
-                ''')
-                
-                # 드래그앤드롭 오버레이 (Canvas 위에)
-                upload_html = '''
-                    <div id="drag-drop-area" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(26,26,26,0.9);display:flex;align-items:center;justify-content:center;transition:opacity 0.3s;z-index:2;">
-                        <div style="text-align:center;pointer-events:none;">
-                            <div style="font-size:48px;">📁</div>
-                            <div>이미지를 여기에 드래그앤드롭하세요</div>
-                            <div style="font-size:14px;color:#718096;">또는 클릭하여 파일 선택</div>
+                    <div id="image-container" style="width:100%;height:100%;max-width:800px;max-height:600px;position:relative;border:1px solid #333;">
+                        <!-- Canvas 요소 -->
+                        <canvas id="imagepad-canvas" style="width:100%;height:100%;z-index:1;position:absolute;top:0;left:0;"></canvas>
+                        
+                        <!-- 대체 이미지 표시 영역 (Canvas가 안 될 때 사용) -->
+                        <div id="image-display-area" style="width:100%;height:100%;display:none;z-index:1;position:absolute;top:0;left:0;">
+                            <img id="displayed-image" style="width:100%;height:100%;object-fit:contain;" />
+                        </div>
+                        
+                        <!-- 드래그앤드롭 오버레이 (가장 위에) -->
+                        <div id="drag-drop-area" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(26,26,26,0.9);display:flex;align-items:center;justify-content:center;transition:opacity 0.3s;z-index:10;cursor:pointer;">
+                            <div style="text-align:center;pointer-events:none;">
+                                <div style="font-size:48px;">📁</div>
+                                <div>이미지를 여기에 드래그앤드롭하세요</div>
+                                <div style="font-size:14px;color:#718096;">또는 클릭하여 파일 선택</div>
+                            </div>
                         </div>
                     </div>
-                '''
-                ui.html(upload_html)
+                ''')
                 
                 # 숨겨진 파일 입력
                 ui.html('<input id="api-upload-input" type="file" accept="image/*" style="display:none" />')
@@ -245,38 +243,76 @@ class ImagePad:
         function setupEventListeners() {
             const uploadInput = window.imagePadDebug.uploadInput;
             const dragDropArea = window.imagePadDebug.dragDropArea;
+            const imageContainer = document.getElementById('image-container');
+            
+            console.log('🔗 이벤트 리스너 설정 시작');
             
             // 파일 입력 이벤트
             if (uploadInput) {
                 uploadInput.onchange = function(e) {
+                    console.log('📁 파일 선택됨');
                     const file = e.target.files[0];
                     if (file) handleFileUpload(file);
                 };
             }
             
-            // 드래그앤드롭 이벤트
+            // 드래그앤드롭 이벤트 - 더 명확하게 설정
             if (dragDropArea) {
+                console.log('📁 드래그앤드롭 영역 이벤트 설정');
+                
                 // 클릭으로 파일 선택
-                dragDropArea.addEventListener('click', function() {
-                    if (uploadInput) uploadInput.click();
+                dragDropArea.addEventListener('click', function(e) {
+                    console.log('🖱️ 드래그앤드롭 영역 클릭됨');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (uploadInput) {
+                        uploadInput.click();
+                    }
                 });
                 
                 // 드래그오버
                 dragDropArea.addEventListener('dragover', function(e) {
+                    console.log('🔄 드래그오버');
                     e.preventDefault();
+                    e.stopPropagation();
                     dragDropArea.style.background = 'rgba(59, 130, 246, 0.3)';
                 });
                 
                 // 드래그리브
                 dragDropArea.addEventListener('dragleave', function(e) {
+                    console.log('🔄 드래그리브');
                     e.preventDefault();
+                    e.stopPropagation();
                     dragDropArea.style.background = 'rgba(26,26,26,0.9)';
                 });
                 
                 // 드롭
                 dragDropArea.addEventListener('drop', function(e) {
+                    console.log('📥 파일 드롭됨');
                     e.preventDefault();
+                    e.stopPropagation();
                     dragDropArea.style.background = 'rgba(26,26,26,0.9)';
+                    
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        handleFileUpload(files[0]);
+                    }
+                });
+            }
+            
+            // 이미지 컨테이너에도 드래그앤드롭 이벤트 추가 (백업)
+            if (imageContainer) {
+                console.log('📁 이미지 컨테이너 이벤트 설정');
+                
+                imageContainer.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+                
+                imageContainer.addEventListener('drop', function(e) {
+                    console.log('📥 컨테이너에 파일 드롭됨');
+                    e.preventDefault();
+                    e.stopPropagation();
                     
                     const files = e.dataTransfer.files;
                     if (files.length > 0) {
