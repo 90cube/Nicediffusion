@@ -50,8 +50,9 @@ class ImagePad:
         
         # 메인 컨테이너
         with ui.column().classes('w-full h-full relative'):
-            # 우측 상단 캔버스 비우기 버튼
+            # 우측 상단 버튼들
             with ui.row().classes('absolute top-2 right-2 z-10'):
+                ui.button('🖼️ 커스텀 패드', on_click=self._open_custom_pad).classes('bg-blue-500 text-white px-3 py-1 text-sm rounded mr-2')
                 ui.button('🗑️ 캔버스 비우기', on_click=self._clear_canvas).classes('bg-red-500 text-white px-3 py-1 text-sm rounded')
             
             # 표시 모드 선택 (Full, Fit, Stretch)
@@ -509,6 +510,26 @@ class ImagePad:
         
         ui.add_body_html(upload_script)
 
+    async def _open_custom_pad(self):
+        """커스텀 이미지 패드 열기"""
+        try:
+            from .image_pad_integration import ImagePadIntegration
+            
+            # 이미 열려있는지 확인
+            if not hasattr(self, 'custom_pad_integration'):
+                self.custom_pad_integration = ImagePadIntegration(self.state)
+                
+            # 이미지 패드 열기
+            self.custom_pad_integration.open_image_pad()
+            
+            from nicegui import ui
+            ui.notify('커스텀 이미지 패드가 열렸습니다!', type='positive')
+            
+        except Exception as e:
+            from nicegui import ui
+            ui.notify(f'커스텀 이미지 패드 열기 실패: {str(e)}', type='negative')
+            print(f"❌ 커스텀 이미지 패드 오류: {e}")
+            
     async def _clear_canvas(self):
         """캔버스 비우기 (모든 이미지/프리뷰/썸네일/메시지/상태 완전 초기화)"""
         from nicegui import ui
