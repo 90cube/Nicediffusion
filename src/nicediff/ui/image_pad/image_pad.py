@@ -53,6 +53,7 @@ class ImagePad:
             # 우측 상단 캔버스 비우기 버튼
             with ui.row().classes('absolute top-2 right-2 z-10'):
                 ui.button('🗑️ 캔버스 비우기', on_click=self._clear_canvas).classes('bg-red-500 text-white px-3 py-1 text-sm rounded')
+            
             # 표시 모드 선택 (Full, Fit, Stretch)
             with ui.row().classes('absolute top-2 left-2 z-10'):
                 ui.html('''
@@ -62,12 +63,14 @@ class ImagePad:
                         <option value="stretch">Stretch</option>
                     </select>
                 ''')
+            
             # 중앙 컨테이너
             with ui.column().classes('w-full h-full flex items-center justify-center relative'):
                 # Canvas 요소
                 ui.html('''
                     <canvas id="imagepad-canvas" style="width:100%;height:100%;max-width:800px;max-height:600px;border:1px solid #333;z-index:1;"></canvas>
                 ''')
+                
                 # 드래그앤드롭 오버레이 (Canvas 위에)
                 upload_html = '''
                     <div id="drag-drop-area" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(26,26,26,0.9);display:flex;align-items:center;justify-content:center;transition:opacity 0.3s;z-index:2;">
@@ -79,10 +82,13 @@ class ImagePad:
                     </div>
                 '''
                 ui.html(upload_html)
+                
                 # 숨겨진 파일 입력
                 ui.html('<input id="api-upload-input" type="file" accept="image/*" style="display:none" />')
+                
                 # 업로드된 이미지 프리뷰 (작은 크기로)
                 ui.html('<div id="uploaded-image-preview" style="margin-top:16px;text-align:center;max-width:300px;"></div>')
+        
         # CanvasManager를 인라인으로 정의
         canvas_manager_script = '''
         <script>
@@ -166,50 +172,126 @@ class ImagePad:
         
         ui.add_body_html(canvas_manager_script)
         
+        # 개선된 업로드 스크립트
         upload_script = '''
         <script>
         document.addEventListener('DOMContentLoaded', function() {
             const uploadInput = document.getElementById('api-upload-input');
             const dragDropArea = document.getElementById('drag-drop-area');
-            // 업로드 성공 시 오버레이만 숨기고, 프리뷰/Canvas 등은 일체 표시하지 않음
+            const canvas = document.getElementById('imagepad-canvas');
+            
             async function handleFileUpload(file) {
                 if (!file) return;
+                
+                // 로딩 표시
+                if (dragDropArea) {
+                    dragDropArea.innerHTML = '<div style="text-align:center;"><div style="font-size:24px;">⏳</div><div>업로드 중...</div></div>';
+                }
+                
                 const formData = new FormData();
                 formData.append('file', file);
+                
                 try {
-                    const res = await fetch('/api/upload_image', { method: 'POST', body: formData });
+                    const res = await fetch('/api/upload_image', { 
+                        method: 'POST', 
+                        body: formData 
+                    });
+                    
                     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                    
                     const data = await res.json();
+                    
                     if (data.success) {
-                        // 업로드 성공 시 오버레이만 숨김
-                        if (dragDropArea) dragDropArea.style.display = 'none';
-                        // 이미지 표시/프리뷰 등은 Python에서만 처리
+                        // 업로드 성공 시 오버레이 숨기기
+                        if (dragDropArea) {
+                            dragDropArea.style.display = 'none';
+                        }
+                        
+                        // Canvas에 이미지 표시
+                        if (window.canvasManager && data.base64) {
+                            window.canvasManager.loadImageFit(data.base64, 800, 600);
+                        }
+                        
+                        // 프리뷰에 작은 이미지 표시
+                        const preview = document.getElementById('uploaded-image-preview');
+                        if (preview && data.base64) {
+                            preview.innerHTML = '<img src="' + data.base64 + '" style="max-width:100%;max-height:200px;border-radius:8px;box-shadow:0 2px 8px #0003;" />';
+                        }
+                        
+                        // 성공 메시지
+                        console.log('✅ 이미지 업로드 성공:', data.filename);
+                        
+                    } else {
+                        throw new Error(data.error || '업로드 실패');
                     }
+                    
                 } catch (error) {
-                    // 에러 처리 (필요시)
+                    console.error('❌ 업로드 실패:', error);
+                    
+                    // 오버레이 복원
+                    if (dragDropArea) {
+                        dragDropArea.innerHTML = '<div style="text-align:center;pointer-events:none;"><div style="font-size:48px;">📁</div><div>이미지를 여기에 드래그앤드롭하세요</div><div style="font-size:14px;color:#718096;">또는 클릭하여 파일 선택</div></div>';
+                    }
+                    
+                    // 에러 알림 (NiceGUI notify 사용)
+                    if (window.nicegui && window.nicegui.notify) {
+                        window.nicegui.notify('이미지 업로드 실패: ' + error.message, 'negative');
+                    }
                 }
             }
+            
+            // 파일 입력 이벤트
             if (uploadInput) {
                 uploadInput.onchange = function(e) {
                     const file = e.target.files[0];
                     if (file) handleFileUpload(file);
                 };
             }
+            
+            // 드래그앤드롭 이벤트
             if (dragDropArea) {
-                dragDropArea.addEventListener('click', function() { uploadInput.click(); });
-                dragDropArea.addEventListener('dragover', function(e) { e.preventDefault(); });
-                dragDropArea.addEventListener('dragleave', function(e) { e.preventDefault(); });
+                // 클릭으로 파일 선택
+                dragDropArea.addEventListener('click', function() {
+                    if (uploadInput) uploadInput.click();
+                });
+                
+                // 드래그오버
+                dragDropArea.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    dragDropArea.style.background = 'rgba(59, 130, 246, 0.3)';
+                });
+                
+                // 드래그리브
+                dragDropArea.addEventListener('dragleave', function(e) {
+                    e.preventDefault();
+                    dragDropArea.style.background = 'rgba(26,26,26,0.9)';
+                });
+                
+                // 드롭
                 dragDropArea.addEventListener('drop', function(e) {
                     e.preventDefault();
+                    dragDropArea.style.background = 'rgba(26,26,26,0.9)';
+                    
                     const files = e.dataTransfer.files;
                     if (files.length > 0) {
                         handleFileUpload(files[0]);
                     }
                 });
             }
+            
+            // 표시 모드 변경 이벤트
+            const displayModeSelect = document.getElementById('canvas-display-mode');
+            if (displayModeSelect) {
+                displayModeSelect.addEventListener('change', function() {
+                    const mode = this.value;
+                    console.log('표시 모드 변경:', mode);
+                    // 여기에 모드 변경 로직 추가 가능
+                });
+            }
         });
         </script>
         '''
+        
         ui.add_body_html(upload_script)
 
     async def _clear_canvas(self):
@@ -219,12 +301,25 @@ class ImagePad:
         self.state.set('uploaded_image', None)
         self.current_image_path = None
         self.uploaded_image = None
-        # 프론트엔드 UI 완전 초기화 (오버레이만 다시 표시)
+        
+        # 프론트엔드 UI 완전 초기화
         ui.run_javascript('''
+            // Canvas 비우기
+            if (window.canvasManager) {
+                window.canvasManager.clearCanvas();
+            }
+            
+            // 프리뷰 비우기
+            const preview = document.getElementById('uploaded-image-preview');
+            if (preview) {
+                preview.innerHTML = '';
+            }
+            
             // 업로드 안내 오버레이 다시 표시
             const dragDropArea = document.getElementById('drag-drop-area');
             if (dragDropArea) {
                 dragDropArea.style.display = 'flex';
+                dragDropArea.innerHTML = '<div style="text-align:center;pointer-events:none;"><div style="font-size:48px;">📁</div><div>이미지를 여기에 드래그앤드롭하세요</div><div style="font-size:14px;color:#718096;">또는 클릭하여 파일 선택</div></div>';
             }
         ''')
         ui.notify('캔버스가 비워졌습니다', type='info')
