@@ -95,16 +95,31 @@ class ImagePad:
         // CanvasManager 구현
         window.canvasManager = {
             loadImageFit: function(imageData, containerWidth, containerHeight) {
+                console.log('🎨 loadImageFit 호출됨:', {
+                    imageData: imageData ? imageData.substring(0, 50) + '...' : 'null',
+                    containerWidth,
+                    containerHeight
+                });
+                
                 const canvas = document.getElementById('imagepad-canvas');
-                if (!canvas) return;
+                if (!canvas) {
+                    console.error('❌ Canvas 요소를 찾을 수 없음');
+                    return;
+                }
+                
+                console.log('✅ Canvas 요소 찾음:', canvas);
                 
                 const ctx = canvas.getContext('2d');
                 const img = new Image();
                 
                 img.onload = function() {
+                    console.log('🖼️ 이미지 로드 완료:', img.width, 'x', img.height);
+                    
                     // Canvas 크기 설정
                     canvas.width = containerWidth || canvas.clientWidth;
                     canvas.height = containerHeight || canvas.clientHeight;
+                    
+                    console.log('📐 Canvas 크기 설정:', canvas.width, 'x', canvas.height);
                     
                     // 이미지를 Canvas에 맞춤
                     const scale = Math.min(
@@ -114,8 +129,16 @@ class ImagePad:
                     const x = (canvas.width - img.width * scale) / 2;
                     const y = (canvas.height - img.height * scale) / 2;
                     
+                    console.log('📏 스케일링 정보:', { scale, x, y });
+                    
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+                    
+                    console.log('✅ Canvas에 이미지 그리기 완료');
+                };
+                
+                img.onerror = function() {
+                    console.error('❌ 이미지 로드 실패:', imageData);
                 };
                 
                 img.src = imageData;
@@ -180,8 +203,16 @@ class ImagePad:
             const dragDropArea = document.getElementById('drag-drop-area');
             const canvas = document.getElementById('imagepad-canvas');
             
+            console.log('🔄 ImagePad JavaScript 초기화 시작');
+            console.log('📁 uploadInput:', uploadInput);
+            console.log('📁 dragDropArea:', dragDropArea);
+            console.log('📁 canvas:', canvas);
+            console.log('📁 canvasManager:', window.canvasManager);
+            
             async function handleFileUpload(file) {
                 if (!file) return;
+                
+                console.log('📤 파일 업로드 시작:', file.name, file.size);
                 
                 // 로딩 표시
                 if (dragDropArea) {
@@ -192,34 +223,52 @@ class ImagePad:
                 formData.append('file', file);
                 
                 try {
+                    console.log('🌐 API 요청 전송 중...');
                     const res = await fetch('/api/upload_image', { 
                         method: 'POST', 
                         body: formData 
                     });
                     
+                    console.log('📥 API 응답 받음:', res.status, res.statusText);
+                    
                     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                     
                     const data = await res.json();
+                    console.log('📋 API 응답 데이터:', data);
                     
                     if (data.success) {
+                        console.log('✅ 업로드 성공, UI 업데이트 시작');
+                        
                         // 업로드 성공 시 오버레이 숨기기
                         if (dragDropArea) {
+                            console.log('👁️ 오버레이 숨기기');
                             dragDropArea.style.display = 'none';
                         }
                         
                         // Canvas에 이미지 표시
                         if (window.canvasManager && data.base64) {
+                            console.log('🎨 Canvas에 이미지 로드 중...');
                             window.canvasManager.loadImageFit(data.base64, 800, 600);
+                        } else {
+                            console.error('❌ canvasManager 또는 base64 없음:', {
+                                canvasManager: !!window.canvasManager,
+                                base64: !!data.base64
+                            });
                         }
                         
                         // 프리뷰에 작은 이미지 표시
                         const preview = document.getElementById('uploaded-image-preview');
                         if (preview && data.base64) {
+                            console.log('🖼️ 프리뷰 업데이트');
                             preview.innerHTML = '<img src="' + data.base64 + '" style="max-width:100%;max-height:200px;border-radius:8px;box-shadow:0 2px 8px #0003;" />';
+                        } else {
+                            console.error('❌ preview 또는 base64 없음:', {
+                                preview: !!preview,
+                                base64: !!data.base64
+                            });
                         }
                         
-                        // 성공 메시지
-                        console.log('✅ 이미지 업로드 성공:', data.filename);
+                        console.log('✅ UI 업데이트 완료');
                         
                     } else {
                         throw new Error(data.error || '업로드 실패');
