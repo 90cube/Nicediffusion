@@ -385,14 +385,25 @@ class StateManager:
                 # init_image는 ImagePad에서 설정되어야 함
                 init_image = self.get('init_image')
                 print(f"🔍 StateManager에서 init_image 확인: {init_image}")
-                if init_image:
-                    print(f"✅ init_image 확인됨: {type(init_image)}, {init_image.size}")
+                if init_image is not None:
+                    # numpy 배열인 경우 shape 정보 출력, PIL Image인 경우 size 정보 출력
+                    if hasattr(init_image, 'shape'):
+                        print(f"✅ init_image 확인됨: {type(init_image)}, 크기={init_image.shape[1]}×{init_image.shape[0]}")
+                    elif hasattr(init_image, 'size'):
+                        print(f"✅ init_image 확인됨: {type(init_image)}, {init_image.size}")
+                    else:
+                        print(f"✅ init_image 확인됨: {type(init_image)}")
                 else:
                     print(f"❌ init_image가 None입니다!")
                     # 글로벌 상태에서 이미지 다시 가져오기
                     init_image = self._state.get('init_image')
-                    if init_image:
-                        print(f"🔄 글로벌 상태에서 init_image 복구: {init_image.size}")
+                    if init_image is not None:
+                        if hasattr(init_image, 'shape'):
+                            print(f"🔄 글로벌 상태에서 init_image 복구: 크기={init_image.shape[1]}×{init_image.shape[0]}")
+                        elif hasattr(init_image, 'size'):
+                            print(f"🔄 글로벌 상태에서 init_image 복구: {init_image.size}")
+                        else:
+                            print(f"🔄 글로벌 상태에서 init_image 복구: {type(init_image)}")
                     else:
                         mode_display = {
                             'img2img': '이미지 → 이미지',

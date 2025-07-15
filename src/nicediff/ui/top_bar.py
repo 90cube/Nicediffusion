@@ -441,8 +441,8 @@ class TopBar:
             self.toggle_button.props('icon=expand_more')
             self.toggle_button.tooltip('라이브러리 펼치기')
         
-        print(f"🔽 모델 라이브러리 {'펼침' if self.is_expanded else '접음'}")
-        ui.notify(f'모델 라이브러리가 {"펼쳐졌습니다" if self.is_expanded else "접혔습니다"}', type='info')
+        # print(f"🔽 모델 라이브러리 {'펼침' if self.is_expanded else '접음'}")
+        # ui.notify(f'모델 라이브러리가 {"펼쳐졌습니다" if self.is_expanded else "접혔습니다"}', type='info')
 
     async def _on_model_selected(self, model_info: Optional[Dict[str, Any]]):
         """StateManager에서 모델 선택이 변경되었다는 알림을 받았을 때 호출됩니다."""

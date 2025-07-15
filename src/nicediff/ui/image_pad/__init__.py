@@ -1,3 +1,3 @@
-from .image_pad import ImagePad
+from ..image_viewer import ImagePad
 
 __all__ = ['ImagePad'] 

@@ -75,16 +75,29 @@ class BasicGenerationStrategy:
                 # i2i 모드: Img2Img 파라미터 변환
                 init_image = params.get('init_image')
                 print(f"🔍 생성 전략에서 init_image 확인: {init_image}")
-                if not init_image:
+                if init_image is None:
                     print("❌ img2img 모드인데 init_image가 없습니다!")
                     # StateManager에서 다시 가져오기
                     if self.state and hasattr(self.state, 'get'):
                         init_image = self.state.get('init_image')
                         params['init_image'] = init_image
-                        print(f"🔄 StateManager에서 init_image 복구: {init_image.size if init_image else 'None'}")
+                        if init_image is not None:
+                            if hasattr(init_image, 'shape'):
+                                print(f"🔄 StateManager에서 init_image 복구: 크기={init_image.shape[1]}×{init_image.shape[0]}")
+                            elif hasattr(init_image, 'size'):
+                                print(f"🔄 StateManager에서 init_image 복구: {init_image.size}")
+                            else:
+                                print(f"🔄 StateManager에서 init_image 복구: {type(init_image)}")
+                        else:
+                            print(f"🔄 StateManager에서 init_image 복구: None")
                 
-                if init_image:
-                    print(f"🔍 생성 전략에서 이미지 크기: {init_image.size}, 모드: {init_image.mode}")
+                if init_image is not None:
+                    if hasattr(init_image, 'shape'):
+                        print(f"🔍 생성 전략에서 이미지 크기: {init_image.shape[1]}×{init_image.shape[0]}")
+                    elif hasattr(init_image, 'size'):
+                        print(f"🔍 생성 전략에서 이미지 크기: {init_image.size}, 모드: {init_image.mode}")
+                    else:
+                        print(f"🔍 생성 전략에서 이미지: {type(init_image)}")
                 else:
                     print(f"❌ 생성 전략에서 init_image가 None!")
                     result.errors = ["img2img 모드에서 초기 이미지를 찾을 수 없습니다."]

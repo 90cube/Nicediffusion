@@ -11,7 +11,7 @@ import numpy as np
 from fastapi import FastAPI, UploadFile, File, APIRouter
 from nicegui import app
 from PIL import Image
-from src.nicediff.ui.image_pad.image_pad import ImagePad
+from src.nicediff.ui.image_pad import ImagePad
 from src.nicediff.core.state_manager import StateManager
 
 print("\n\n--- [파이썬 환경 진단 시작] ---\n")

@@ -202,7 +202,13 @@ class ParameterPanel:
                 ui.notify('img2img 모드에서는 이미지를 먼저 업로드해주세요', type='warning')
                 return
             else:
-                print(f"✅ img2img 모드에서 이미지 확인됨: 크기={init_image.size}, 모드={init_image.mode}, 타입={type(init_image)}")
+                # numpy 배열인 경우 shape 정보 출력, PIL Image인 경우 size와 mode 정보 출력
+                if hasattr(init_image, 'shape'):
+                    print(f"✅ img2img 모드에서 이미지 확인됨: 크기={init_image.shape[1]}×{init_image.shape[0]}, 타입={type(init_image)}")
+                elif hasattr(init_image, 'size'):
+                    print(f"✅ img2img 모드에서 이미지 확인됨: 크기={init_image.size}, 모드={init_image.mode}, 타입={type(init_image)}")
+                else:
+                    print(f"✅ img2img 모드에서 이미지 확인됨: 타입={type(init_image)}")
                 
                 # 추가 디버그: 이미지 경로도 확인
                 init_image_path = self.state.get('init_image_path')
@@ -272,8 +278,16 @@ class ParameterPanel:
             if current_mode == 'img2img':
                 # img2img 모드: 기존 이미지 크기 유지
                 init_image = self.state.get('init_image')
-                if init_image:
-                    width, height = init_image.size
+                if init_image is not None:
+                    # numpy 배열인 경우 shape에서 크기 추출, PIL Image인 경우 size에서 추출
+                    if hasattr(init_image, 'shape'):
+                        height, width = init_image.shape[:2]
+                    elif hasattr(init_image, 'size'):
+                        width, height = init_image.size
+                    else:
+                        # 기본 크기 사용
+                        width, height = 512, 512
+                    
                     self.state.update_param('width', width)
                     self.state.update_param('height', height)
                     print(f"✅ img2img 모드: 기존 이미지 크기 유지 {width}×{height}")
@@ -301,8 +315,16 @@ class ParameterPanel:
             # 크기 일치가 활성화되면 업로드된 이미지 크기로 파라미터 업데이트
             if is_enabled:
                 init_image = self.state.get('init_image')
-                if init_image:
-                    width, height = init_image.size
+                if init_image is not None:
+                    # numpy 배열인 경우 shape에서 크기 추출, PIL Image인 경우 size에서 추출
+                    if hasattr(init_image, 'shape'):
+                        height, width = init_image.shape[:2]
+                    elif hasattr(init_image, 'size'):
+                        width, height = init_image.size
+                    else:
+                        # 기본 크기 사용
+                        width, height = 512, 512
+                    
                     self.state.update_param('width', width)
                     self.state.update_param('height', height)
                     print(f"✅ 업로드된 이미지 크기로 파라미터 업데이트: {width}×{height}")
