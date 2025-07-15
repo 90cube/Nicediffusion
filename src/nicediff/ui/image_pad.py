@@ -7,6 +7,8 @@ from pathlib import Path
 from ..core.state_manager import StateManager
 import asyncio
 from PIL import Image
+import numpy as np
+from typing import Optional
 
 class ImagePad:
     """이미지 패드 (캔버스 기반)"""
@@ -39,7 +41,10 @@ class ImagePad:
         """컴포넌트 렌더링"""
         # 메인 컨테이너
         self.main_container = ui.column().classes('w-full h-full bg-blue-900 rounded-lg overflow-hidden relative')
-        
+        # 이미지 비우기 버튼 (항상 우측 상단 고정)
+        with self.main_container:
+            with ui.row().classes('absolute top-2 right-2 z-10'):
+                ui.button('🗑️ 이미지 비우기', on_click=self._clear_canvas).classes('bg-red-500 text-white px-3 py-1 text-sm rounded')
         # 초기 상태: 빈 화면
         await self._show_empty()
     
@@ -114,90 +119,77 @@ class ImagePad:
     async def _show_image(self, image_path: str):
         """이미지 표시"""
         self.current_image_path = image_path
-        
         # 이미지 파일 존재 확인
         if not Path(image_path).exists():
             await self._show_error(f"이미지 파일을 찾을 수 없습니다: {image_path}")
             return
-        
-        self.main_container.clear()
-        
-        with self.main_container:
-            # 상단: 모드 표시와 리프레시 버튼
-            with ui.row().classes('absolute top-4 left-4 right-4 justify-between items-center z-10'):
-                current_mode = self.state.get('current_mode', 'txt2img')
-                mode_display = {
-                    'txt2img': '텍스트 → 이미지',
-                    'img2img': '이미지 → 이미지',
-                    'inpaint': '인페인팅',
-                    'upscale': '업스케일'
-                }.get(current_mode, '텍스트 → 이미지')
-                
-                self.mode_label = ui.label(f'모드: {mode_display}').classes('text-white bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold')
-                
-                self.refresh_button = ui.button(
-                    icon='refresh',
-                    on_click=self._refresh_image_pad
-                ).props('round color=white text-color=black size=sm').tooltip('이미지 패드 새로고침')
-            
-            # 캔버스 컨테이너 (전체 화면)
-            with ui.column().classes('w-full h-full relative') as self.canvas_container:
-                # 캔버스 요소 (이미지 표시용)
-                self.canvas = ui.html(f'''
-                    <div id="image-canvas" class="w-full h-full flex items-center justify-center bg-gray-800 rounded-lg overflow-hidden">
-                        <img id="display-image" src="{image_path}" 
-                             class="transition-all duration-300 ease-in-out"
-                             style="max-width: 100%; max-height: 100%; object-fit: contain; background-color: #374151; border-radius: 0.5rem;">
-                    </div>
-                ''').classes('w-full h-full')
-                
-                # 이미지 위에 호버 시 나타나는 도구들
-                with ui.row().classes('absolute top-16 right-4 gap-2 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10'):
-                    ui.button(icon='fullscreen', on_click=self._show_fullscreen).props('round color=white text-color=black size=sm').tooltip('전체화면')
-                    ui.button(icon='download', on_click=self._download_image).props('round color=white text-color=black size=sm').tooltip('다운로드')
-                    ui.button(icon='delete', on_click=self._delete_image).props('round color=red size=sm').tooltip('삭제')
-                    ui.button(icon='clear', on_click=self._remove_uploaded_image).props('round color=orange size=sm').tooltip('업로드된 이미지 제거')
-                    
-                    # i2i 모드일 때만 이미지 크기 적용 버튼 표시
+        if self.main_container:
+            self.main_container.clear()
+            with self.main_container:
+                # 상단: 모드 표시와 리프레시 버튼
+                with ui.row().classes('absolute top-4 left-4 right-4 justify-between items-center z-10'):
                     current_mode = self.state.get('current_mode', 'txt2img')
-                    if current_mode in ['img2img', 'inpaint', 'upscale']:
-                        ui.button(
-                            icon='aspect_ratio', 
-                            on_click=self._apply_image_size_to_params
-                        ).props('round color=blue text-color=white size=sm').tooltip('이미지 크기를 파라미터에 적용')
-                
-                # 이미지 정보 표시 (좌측 하단)
-                try:
-                    with Image.open(image_path) as img:
-                        width, height = img.size
-                        info_text = f'{width} × {height}'
-                except Exception as e:
-                    print(f"⚠️ 이미지 정보 읽기 실패: {e}")
-                    info_text = '이미지 정보'
-                
-                self.info_label = ui.label(info_text).classes('absolute bottom-4 left-4 bg-black bg-opacity-50 rounded px-3 py-1 text-white text-sm')
-                
-                # 표시 방식 버튼들 (하단 중앙)
-                with ui.row().classes('absolute bottom-4 left-1/2 transform -translate-x-1/2 gap-2'):
-                    self.display_buttons = [
-                        ui.button('Contain', on_click=lambda: self._change_display_mode('contain')).props('size=sm').classes('bg-blue-600 hover:bg-blue-700'),
-                        ui.button('Fill', on_click=lambda: self._change_display_mode('fill')).props('size=sm').classes('bg-gray-600 hover:bg-gray-700'),
-                        ui.button('Stretch', on_click=lambda: self._change_display_mode('stretch')).props('size=sm').classes('bg-gray-600 hover:bg-gray-700')
-                    ]
-                    # 기본값 활성화
-                    self.display_buttons[0].classes('bg-blue-600')
-        
+                    mode_display = {
+                        'txt2img': '텍스트 → 이미지',
+                        'img2img': '이미지 → 이미지',
+                        'inpaint': '인페인팅',
+                        'upscale': '업스케일'
+                    }.get(current_mode, '텍스트 → 이미지')
+                    self.mode_label = ui.label(f'모드: {mode_display}').classes('text-white bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-bold')
+                    self.refresh_button = ui.button(
+                        icon='refresh',
+                        on_click=self._refresh_image_pad
+                    ).props('round color=white text-color=black size=sm').tooltip('이미지 패드 새로고침')
+                # 캔버스 컨테이너 (전체 화면)
+                with ui.column().classes('w-full h-full relative') as self.canvas_container:
+                    # 캔버스 요소 (이미지 표시용)
+                    self.canvas = ui.html(f'''
+                        <div id="image-canvas" class="w-full h-full flex items-center justify-center bg-gray-800 rounded-lg overflow-hidden">
+                            <img id="display-image" src="{image_path}" 
+                                 class="transition-all duration-300 ease-in-out"
+                                 style="max-width: 100%; max-height: 100%; object-fit: contain; background-color: #374151; border-radius: 0.5rem;">
+                        </div>
+                    ''').classes('w-full h-full')
+                    # 이미지 위에 호버 시 나타나는 도구들
+                    with ui.row().classes('absolute top-16 right-4 gap-2 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10'):
+                        ui.button(icon='fullscreen', on_click=self._show_fullscreen).props('round color=white text-color=black size=sm').tooltip('전체화면')
+                        ui.button(icon='download', on_click=self._download_image).props('round color=white text-color=black size=sm').tooltip('다운로드')
+                        ui.button(icon='delete', on_click=self._delete_image).props('round color=red size=sm').tooltip('삭제')
+                        ui.button(icon='clear', on_click=self._remove_uploaded_image).props('round color=orange size=sm').tooltip('업로드된 이미지 제거')
+                        current_mode = self.state.get('current_mode', 'txt2img')
+                        if current_mode in ['img2img', 'inpaint', 'upscale']:
+                            ui.button(
+                                icon='aspect_ratio', 
+                                on_click=self._apply_image_size_to_params
+                            ).props('round color=blue text-color=white size=sm').tooltip('이미지 크기를 파라미터에 적용')
+                    # 이미지 정보 표시 (좌측 하단)
+                    try:
+                        with Image.open(image_path) as img:
+                            width, height = img.size
+                            info_text = f'{width} × {height}'
+                    except Exception as e:
+                        print(f"⚠️ 이미지 정보 읽기 실패: {e}")
+                        info_text = '이미지 정보'
+                    self.info_label = ui.label(info_text).classes('absolute bottom-4 left-4 bg-black bg-opacity-50 rounded px-3 py-1 text-white text-sm')
+                    # 표시 방식 버튼들 (하단 중앙)
+                    with ui.row().classes('absolute bottom-4 left-1/2 transform -translate-x-1/2 gap-2'):
+                        self.display_buttons = [
+                            ui.button('Contain', on_click=lambda: self._change_display_mode('contain')).props('size=sm').classes('bg-blue-600 hover:bg-blue-700'),
+                            ui.button('Fill', on_click=lambda: self._change_display_mode('fill')).props('size=sm').classes('bg-gray-600 hover:bg-gray-700'),
+                            ui.button('Stretch', on_click=lambda: self._change_display_mode('stretch')).props('size=sm').classes('bg-gray-600 hover:bg-gray-700')
+                        ]
+                        self.display_buttons[0].classes('bg-blue-600')
         print(f"🎉 이미지 표시 완료: {image_path}")
-    
+
     async def _show_error(self, message: str):
         """오류 상태 표시"""
-        self.main_container.clear()
-        
-        with self.main_container:
-            with ui.column().classes('w-full h-full items-center justify-center gap-4'):
-                ui.icon('error', size='4rem').classes('text-red-400')
-                ui.label(message).classes('text-xl text-red-300 text-center')
-                ui.button('재시도', on_click=self._retry_generation).classes('bg-red-600 hover:bg-red-700')
+        if self.main_container:
+            self.main_container.clear()
+            with self.main_container:
+                with ui.column().classes('w-full h-full items-center justify-center gap-4'):
+                    ui.icon('error', size='4rem').classes('text-red-400')
+                    ui.label(message).classes('text-xl text-red-300 text-center')
+                    ui.button('재시도', on_click=self._retry_generation).classes('bg-red-600 hover:bg-red-700')
     
     async def _change_display_mode(self, mode: str):
         """이미지 표시 방식 변경 (JavaScript 사용)"""
@@ -280,7 +272,8 @@ class ImagePad:
     def _show_fullscreen(self):
         """전체화면 보기"""
         if self.current_image_path:
-            ui.open(self.current_image_path)
+            from nicegui import ui
+            ui.run_javascript(f'window.open("{self.current_image_path}", "_blank");')
             ui.notify('전체화면으로 열렸습니다', type='info')
     
     def _download_image(self):
@@ -356,34 +349,38 @@ class ImagePad:
             return pil_image  # 원본 반환
     
     async def _show_uploaded_image(self, pil_image, file_name: str):
-        """업로드된 이미지 표시"""
-        try:
-            # 임시 파일로 저장
-            import tempfile
-            import os
-            
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-                pil_image.save(tmp_file.name, 'PNG')
-                temp_path = tmp_file.name
-            
-            # 이미지 표시
-            await self._show_image(temp_path)
-            
-            # 임시 파일 경로 저장 (나중에 정리용)
-            self.temp_image_path = temp_path
-            
-            print(f"✅ 업로드된 이미지 표시 완료: {file_name}")
-            
-        except Exception as e:
-            print(f"❌ 업로드된 이미지 표시 실패: {e}")
-            ui.notify(f'이미지 표시 실패: {str(e)}', type='negative')
+        """업로드된 이미지를 ImagePad 중앙에만 표시 (프리뷰/썸네일/메시지 없음)"""
+        import io
+        from nicegui import ui
+        buf = io.BytesIO()
+        pil_image.save(buf, format='PNG')
+        b64 = buf.getvalue()
+        import base64
+        b64str = base64.b64encode(b64).decode('utf-8')
+        # 중앙 캔버스에만 이미지 표시
+        if self.main_container:
+            self.main_container.clear()
+            with self.main_container:
+                ui.html(f'''
+                    <canvas id="imagepad-canvas" style="width:100%;height:100%;max-width:800px;max-height:600px;border:1px solid #333;z-index:1;"></canvas>
+                    <script>
+                    const canvas = document.getElementById('imagepad-canvas');
+                    const ctx = canvas.getContext('2d');
+                    const img = new Image();
+                    img.onload = function() {{
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0);
+                    }};
+                    img.src = "data:image/png;base64,{b64str}";
+                    </script>
+                ''')
+        print(f"✅ ImagePad 중앙에 이미지만 표시 (프리뷰/썸네일/메시지 없음)")
 
     async def _on_file_uploaded(self, e):
-        """파일 업로드 이벤트 처리 (임시 파일 저장 추가)"""
-        print(f"🎉 _on_file_uploaded 이벤트 발생!")
-        print(f"🔄 파일 업로드 이벤트 발생: {e.name}")
-        print(f"🔍 업로드 이벤트 상세: 타입={type(e)}, 내용크기={len(e.content) if e.content else 0}")
-        print(f"🔍 이벤트 객체 속성: {dir(e)}")
+        """파일 업로드 이벤트 처리 - 1544 크기 제한 적용"""
+        print(f"🎉 파일 업로드: {e.name}")
         
         try:
             if not e.content:
@@ -398,21 +395,36 @@ class ImagePad:
             pil_image = Image.open(io.BytesIO(e.content))
             print(f"✅ PIL Image 변환 완료: 크기={pil_image.size}, 모드={pil_image.mode}")
             
+            # 1544 크기 제한 적용
+            pil_image = self._resize_image_to_1544_limit(pil_image)
+            print(f"🔄 크기 조정 완료: {pil_image.size}")
+            
+            # numpy array로 변환하여 저장
+            np_image = np.array(pil_image)
+            self.set_uploaded_image(np_image)
+            
             # 임시 파일로 저장
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
             pil_image.save(temp_file.name)
             self.state.set('init_image_path', temp_file.name)
             print(f'✅ 업로드된 이미지 임시 파일 경로: {temp_file.name}')
             
-            # 이미지 처리 및 StateManager 저장
-            await self._process_uploaded_image(pil_image, e.name)
+            # image_generated 이벤트 발생 (생성 이미지와 동일하게)
+            self.state._notify('image_generated', {
+                'image_path': temp_file.name,
+                'thumbnail_path': temp_file.name,  # 썸네일 경로가 따로 없으므로 동일하게 사용
+                'params': None,
+                'seed': None
+            })
+            
+            ui.notify(f'이미지 업로드 완료: {e.name} ({pil_image.size[0]}×{pil_image.size[1]})', type='positive')
             
         except Exception as e:
             print(f"❌ 파일 업로드 처리 실패: {e}")
             import traceback
             traceback.print_exc()
             ui.notify(f'파일 업로드 처리 실패: {str(e)}', type='negative')
-
+    
     async def _upload_image(self):
         """이미지 파일 업로드 (개선된 방식)"""
         try:
@@ -676,4 +688,61 @@ class ImagePad:
                         ui.label(f'✅ 업로드된 이미지: {init_image.size[0]}×{init_image.size[1]}').classes('text-green-400 text-sm')
                 
                 print(f"✅ _show_upload_area 완료")
+
+    async def _on_uploaded_image_changed(self, np_image):
+        """StateManager에서 uploaded_image가 변경되었을 때 호출"""
+        if np_image is not None:
+            print(f"🖼️ StateManager에서 이미지 변경 감지: {np_image.shape}")
+            self.uploaded_image = np_image
+            try:
+                from PIL import Image
+                pil_image = Image.fromarray(np_image)
+                await self._show_uploaded_image(pil_image, '업로드 이미지')
+                print(f"✅ ImagePad 중앙에 이미지만 표시 완료 (프리뷰/썸네일/메시지 없음)")
+            except Exception as e:
+                print(f"❌ 이미지 표시 실패: {e}")
+
+    async def _clear_canvas(self):
+        """캔버스 비우기 (모든 이미지/프리뷰/썸네일/메시지/상태 완전 초기화)"""
+        from nicegui import ui
+        # 1. StateManager 이미지 상태 초기화
+        self.state.set('init_image', None)
+        self.state.set('uploaded_image', None)
+        self.current_image_path = None
+        self.uploaded_image = None
+        # 2. 프론트엔드 UI 완전 초기화 (JS)
+        ui.run_javascript('''
+            // 캔버스 비우기
+            if(window.canvasManager && window.canvasManager.clearCanvas){window.canvasManager.clearCanvas();}
+            // 프리뷰/썸네일/메시지 숨기기
+            const preview = document.getElementById('uploaded-image-preview');
+            if (preview) {
+                preview.style.display = 'none';
+                preview.innerHTML = '';
+            }
+            // 업로드 안내 오버레이 다시 표시
+            const dragDropArea = document.getElementById('drag-drop-area');
+            if (dragDropArea) {
+                dragDropArea.style.display = 'flex';
+            }
+            // 표시 모드 Fit으로 초기화
+            const displayModeSelect = document.getElementById('canvas-display-mode');
+            if (displayModeSelect) {
+                displayModeSelect.value = 'fit';
+            }
+        ''')
+        ui.notify('캔버스가 비워졌습니다', type='info')
+
+    def get_uploaded_image(self) -> Optional[np.ndarray]:
+        """현재 업로드된 이미지를 numpy array 또는 None으로 반환 (ImagePad에 표시된 이미지 기준)"""
+        return self.uploaded_image
+
+    def get_uploaded_image_resized(self, width: int, height: int) -> Optional[np.ndarray]:
+        """업로드 이미지를 파라미터(width, height)에 맞춰 stretch/fill로 리사이즈하여 반환"""
+        if self.uploaded_image is None:
+            return None
+        from PIL import Image
+        pil_image = Image.fromarray(self.uploaded_image)
+        resized = pil_image.resize((width, height), Image.Resampling.LANCZOS)
+        return np.array(resized)
 
