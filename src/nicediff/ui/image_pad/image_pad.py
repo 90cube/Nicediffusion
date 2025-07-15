@@ -71,6 +71,13 @@ class ImagePad:
                     <canvas id="imagepad-canvas" style="width:100%;height:100%;max-width:800px;max-height:600px;border:1px solid #333;z-index:1;"></canvas>
                 ''')
                 
+                # 대체 이미지 표시 영역 (Canvas가 안 될 때 사용)
+                ui.html('''
+                    <div id="image-display-area" style="width:100%;height:100%;max-width:800px;max-height:600px;display:none;z-index:1;">
+                        <img id="displayed-image" style="width:100%;height:100%;object-fit:contain;border:1px solid #333;" />
+                    </div>
+                ''')
+                
                 # 드래그앤드롭 오버레이 (Canvas 위에)
                 upload_html = '''
                     <div id="drag-drop-area" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(26,26,26,0.9);display:flex;align-items:center;justify-content:center;transition:opacity 0.3s;z-index:2;">
@@ -198,16 +205,95 @@ class ImagePad:
         # 개선된 업로드 스크립트
         upload_script = '''
         <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const uploadInput = document.getElementById('api-upload-input');
-            const dragDropArea = document.getElementById('drag-drop-area');
-            const canvas = document.getElementById('imagepad-canvas');
-            
+        // 전역 변수로 선언하여 디버깅 용이하게
+        window.imagePadDebug = {
+            uploadInput: null,
+            dragDropArea: null,
+            canvas: null,
+            canvasManager: null,
+            initialized: false
+        };
+        
+        function initializeImagePad() {
             console.log('🔄 ImagePad JavaScript 초기화 시작');
-            console.log('📁 uploadInput:', uploadInput);
-            console.log('📁 dragDropArea:', dragDropArea);
-            console.log('📁 canvas:', canvas);
-            console.log('📁 canvasManager:', window.canvasManager);
+            
+            // 요소들 찾기
+            window.imagePadDebug.uploadInput = document.getElementById('api-upload-input');
+            window.imagePadDebug.dragDropArea = document.getElementById('drag-drop-area');
+            window.imagePadDebug.canvas = document.getElementById('imagepad-canvas');
+            window.imagePadDebug.canvasManager = window.canvasManager;
+            
+            console.log('📁 uploadInput:', window.imagePadDebug.uploadInput);
+            console.log('📁 dragDropArea:', window.imagePadDebug.dragDropArea);
+            console.log('📁 canvas:', window.imagePadDebug.canvas);
+            console.log('📁 canvasManager:', window.imagePadDebug.canvasManager);
+            
+            // 요소들이 모두 있는지 확인
+            if (!window.imagePadDebug.uploadInput || !window.imagePadDebug.dragDropArea || !window.imagePadDebug.canvas) {
+                console.error('❌ 필수 요소를 찾을 수 없음, 1초 후 재시도');
+                setTimeout(initializeImagePad, 1000);
+                return;
+            }
+            
+            window.imagePadDebug.initialized = true;
+            console.log('✅ ImagePad 초기화 완료');
+            
+            // 이벤트 리스너 등록
+            setupEventListeners();
+        }
+        
+        function setupEventListeners() {
+            const uploadInput = window.imagePadDebug.uploadInput;
+            const dragDropArea = window.imagePadDebug.dragDropArea;
+            
+            // 파일 입력 이벤트
+            if (uploadInput) {
+                uploadInput.onchange = function(e) {
+                    const file = e.target.files[0];
+                    if (file) handleFileUpload(file);
+                };
+            }
+            
+            // 드래그앤드롭 이벤트
+            if (dragDropArea) {
+                // 클릭으로 파일 선택
+                dragDropArea.addEventListener('click', function() {
+                    if (uploadInput) uploadInput.click();
+                });
+                
+                // 드래그오버
+                dragDropArea.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    dragDropArea.style.background = 'rgba(59, 130, 246, 0.3)';
+                });
+                
+                // 드래그리브
+                dragDropArea.addEventListener('dragleave', function(e) {
+                    e.preventDefault();
+                    dragDropArea.style.background = 'rgba(26,26,26,0.9)';
+                });
+                
+                // 드롭
+                dragDropArea.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    dragDropArea.style.background = 'rgba(26,26,26,0.9)';
+                    
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        handleFileUpload(files[0]);
+                    }
+                });
+            }
+            
+            // 표시 모드 변경 이벤트
+            const displayModeSelect = document.getElementById('canvas-display-mode');
+            if (displayModeSelect) {
+                displayModeSelect.addEventListener('change', function() {
+                    const mode = this.value;
+                    console.log('표시 모드 변경:', mode);
+                });
+            }
+        }
             
             async function handleFileUpload(file) {
                 if (!file) return;
@@ -245,15 +331,27 @@ class ImagePad:
                             dragDropArea.style.display = 'none';
                         }
                         
-                        // Canvas에 이미지 표시
-                        if (window.canvasManager && data.base64) {
-                            console.log('🎨 Canvas에 이미지 로드 중...');
-                            window.canvasManager.loadImageFit(data.base64, 800, 600);
+                        // 이미지 표시 시도 (Canvas 우선, 실패 시 img 태그 사용)
+                        if (data.base64) {
+                            console.log('🎨 이미지 표시 시도...');
+                            
+                            // Canvas 시도
+                            if (window.canvasManager) {
+                                try {
+                                    console.log('🎨 Canvas에 이미지 로드 중...');
+                                    window.canvasManager.loadImageFit(data.base64, 800, 600);
+                                    console.log('✅ Canvas 표시 성공');
+                                } catch (canvasError) {
+                                    console.error('❌ Canvas 표시 실패:', canvasError);
+                                    // Canvas 실패 시 img 태그 사용
+                                    showImageWithImgTag(data.base64);
+                                }
+                            } else {
+                                console.log('📁 CanvasManager 없음, img 태그 사용');
+                                showImageWithImgTag(data.base64);
+                            }
                         } else {
-                            console.error('❌ canvasManager 또는 base64 없음:', {
-                                canvasManager: !!window.canvasManager,
-                                base64: !!data.base64
-                            });
+                            console.error('❌ base64 데이터 없음');
                         }
                         
                         // 프리뷰에 작은 이미지 표시
@@ -266,6 +364,22 @@ class ImagePad:
                                 preview: !!preview,
                                 base64: !!data.base64
                             });
+                        }
+                        
+                        function showImageWithImgTag(base64Data) {
+                            console.log('🖼️ img 태그로 이미지 표시');
+                            const canvas = document.getElementById('imagepad-canvas');
+                            const displayArea = document.getElementById('image-display-area');
+                            const displayedImage = document.getElementById('displayed-image');
+                            
+                            if (canvas && displayArea && displayedImage) {
+                                canvas.style.display = 'none';
+                                displayArea.style.display = 'block';
+                                displayedImage.src = base64Data;
+                                console.log('✅ img 태그 표시 성공');
+                            } else {
+                                console.error('❌ img 태그 요소를 찾을 수 없음');
+                            }
                         }
                         
                         console.log('✅ UI 업데이트 완료');
@@ -337,7 +451,23 @@ class ImagePad:
                     // 여기에 모드 변경 로직 추가 가능
                 });
             }
-        });
+        }
+        
+        // DOM 로드 완료 시 초기화
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeImagePad);
+        } else {
+            // 이미 로드된 경우 즉시 초기화
+            initializeImagePad();
+        }
+        
+        // 추가 안전장치: 3초 후에도 초기화되지 않았다면 재시도
+        setTimeout(function() {
+            if (!window.imagePadDebug.initialized) {
+                console.log('🔄 지연 초기화 시도');
+                initializeImagePad();
+            }
+        }, 3000);
         </script>
         '''
         
