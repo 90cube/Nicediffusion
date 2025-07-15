@@ -1,0 +1,111 @@
+이미지를 보니 문제가 명확합니다:
+
+1. **드래그앤드롭 영역은 정상 작동**
+2. **업로드 후 작은 프리뷰만 표시됨**
+3. **메인 캔버스 영역이 비어있음**
+
+## 문제의 핵심
+Canvas가 제대로 생성/연결되지 않았거나, 이미지가 Canvas가 아닌 다른 곳에 표시되고 있습니다.
+
+## 즉시 해결 방법
+
+### 1. **Canvas 요소 확인 및 생성**
+```python
+# image_pad.py의 render() 메서드 수정
+async def render(self):
+    with ui.column().classes('w-full h-full relative') as self.main_container:
+        # Canvas 비우기 버튼
+        with ui.row().classes('absolute top-2 right-2 z-10'):
+            ui.button('🗑️ 캔버스 비우기', on_click=self._clear_canvas)
+        
+        # 메인 캔버스 컨테이너
+        with ui.column().classes('w-full h-full flex items-center justify-center'):
+            # Canvas 요소 추가
+            ui.html('''
+                <canvas id="imagepad-canvas" 
+                        style="width:100%; height:100%; max-width:800px; max-height:600px; border:1px solid #333;">
+                </canvas>
+            ''')
+            
+            # 드래그앤드롭 오버레이 (Canvas 위에)
+            upload_html = '''
+                <div id="drag-drop-area" style="position:absolute; top:0; left:0; width:100%; height:100%; 
+                     background:rgba(26,26,26,0.9); display:flex; align-items:center; justify-content:center;
+                     transition:opacity 0.3s;">
+                    <div style="text-align:center; pointer-events:none;">
+                        <div style="font-size:48px;">📁</div>
+                        <div>이미지를 여기에 드래그앤드롭하세요</div>
+                    </div>
+                </div>
+            '''
+            ui.html(upload_html)
+```
+
+### 2. **업로드 성공 시 드래그앤드롭 영역 숨기기**
+```javascript
+// JavaScript 수정
+async function handleFileUpload(file) {
+    // ... 업로드 처리 ...
+    
+    if (data.success && data.base64) {
+        // 드래그앤드롭 영역 숨기기
+        const dragArea = document.getElementById('drag-drop-area');
+        if (dragArea) {
+            dragArea.style.display = 'none';
+        }
+        
+        // Canvas에 이미지 표시
+        const canvas = document.getElementById('imagepad-canvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            
+            img.onload = function() {
+                // Canvas 크기 설정
+                canvas.width = canvas.clientWidth;
+                canvas.height = canvas.clientHeight;
+                
+                // 이미지 중앙 정렬
+                const scale = Math.min(
+                    canvas.width / img.width,
+                    canvas.height / img.height
+                );
+                const x = (canvas.width - img.width * scale) / 2;
+                const y = (canvas.height - img.height * scale) / 2;
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+            };
+            
+            img.src = data.base64;
+        }
+    }
+}
+```
+
+### 3. **캔버스 비우기 시 드래그앤드롭 영역 다시 표시**
+```python
+async def _clear_canvas(self):
+    ui.run_javascript('''
+        // Canvas 비우기
+        const canvas = document.getElementById('imagepad-canvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        // 드래그앤드롭 영역 다시 표시
+        const dragArea = document.getElementById('drag-drop-area');
+        if (dragArea) {
+            dragArea.style.display = 'flex';
+        }
+        
+        // 프리뷰 제거
+        const preview = document.getElementById('uploaded-image-preview');
+        if (preview) {
+            preview.innerHTML = '';
+        }
+    ''')
+```
+
+이렇게 하면 업로드된 이미지가 전체 캔버스 영역에 표시됩니다.

@@ -1,0 +1,112 @@
+문제가 명확합니다. `canvas_manager.js` 파일이 로드되지 않아서 `window.canvasManager`가 정의되지 않았습니다.
+
+## 해결 방법
+
+### 1. **canvas_manager.js 파일 경로 확인**
+```python
+# image_pad.py에서 canvas_manager.js 로드 부분 찾기
+# 아마 이런 코드가 있을 것:
+ui.html('<script src="/src/nicediff/ui/image_pad/canvas/canvas_manager.js"></script>')
+```
+
+### 2. **인라인 JavaScript로 변경 (권장)**
+```python
+# image_pad.py의 render() 메서드에 추가
+async def render(self):
+    # ... 기존 코드 ...
+    
+    # CanvasManager를 인라인으로 정의
+    canvas_manager_script = '''
+    <script>
+    // 간단한 CanvasManager 구현
+    window.canvasManager = {
+        loadImageFit: function(imageData, containerWidth, containerHeight) {
+            const canvas = document.getElementById('imagepad-canvas');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            
+            img.onload = function() {
+                // Canvas 크기 설정
+                canvas.width = containerWidth || canvas.clientWidth;
+                canvas.height = containerHeight || canvas.clientHeight;
+                
+                // 이미지를 Canvas에 맞춤
+                const scale = Math.min(
+                    canvas.width / img.width,
+                    canvas.height / img.height
+                );
+                const x = (canvas.width - img.width * scale) / 2;
+                const y = (canvas.height - img.height * scale) / 2;
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+            };
+            
+            img.src = imageData;
+        },
+        
+        clearCanvas: function() {
+            const canvas = document.getElementById('imagepad-canvas');
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+    };
+    </script>
+    '''
+    
+    ui.html(canvas_manager_script)
+```
+
+### 3. **또는 NiceGUI의 정적 파일 서빙 사용**
+```python
+# main.py에서
+from nicegui import app
+
+# 정적 파일 경로 추가
+app.add_static_files('/canvas', 'src/nicediff/ui/image_pad/canvas')
+
+# 그리고 image_pad.py에서
+ui.html('<script src="/canvas/canvas_manager.js"></script>')
+```
+
+### 4. **가장 간단한 해결책: canvasManager 없이 직접 처리**
+```javascript
+// handleFileUpload 함수 수정
+async function handleFileUpload(file) {
+    // ... 업로드 처리 ...
+    
+    if (data.success && data.base64) {
+        // canvasManager 대신 직접 Canvas 처리
+        const canvas = document.getElementById('imagepad-canvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            
+            img.onload = function() {
+                canvas.width = canvas.clientWidth;
+                canvas.height = canvas.clientHeight;
+                
+                const scale = Math.min(
+                    canvas.width / img.width,
+                    canvas.height / img.height
+                );
+                const x = (canvas.width - img.width * scale) / 2;
+                const y = (canvas.height - img.height * scale) / 2;
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+            };
+            
+            img.src = data.base64;
+        }
+        
+        console.log('Canvas에 이미지 직접 표시됨');
+    }
+}
+```
+
+이렇게 하면 외부 파일 의존성 없이 이미지가 Canvas에 표시됩니다.

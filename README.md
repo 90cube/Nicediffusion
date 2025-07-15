@@ -13,14 +13,31 @@ Stable Diffusion 모델을 사용한 이미지 생성 및 편집 도구입니다
 ### Windows
 
 1. Python 3.12를 설치합니다: https://www.python.org/downloads/
-2. 프로젝트 폴더에서 `install.bat`를 실행합니다
-3. 설치가 완료되면 가상환경을 활성화하고 프로그램을 실행합니다
-
+2. 프로젝트 폴더에서 가상환경을 생성하고 활성화합니다:
 ```cmd
-# 가상환경 활성화
+python -m venv venv
 venv\Scripts\activate.bat
+```
 
-# 프로그램 실행
+3. PyTorch를 CUDA 버전에 맞게 설치합니다:
+```cmd
+# CUDA 11.8 사용 시
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# CUDA 12.1 사용 시  
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# CPU만 사용 시
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+```
+
+4. 나머지 의존성을 설치합니다:
+```cmd
+pip install -r requirements_win.txt
+```
+
+5. 프로그램을 실행합니다:
+```cmd
 python main.py
 ```
 
@@ -32,17 +49,31 @@ sudo apt update
 sudo apt install python3.12 python3.12-venv python3.12-pip
 ```
 
-2. 프로젝트 폴더에서 설치 스크립트를 실행합니다:
+2. 프로젝트 폴더에서 가상환경을 생성하고 활성화합니다:
 ```bash
-./install.sh
+python3.12 -m venv venv
+source venv/bin/activate
 ```
 
-3. 설치가 완료되면 가상환경을 활성화하고 프로그램을 실행합니다:
+3. PyTorch를 CUDA 버전에 맞게 설치합니다:
 ```bash
-# 가상환경 활성화
-source venv/bin/activate
+# CUDA 11.8 사용 시
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
-# 프로그램 실행
+# CUDA 12.1 사용 시
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# CPU만 사용 시
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+```
+
+4. 나머지 의존성을 설치합니다:
+```bash
+pip install -r requirements_linux.txt
+```
+
+5. 프로그램을 실행합니다:
+```bash
 python main.py
 ```
 
