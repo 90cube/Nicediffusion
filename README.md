@@ -14,8 +14,10 @@ Stable Diffusion 모델을 사용한 이미지 생성 및 편집 도구입니다
 
 1. Python 3.12를 설치합니다: https://www.python.org/downloads/
 2. 프로젝트 폴더에서 `install.bat`를 실행합니다
-3. 설치가 완료되면 가상환경을 활성화하고 프로그램을 실행합니다
+3. 설치가 완료되면 가상환경을 활성화하고 CUDA를 설치 합니다. (pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128)
+4. 프로그램을 실행합니다
 
+   
 ```cmd
 # 가상환경 활성화
 venv\Scripts\activate.bat
