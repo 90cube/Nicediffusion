@@ -286,23 +286,48 @@ async def shutdown():
     await state_manager.cleanup()
     print("👋 종료 완료")
 
-# FastAPI 라우터 생성
-router = APIRouter()
-
-# ImagePad 인스턴스 참조 (StateManager에서 가져오거나 싱글턴으로 관리)
-state_manager = StateManager()
-image_pad = ImagePad(state_manager)
-
 @app.post('/api/upload_image')
 async def upload_image(file: UploadFile = File(...)):
-    contents = await file.read()
-    image = Image.open(io.BytesIO(contents)).convert('RGB')
-    np_image = np.array(image)
-    image_pad.set_uploaded_image(np_image)
-    return {'success': True, 'shape': np_image.shape}
-
-# FastAPI 라우터를 NiceGUI 앱에 등록 (제거 - NiceGUI는 add_router 지원 안함)
-# app.add_router(router)
+    """이미지 업로드 API 엔드포인트"""
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert('RGB')
+        
+        # 1544 fit 리사이즈
+        width, height = image.size
+        max_size = 1544
+        if width > max_size or height > max_size:
+            if width > height:
+                new_width = max_size
+                new_height = int(height * (max_size / width))
+            else:
+                new_height = max_size
+                new_width = int(width * (max_size / height))
+            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # numpy array로 변환
+        np_image = np.array(image)
+        
+        # StateManager를 통해 실제 UI의 ImagePad에 이미지 설정
+        state_manager.set('uploaded_image', np_image)
+        state_manager.set('init_image', image)  # PIL Image도 저장
+        
+        # base64 PNG 반환
+        buf = io.BytesIO()
+        image.save(buf, format='PNG')
+        b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        
+        print(f"✅ 이미지 업로드 성공: {file.filename} -> {np_image.shape}")
+        return {
+            'success': True, 
+            'shape': np_image.shape, 
+            'base64': f'data:image/png;base64,{b64}',
+            'filename': file.filename
+        }
+        
+    except Exception as e:
+        print(f"❌ 이미지 업로드 실패: {e}")
+        return {'success': False, 'error': str(e)}
 
 if __name__ == '__main__':
     ui.run(

@@ -83,24 +83,6 @@ class UtilitySidebar:
                     # 그림 도구 섹션 (새로 추가)
                     with ui.expansion('그림 도구', icon='palette').classes('w-full'):
                         self._create_drawing_tools()
-                        
-                # 하단: 생성 방법 버튼들 (항상 보임)
-                with ui.column().classes('w-full mt-auto border-t border-gray-600'):
-                    methods = [
-                        ('txt2img', 'TXT'),
-                        ('img2img', 'IMG'), 
-                        ('inpaint', 'INP'),
-                        ('upscale', 'UPS')
-                    ]
-                    
-                    for method, short_name in methods:
-                        button_text = method if self.is_expanded else short_name
-                        ui.button(
-                            button_text,
-                            on_click=lambda m=method: asyncio.create_task(self._on_method_select(m))
-                        ).props('flat').classes(
-                            'w-full h-8 text-white hover:bg-gray-700 border-b border-gray-600 text-xs'
-                        ).tooltip(method if not self.is_expanded else '')
         
         # 히스토리 업데이트 구독 (InferencePage에서 중앙 관리하므로 여기서는 구독하지 않음)
         # self.state.subscribe('history_updated', self._update_history)
@@ -323,72 +305,78 @@ class UtilitySidebar:
                 ui.label('이미지를 생성하면 여기에 표시됩니다').classes('text-gray-500 text-xs text-center')
     
     async def _update_history(self, history_items):
-        """히스토리 업데이트 (async로 변경)"""
-        print(f"📋 히스토리 업데이트 시작: {len(history_items) if history_items else 0}개 항목")
-        
-        if not self.history_container:
-            print("❌ 히스토리 컨테이너가 없습니다")
-            return
-        
-        self.history_container.clear()
-        print("✅ 히스토리 컨테이너 초기화")
-        
-        if not history_items:
-            print("ℹ️ 히스토리가 비어있음")
-            self._show_empty_history()
-            return
-        
-        # 히스토리 아이템 표시 (최신순)
-        with self.history_container:
-            for i, item in enumerate(history_items[:15]):  # 개수 줄임 (15개)
-                print(f"📝 히스토리 항목 {i+1} 처리: {item.get('model', 'Unknown')}")
-                with ui.card().classes('w-full p-1 cursor-pointer hover:bg-gray-700').on(
-                    'click',
-                    lambda i=item: self._restore_from_history(i)
-                ):
-                    with ui.row().classes('gap-1 items-center'):
-                        # 썸네일 (크기 줄임)
-                        thumbnail_path = item.get('thumbnail_path')
-                        if thumbnail_path and Path(thumbnail_path).exists():
-                            ui.image(thumbnail_path).classes('w-8 h-8 rounded object-cover')
-                        else:
-                            ui.icon('image').classes('w-8 h-8 text-gray-400')
-                        
-                        # 정보
-                        with ui.column().classes('flex-1 min-w-0'):
-                            # 시간
-                            timestamp = item.get('timestamp')
-                            if timestamp:
-                                if isinstance(timestamp, str):
-                                    from datetime import datetime
-                                    try:
-                                        dt = datetime.fromisoformat(timestamp)
-                                        time_str = dt.strftime('%H:%M')
-                                    except:
-                                        time_str = 'Unknown'
-                                else:
-                                    time_str = timestamp.strftime('%H:%M')
-                                ui.label(time_str).classes('text-xs text-gray-400')
+        """히스토리 업데이트 (안전성 검사 추가)"""
+        try:
+            # 컨테이너가 존재하는지 확인
+            if not self.history_container:
+                print("⚠️ 히스토리 컨테이너가 없습니다.")
+                return
+                
+            # Client가 유효한지 확인
+            if hasattr(self.history_container, 'client') and self.history_container.client is None:
+                print("⚠️ Client가 삭제되었습니다. 히스토리 업데이트를 건너뜁니다.")
+                return
+            
+            print(f"📋 히스토리 업데이트 시작: {len(history_items)}개 항목")
+            
+            # 기존 내용 클리어 (안전하게)
+            try:
+                self.history_container.clear()
+                print("✅ 히스토리 컨테이너 초기화")
+            except Exception as e:
+                print(f"⚠️ 히스토리 컨테이너 클리어 실패: {e}")
+                return
+            
+            # 히스토리 항목들 추가
+            for i, item in enumerate(history_items):
+                try:
+                    print(f"📝 히스토리 항목 {i+1} 처리: {item.get('model', 'Unknown')}")
+                    
+                    with self.history_container:
+                        # 히스토리 아이템 카드
+                        with ui.card().classes('w-full bg-gray-700 border border-gray-600'):
+                            # 썸네일 이미지
+                            if item.get('thumbnail_path'):
+                                ui.image(item['thumbnail_path']).classes('w-full h-24 object-cover rounded-t')
                             
-                            # 프롬프트 (일부만, 더 짧게)
-                            params = item.get('params', {})
-                            if isinstance(params, dict):
-                                prompt = params.get('prompt', '')
-                            else:
-                                prompt = getattr(params, 'prompt', '')
-                            
-                            if prompt:
-                                prompt_preview = prompt[:20] + '...' if len(prompt) > 20 else prompt
-                                ui.label(prompt_preview).classes('text-xs text-white truncate')
-                        
-                        # 삭제 버튼
-                        with ui.button(
-                            icon='delete',
-                            on_click=lambda i=item: self._delete_history_item(i)
-                        ).props('flat round').classes('text-red-400 hover:text-red-300 text-xs'):
-                            pass
-        
-        print(f"✅ 히스토리 업데이트 완료: {len(history_items[:15])}개 항목 표시")
+                            # 정보 섹션
+                            with ui.column().classes('p-2 gap-1'):
+                                # 모델명
+                                ui.label(item.get('model', 'Unknown Model')).classes('text-xs font-bold text-blue-400')
+                                
+                                # 파라미터 정보
+                                params = item.get('params', {})
+                                if params:
+                                    size_text = f"{params.get('width', 0)}×{params.get('height', 0)}"
+                                    ui.label(f"Size: {size_text}").classes('text-xs text-gray-400')
+                                    
+                                    steps_text = f"Steps: {params.get('steps', 0)}"
+                                    ui.label(steps_text).classes('text-xs text-gray-400')
+                                
+                                # 액션 버튼들
+                                with ui.row().classes('gap-1 mt-2'):
+                                    # 복원 버튼
+                                    ui.button(
+                                        icon='restore',
+                                        on_click=lambda item=item: self._restore_from_history(item)
+                                    ).props('flat round').classes('text-green-400 hover:text-green-300 text-xs').tooltip('파라미터 복원')
+                                    
+                                    # 삭제 버튼
+                                    ui.button(
+                                        icon='delete',
+                                        on_click=lambda item=item: self._delete_history_item(item.get('id', ''))
+                                    ).props('flat round').classes('text-red-400 hover:text-red-300 text-xs').tooltip('삭제')
+                
+                except Exception as e:
+                    print(f"⚠️ 히스토리 항목 {i+1} 처리 실패: {e}")
+                    continue
+            
+            print(f"✅ 히스토리 업데이트 완료: {len(history_items)}개 항목 표시")
+            
+        except Exception as e:
+            print(f"❌ 히스토리 업데이트 실패: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _delete_history_item(self, history_item):
         """히스토리 아이템 삭제"""

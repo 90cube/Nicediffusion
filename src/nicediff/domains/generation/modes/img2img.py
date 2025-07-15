@@ -53,13 +53,17 @@ class Img2ImgMode:
                     return_tensors="pt"
                 ).pixel_values
             
-            image_tensor = image_tensor.to(self.device)
+            # 데이터 타입 통일 (float32로 변환)
+            image_tensor = image_tensor.to(self.device, dtype=torch.float32)
             
             # VAE 인코딩
             latent = self.pipeline.vae.encode(image_tensor).latent_dist.sample()
             latent = latent * self.pipeline.vae.config.scaling_factor
             
-            print(f"✅ 이미지 인코딩 완료: latent shape={latent.shape}")
+            # latent도 float32로 통일
+            latent = latent.to(dtype=torch.float32)
+            
+            print(f"✅ 이미지 인코딩 완료: latent shape={latent.shape}, dtype={latent.dtype}")
             return latent
     
     def _validate_init_image(self, init_image: Image.Image, target_width: int, target_height: int) -> Image.Image:

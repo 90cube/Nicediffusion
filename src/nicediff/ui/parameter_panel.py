@@ -67,8 +67,8 @@ class ParameterPanel:
         # 모드 변경 이벤트 구독 (Denoise 슬라이더 표시/숨김용)
         self.state.subscribe('mode_changed', self._on_mode_changed)
         # 생성 상태 변경 이벤트 구독
-        self.state.subscribe('generation_started', lambda: self._on_generate_status_change(True))
-        self.state.subscribe('generation_finished', lambda: self._on_generate_status_change(False))
+        self.state.subscribe('generation_started', lambda data: self._on_generate_status_change(True))
+        self.state.subscribe('generation_finished', lambda data: self._on_generate_status_change(False))
 
     def _on_generate_status_change(self, is_generating: bool):
         """[최종 수정] 경합 상태 방지를 위한 최종 안전장치(try-except) 추가"""

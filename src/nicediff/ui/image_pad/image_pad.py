@@ -42,26 +42,176 @@ class ImagePad:
         self.temp_image_path = None
 
     async def render(self):
-        """기본 render 메서드 - 기존 ImagePad와 호환"""
-        with ui.card().classes('w-full h-full p-4'):
-            ui.label('ImagePad (새로운 구조)').classes('text-lg font-bold')
-            ui.label('업로드 API: /api/upload_image').classes('text-sm text-gray-500')
+        """이미지 패드 렌더링"""
+        from nicegui import ui
+        
+        # StateManager에서 uploaded_image 변경사항 구독
+        self.state.subscribe('uploaded_image_changed', self._on_uploaded_image_changed)
+        
+        # 메인 컨테이너
+        with ui.column().classes('w-full h-full relative'):
+            # 우측 상단 캔버스 비우기 버튼
+            with ui.row().classes('absolute top-2 right-2 z-10'):
+                ui.button('🗑️ 캔버스 비우기', on_click=self._clear_canvas).classes('bg-red-500 text-white px-3 py-1 text-sm rounded')
             
-            # 업로드 버튼 추가
-            ui.button('이미지 업로드 테스트', on_click=self._test_upload).classes('bg-blue-600 text-white')
+            # 중앙 드래그앤드롭 영역 (좌우 2배 넓힘)
+            with ui.column().classes('w-full h-full flex items-center justify-center'):
+                upload_html = '''
+                    <div style="width: 200%; max-width: 800px; padding: 40px; background: rgba(26, 26, 26, 0.9); border-radius: 12px; border: 3px dashed #4a5568; text-align: center; transition: all 0.3s; backdrop-filter: blur(10px);" id="drag-drop-area">
+                        <div style="color: #a0aec0; font-size: 18px; font-weight: 500;">
+                            <div style="margin-bottom: 16px; font-size: 48px;">📁</div>
+                            <div style="margin-bottom: 8px;">이미지를 여기에 드래그앤드롭하세요</div>
+                            <div style="font-size: 14px; color: #718096;">또는 클릭하여 파일 선택</div>
+                        </div>
+                    </div>
+                '''
+                
+                # HTML 구조 렌더링
+                ui.html(upload_html)
+                
+                # 숨겨진 파일 입력
+                ui.html('<input id="api-upload-input" type="file" accept="image/*" style="display:none" />')
+                
+                # 업로드된 이미지 프리뷰 (작은 크기로)
+                ui.html('<div id="uploaded-image-preview" style="margin-top:16px;text-align:center;max-width:300px;"></div>')
+        
+        # JavaScript 코드를 add_body_html로 분리
+        upload_script = '''
+        <script>
+        // DOM이 로드된 후 실행
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadInput = document.getElementById('api-upload-input');
+            const preview = document.getElementById('uploaded-image-preview');
+            const dragDropArea = document.getElementById('drag-drop-area');
+            
+            let currentUploadedImage = null;
+            
+            // 드래그앤드롭 이벤트
+            if (dragDropArea) {
+                // 클릭 이벤트 (파일 선택)
+                dragDropArea.addEventListener('click', function() {
+                    uploadInput.click();
+                });
+                
+                // 드래그오버 이벤트
+                dragDropArea.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    dragDropArea.style.borderColor = '#2563eb';
+                    dragDropArea.style.background = 'rgba(30, 58, 138, 0.9)';
+                    dragDropArea.style.transform = 'scale(1.02)';
+                });
+                
+                // 드래그리브 이벤트
+                dragDropArea.addEventListener('dragleave', function(e) {
+                    e.preventDefault();
+                    dragDropArea.style.borderColor = '#4a5568';
+                    dragDropArea.style.background = 'rgba(26, 26, 26, 0.9)';
+                    dragDropArea.style.transform = 'scale(1)';
+                });
+                
+                // 드롭 이벤트
+                dragDropArea.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    dragDropArea.style.borderColor = '#4a5568';
+                    dragDropArea.style.background = 'rgba(26, 26, 26, 0.9)';
+                    dragDropArea.style.transform = 'scale(1)';
+                    
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        handleFileUpload(files[0]);
+                    }
+                });
+            }
+            
+            // 파일 업로드 처리 함수
+            async function handleFileUpload(file) {
+                if (!file) return;
+                
+                // 파일 타입 검증
+                if (!file.type.startsWith('image/')) {
+                    preview.innerHTML = '<span style="color:red">이미지 파일만 업로드 가능합니다.</span>';
+                    return;
+                }
+                
+                // 로딩 표시
+                preview.innerHTML = '<span style="color:gray">업로드 중...</span>';
+                
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                try {
+                    const res = await fetch('/api/upload_image', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (!res.ok) {
+                        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                    }
+                    
+                    const data = await res.json();
+                    
+                    if (data.success && data.base64) {
+                        currentUploadedImage = data.base64;
+                        
+                        // 작은 프리뷰 표시
+                        preview.innerHTML = `
+                            <div style="margin-top: 10px;">
+                                <img src="${data.base64}" style="max-width:100%;max-height:200px;border-radius:8px;box-shadow:0 2px 8px #0003;" />
+                                <p style="color:green;margin-top:8px;font-size:12px;">✅ 업로드 성공: ${data.filename}</p>
+                                <p style="color:gray;font-size:11px;">크기: ${data.shape[1]}×${data.shape[0]}</p>
+                            </div>
+                        `;
+                        
+                        // 바로 Canvas에 적용
+                        if (window.canvasManager && window.canvasManager.loadImageFit) {
+                            window.canvasManager.loadImageFit(data.base64, 1024, 1024);
+                            console.log('Canvas에 이미지 바로 적용됨');
+                        }
+                        
+                        // 성공 메시지
+                        console.log('이미지 업로드 성공:', data.filename, data.shape);
+                        
+                    } else {
+                        preview.innerHTML = '<span style="color:red">업로드 실패: ' + (data.error || '알 수 없는 오류') + '</span>';
+                    }
+                } catch (error) {
+                    console.error('업로드 오류:', error);
+                    preview.innerHTML = '<span style="color:red">업로드 실패: ' + error.message + '</span>';
+                }
+            }
+            
+            // 파일 입력 이벤트
+            if (uploadInput) {
+                uploadInput.onchange = function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        handleFileUpload(file);
+                    }
+                };
+            }
+        });
+        </script>
+        '''
+        
+        # JavaScript 코드를 body에 추가
+        ui.add_body_html(upload_script)
 
-    def _test_upload(self):
-        """실제 파일 업로드 기능"""
+    async def _clear_canvas(self):
+        """캔버스 비우기"""
+        from nicegui import ui
         try:
-            # 파일 선택 다이얼로그 열기
-            files = ui.upload(
-                label='이미지 업로드',
-                multiple=False
-            ).on('upload', self._on_file_uploaded)
-            
-            ui.notify('파일을 선택해주세요', type='info')
+            # Canvas 비우기
+            ui.run_javascript('if(window.canvasManager && window.canvasManager.clearCanvas){window.canvasManager.clearCanvas();}')
+            # 프리뷰 비우기
+            ui.run_javascript('document.getElementById("uploaded-image-preview").innerHTML = "";')
+            # StateManager에서 이미지 제거
+            self.state.set('init_image', None)
+            self.state.set('uploaded_image', None)
+            ui.notify('캔버스가 비워졌습니다', type='info')
         except Exception as e:
-            ui.notify(f'업로드 실패: {e}', type='negative')
+            print(f"❌ 캔버스 비우기 실패: {e}")
+            ui.notify(f'캔버스 비우기 실패: {str(e)}', type='negative')
 
     # 기존 ImagePad 호환 메서드들 (뼈대 구현)
     async def _on_generation_started(self, data):
@@ -75,12 +225,15 @@ class ImagePad:
         self.is_processing = False
 
     async def _show_empty(self):
-        """빈 상태 표시"""
-        pass
+        """빈 상태 표시 (프리뷰/캔버스 초기화)"""
+        from nicegui import ui
+        ui.run_javascript('document.getElementById("uploaded-image-preview").innerHTML = "";')
+        ui.run_javascript('if(window.canvasManager){window.canvasManager.loadImageFit("", 512, 512);}')
 
     async def _show_loading(self):
-        """로딩 상태 표시"""
-        pass
+        """로딩 상태 표시 (스피너 등)"""
+        from nicegui import ui
+        ui.run_javascript('document.getElementById("uploaded-image-preview").innerHTML = "<span style=\"color:gray\">로딩 중...</span>";')
 
     async def _show_image(self, image_path: str):
         """이미지 표시"""
@@ -96,10 +249,17 @@ class ImagePad:
         self.display_mode = mode
         print(f"🔄 이미지 표시 방식 변경: {mode}")
 
-    def _show_fullscreen(self):
-        """전체화면 보기"""
-        if self.current_image_path:
-            ui.notify('전체화면 기능은 추후 구현 예정', type='info')
+    async def _show_fullscreen(self):
+        """전체화면 보기 (새 창에 이미지 표시)"""
+        if self.uploaded_image is not None:
+            from PIL import Image
+            import io, base64
+            img = Image.fromarray(self.uploaded_image)
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+            from nicegui import ui
+            ui.run_javascript(f'window.open("data:image/png;base64,{b64}", "_blank")')
 
     def _download_image(self):
         """이미지 다운로드"""
@@ -172,12 +332,31 @@ class ImagePad:
             ui.notify(f'파일 업로드 처리 실패: {str(e)}', type='negative')
 
     def _resize_image_to_1544_limit(self, pil_image):
-        """이미지의 가장 긴 변이 1544를 넘으면 비율을 유지하여 1544에 맞춰 축소"""
+        """이미지의 가장 긴 변이 1544를 넘으면 비율을 유지하여 1544에 맞춰 축소, SDXL 최소 크기 보장"""
         width, height = pil_image.size
         max_size = 1544
+        min_size = 768  # SDXL 최소 크기
         
         # 가장 긴 변이 1544를 넘는지 확인
         if width <= max_size and height <= max_size:
+            # SDXL 최소 크기 보장
+            if width < min_size or height < min_size:
+                # 비율을 유지하면서 최소 크기로 확대
+                if width < height:
+                    new_height = min_size
+                    new_width = int(width * (min_size / height))
+                else:
+                    new_width = min_size
+                    new_height = int(height * (min_size / width))
+                
+                # 8의 배수로 조정
+                new_width = new_width - (new_width % 8)
+                new_height = new_height - (new_height % 8)
+                
+                resized_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                print(f"🔄 SDXL 최소 크기로 조정: {width}×{height} → {new_width}×{new_height}")
+                return resized_image
+            
             return pil_image  # 크기 조정 불필요
         
         # 비율 계산
@@ -189,6 +368,20 @@ class ImagePad:
             # 세로가 더 긴 경우
             new_height = max_size
             new_width = int(width * (max_size / height))
+        
+        # 8의 배수로 조정
+        new_width = new_width - (new_width % 8)
+        new_height = new_height - (new_height % 8)
+        
+        # SDXL 최소 크기 보장
+        if new_width < min_size:
+            new_width = min_size
+            new_height = int(height * (min_size / width))
+            new_height = new_height - (new_height % 8)
+        elif new_height < min_size:
+            new_height = min_size
+            new_width = int(width * (min_size / height))
+            new_width = new_width - (new_width % 8)
         
         # 고품질 리사이즈
         resized_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
@@ -253,3 +446,97 @@ class ImagePad:
         """레이어 시스템에 업로드 이미지를 배경/이미지 레이어로 추가 (뼈대)"""
         if self.uploaded_image is not None:
             self.layers['image'] = self.uploaded_image 
+
+    async def on_mode_changed(self, new_mode):
+        """모드가 변경될 때 init_image를 자동으로 ImagePad에 표시"""
+        self.current_mode = new_mode
+        init_image = self.state.get('init_image')
+        if init_image is not None:
+            # numpy array → base64 변환 후 바로 Canvas에 적용
+            from PIL import Image
+            import io, base64
+            img = Image.fromarray(init_image)
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+            from nicegui import ui
+            ui.run_javascript(f'''
+                // 프리뷰에 표시
+                const preview = document.getElementById('uploaded-image-preview');
+                if (preview) {{
+                    preview.innerHTML = '<img src="data:image/png;base64,{b64}" style="max-width:100%;max-height:200px;border-radius:8px;box-shadow:0 2px 8px #0003;" />';
+                }}
+                
+                // 바로 Canvas에 적용
+                if (window.canvasManager && window.canvasManager.loadImageFit) {{
+                    window.canvasManager.loadImageFit("data:image/png;base64,{b64}", 1024, 1024);
+                }}
+            ''')
+
+    async def on_history_image_selected(self, np_image):
+        """히스토리에서 이미지 선택 시 ImagePad에 자동 반영"""
+        self.set_uploaded_image(np_image)
+        # numpy array → base64 변환 후 바로 Canvas에 적용
+        from PIL import Image
+        import io, base64
+        img = Image.fromarray(np_image)
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        from nicegui import ui
+        ui.run_javascript(f'''
+            // 프리뷰에 표시
+            const preview = document.getElementById('uploaded-image-preview');
+            if (preview) {{
+                preview.innerHTML = '<img src="data:image/png;base64,{b64}" style="max-width:100%;max-height:200px;border-radius:8px;box-shadow:0 2px 8px #0003;" />';
+            }}
+            
+            // 바로 Canvas에 적용
+            if (window.canvasManager && window.canvasManager.loadImageFit) {{
+                window.canvasManager.loadImageFit("data:image/png;base64,{b64}", 1024, 1024);
+            }}
+        ''')
+
+    async def _on_uploaded_image_changed(self, np_image):
+        """StateManager에서 uploaded_image가 변경되었을 때 호출"""
+        if np_image is not None:
+            print(f"🖼️ StateManager에서 이미지 변경 감지: {np_image.shape}")
+            self.uploaded_image = np_image
+            
+            # 이미지를 base64로 변환하여 프리뷰에 표시하고 바로 Canvas에 적용
+            try:
+                from PIL import Image
+                import io
+                import base64
+                
+                # numpy array를 PIL Image로 변환
+                pil_image = Image.fromarray(np_image)
+                
+                # base64로 인코딩
+                buf = io.BytesIO()
+                pil_image.save(buf, format='PNG')
+                b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+                
+                # JavaScript로 프리뷰 업데이트 및 바로 Canvas에 적용
+                ui.run_javascript(f'''
+                    // 프리뷰 업데이트
+                    const preview = document.getElementById('uploaded-image-preview');
+                    if (preview) {{
+                        preview.innerHTML = '<img src="data:image/png;base64,{b64}" style="max-width:100%;max-height:200px;border-radius:8px;box-shadow:0 2px 8px #0003;" />';
+                    }}
+                    
+                    // 바로 Canvas에 적용
+                    if (window.canvasManager && window.canvasManager.loadImageFit) {{
+                        window.canvasManager.loadImageFit("data:image/png;base64,{b64}", 1024, 1024);
+                    }}
+                ''')
+                
+                print(f"✅ 이미지 프리뷰 업데이트 및 Canvas 바로 적용 완료: {np_image.shape}")
+                
+            except Exception as e:
+                print(f"❌ 이미지 프리뷰 업데이트 실패: {e}")
+                # UI 컨텍스트가 없는 경우 조용히 처리
+                try:
+                    ui.notify(f'이미지 표시 실패: {str(e)}', type='negative')
+                except:
+                    pass 

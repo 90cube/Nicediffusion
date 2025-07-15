@@ -460,7 +460,7 @@ class StateManager:
                             self._add_to_history(history_item.to_dict())
                     
                 else:
-                    self._notify_user(f'이미지 생성 실패: {result.error}', 'negative')
+                    self._notify_user(f'이미지 생성 실패: {result.errors}', 'negative')
                     break
                     
         except Exception as e:

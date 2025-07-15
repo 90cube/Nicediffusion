@@ -18,7 +18,7 @@ class CanvasEditor:
     async def render(self):
         """캔버스 편집기 렌더링"""
         
-        # HTML5 Canvas + JavaScript 통합
+        # HTML 구조만 포함 (script 태그 제외)
         canvas_html = f"""
         <div id="canvas-container" style="position: relative; width: 100%; height: 100%;">
             <canvas id="{self.canvas_id}" 
@@ -37,7 +37,13 @@ class CanvasEditor:
                 도구: <span id="current-tool">브러시</span> | 크기: <span id="brush-size">10</span>px
             </div>
         </div>
+        """
         
+        # HTML 구조 렌더링
+        ui.html(canvas_html).classes('w-full h-full')
+        
+        # JavaScript 코드를 add_body_html로 분리
+        canvas_script = f"""
         <script>
         // 캔버스 초기화
         const canvas = document.getElementById('{self.canvas_id}');
@@ -170,8 +176,8 @@ class CanvasEditor:
         </script>
         """
         
-        # HTML 삽입
-        ui.html(canvas_html).classes('w-full h-full')
+        # JavaScript 코드를 body에 추가
+        ui.add_body_html(canvas_script)
         
         # 캔버스 변경 콜백 등록
         ui.run_javascript('window.on_canvas_change = function(data) { console.log("Canvas changed"); }')
@@ -206,7 +212,6 @@ class CanvasEditor:
         ui.run_javascript(f'window.toggleMask({str(show).lower()})')
     
     def export_mask(self) -> str:
-        """마스크 데이터 추출"""
-        # JavaScript에서 마스크 데이터 가져오기
-        # Phase 2B에서 구현
-        pass
+        """마스크 데이터 내보내기"""
+        # 마스크 데이터 내보내기 구현 예정
+        return ""

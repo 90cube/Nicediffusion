@@ -14,7 +14,7 @@ class CanvasManager {
         // File, URL, Base64, Blob 등 다양한 소스 지원
     }
     loadImageFit(imageData, containerWidth, containerHeight) {
-        // 이미지 비율 유지(fit)로 캔버스에 표시
+        // base64 이미지를 fit로 캔버스에 표시
         const img = new window.Image();
         img.onload = () => {
             const scale = Math.min(containerWidth / img.width, containerHeight / img.height);
@@ -28,6 +28,7 @@ class CanvasManager {
     }
     getCanvasContext() {
         const canvas = document.getElementById('imagepad-canvas');
+        if (!canvas) return { clearRect:()=>{}, drawImage:()=>{} };
         return canvas.getContext('2d');
     }
     async uploadImageFile(file) {

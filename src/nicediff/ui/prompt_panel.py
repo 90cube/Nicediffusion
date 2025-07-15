@@ -358,8 +358,14 @@ class PromptPanel:
         
         self.analysis_container.visible = True
         
-    async def _on_prompt_updated(self, prompt: str):
+    async def _on_prompt_updated(self, prompt):
         """외부에서 프롬프트 업데이트"""
+        # prompt가 dict인 경우 문자열로 변환
+        if isinstance(prompt, dict):
+            prompt = str(prompt)
+        elif not isinstance(prompt, str):
+            prompt = str(prompt)
+            
         if self.positive_textarea and self.positive_textarea.value != prompt:
             self.positive_textarea.set_value(prompt)
             self._on_positive_change(type('', (), {'args': prompt})())

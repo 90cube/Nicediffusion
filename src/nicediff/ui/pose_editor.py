@@ -13,6 +13,7 @@ class PoseEditor:
     async def render(self):
         """3D 포즈 에디터 렌더링"""
         
+        # HTML 구조만 포함 (script 태그 제외)
         pose_editor_html = """
         <div id="pose-container" style="width: 100%; height: 100%; position: relative;">
             <div id="three-viewport" style="width: 100%; height: 100%;"></div>
@@ -66,7 +67,13 @@ class PoseEditor:
             border-radius: 3px;
         }
         </style>
+        """
         
+        # HTML 구조 렌더링
+        ui.html(pose_editor_html).classes('w-full h-full')
+        
+        # JavaScript 코드를 add_body_html로 분리
+        pose_script = """
         <script type="module">
         import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
         
@@ -313,19 +320,19 @@ class PoseEditor:
         </script>
         """
         
-        ui.html(pose_editor_html).classes('w-full h-full')
+        # JavaScript 코드를 body에 추가
+        ui.add_body_html(pose_script)
     
     def switch_camera(self, camera_type: str):
         """카메라 전환"""
-        self.current_camera = camera_type
         ui.run_javascript(f'window.switchCamera("{camera_type}")')
     
     def load_fbx_model(self, fbx_path: str):
         """FBX 모델 로드"""
-        # Phase 2C에서 구현
+        # FBX 로더 구현 예정
         pass
     
     def export_openpose(self) -> dict:
-        """OpenPose 데이터 추출"""
-        # Phase 2C에서 구현
-        pass
+        """OpenPose 형식으로 포즈 데이터 내보내기"""
+        # 포즈 데이터 내보내기 구현 예정
+        return {}
