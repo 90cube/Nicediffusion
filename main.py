@@ -308,9 +308,12 @@ async def upload_image(file: UploadFile = File(...)):
         # numpy array로 변환
         np_image = np.array(image)
         
-        # StateManager를 통해 실제 UI의 ImagePad에 이미지 설정
+        # StateManager에 numpy와 PIL 이미지 모두 저장
         state_manager.set('uploaded_image', np_image)
-        state_manager.set('init_image', image)  # PIL Image도 저장
+        state_manager.set('init_image', image)  # PIL Image 저장 (img2img용)
+        
+        # 자동으로 img2img 모드로 전환
+        state_manager.set('current_mode', 'img2img')
         
         # base64 PNG 반환
         buf = io.BytesIO()
@@ -318,11 +321,14 @@ async def upload_image(file: UploadFile = File(...)):
         b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
         
         print(f"✅ 이미지 업로드 성공: {file.filename} -> {np_image.shape}")
+        print(f"🔄 자동으로 img2img 모드로 전환됨")
+        
         return {
             'success': True, 
             'shape': np_image.shape, 
             'base64': f'data:image/png;base64,{b64}',
-            'filename': file.filename
+            'filename': file.filename,
+            'mode': 'img2img'
         }
         
     except Exception as e:

@@ -53,165 +53,181 @@ class ImagePad:
             # 우측 상단 캔버스 비우기 버튼
             with ui.row().classes('absolute top-2 right-2 z-10'):
                 ui.button('🗑️ 캔버스 비우기', on_click=self._clear_canvas).classes('bg-red-500 text-white px-3 py-1 text-sm rounded')
-            
-            # 중앙 드래그앤드롭 영역 (좌우 2배 넓힘)
-            with ui.column().classes('w-full h-full flex items-center justify-center'):
+            # 표시 모드 선택 (Full, Fit, Stretch)
+            with ui.row().classes('absolute top-2 left-2 z-10'):
+                ui.html('''
+                    <select id="canvas-display-mode" style="padding:4px 8px;border-radius:6px;">
+                        <option value="fit">Fit</option>
+                        <option value="full">Full</option>
+                        <option value="stretch">Stretch</option>
+                    </select>
+                ''')
+            # 중앙 컨테이너
+            with ui.column().classes('w-full h-full flex items-center justify-center relative'):
+                # Canvas 요소
+                ui.html('''
+                    <canvas id="imagepad-canvas" style="width:100%;height:100%;max-width:800px;max-height:600px;border:1px solid #333;z-index:1;"></canvas>
+                ''')
+                # 드래그앤드롭 오버레이 (Canvas 위에)
                 upload_html = '''
-                    <div style="width: 200%; max-width: 800px; padding: 40px; background: rgba(26, 26, 26, 0.9); border-radius: 12px; border: 3px dashed #4a5568; text-align: center; transition: all 0.3s; backdrop-filter: blur(10px);" id="drag-drop-area">
-                        <div style="color: #a0aec0; font-size: 18px; font-weight: 500;">
-                            <div style="margin-bottom: 16px; font-size: 48px;">📁</div>
-                            <div style="margin-bottom: 8px;">이미지를 여기에 드래그앤드롭하세요</div>
-                            <div style="font-size: 14px; color: #718096;">또는 클릭하여 파일 선택</div>
+                    <div id="drag-drop-area" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(26,26,26,0.9);display:flex;align-items:center;justify-content:center;transition:opacity 0.3s;z-index:2;">
+                        <div style="text-align:center;pointer-events:none;">
+                            <div style="font-size:48px;">📁</div>
+                            <div>이미지를 여기에 드래그앤드롭하세요</div>
+                            <div style="font-size:14px;color:#718096;">또는 클릭하여 파일 선택</div>
                         </div>
                     </div>
                 '''
-                
-                # HTML 구조 렌더링
                 ui.html(upload_html)
-                
                 # 숨겨진 파일 입력
                 ui.html('<input id="api-upload-input" type="file" accept="image/*" style="display:none" />')
-                
                 # 업로드된 이미지 프리뷰 (작은 크기로)
                 ui.html('<div id="uploaded-image-preview" style="margin-top:16px;text-align:center;max-width:300px;"></div>')
+        # CanvasManager를 인라인으로 정의
+        canvas_manager_script = '''
+        <script>
+        // CanvasManager 구현
+        window.canvasManager = {
+            loadImageFit: function(imageData, containerWidth, containerHeight) {
+                const canvas = document.getElementById('imagepad-canvas');
+                if (!canvas) return;
+                
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                
+                img.onload = function() {
+                    // Canvas 크기 설정
+                    canvas.width = containerWidth || canvas.clientWidth;
+                    canvas.height = containerHeight || canvas.clientHeight;
+                    
+                    // 이미지를 Canvas에 맞춤
+                    const scale = Math.min(
+                        canvas.width / img.width,
+                        canvas.height / img.height
+                    );
+                    const x = (canvas.width - img.width * scale) / 2;
+                    const y = (canvas.height - img.height * scale) / 2;
+                    
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+                };
+                
+                img.src = imageData;
+            },
+            
+            loadImageFull: function(imageData, containerWidth, containerHeight) {
+                const canvas = document.getElementById('imagepad-canvas');
+                if (!canvas) return;
+                
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                
+                img.onload = function() {
+                    // Canvas 크기를 이미지 크기로 설정
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0);
+                };
+                
+                img.src = imageData;
+            },
+            
+            loadImageStretch: function(imageData, containerWidth, containerHeight) {
+                const canvas = document.getElementById('imagepad-canvas');
+                if (!canvas) return;
+                
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                
+                img.onload = function() {
+                    // Canvas 크기를 컨테이너 크기로 설정
+                    canvas.width = containerWidth || canvas.clientWidth;
+                    canvas.height = containerHeight || canvas.clientHeight;
+                    
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                };
+                
+                img.src = imageData;
+            },
+            
+            clearCanvas: function() {
+                const canvas = document.getElementById('imagepad-canvas');
+                if (canvas) {
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+            }
+        };
+        </script>
+        '''
         
-        # JavaScript 코드를 add_body_html로 분리
+        ui.add_body_html(canvas_manager_script)
+        
         upload_script = '''
         <script>
-        // DOM이 로드된 후 실행
         document.addEventListener('DOMContentLoaded', function() {
             const uploadInput = document.getElementById('api-upload-input');
-            const preview = document.getElementById('uploaded-image-preview');
             const dragDropArea = document.getElementById('drag-drop-area');
-            
-            let currentUploadedImage = null;
-            
-            // 드래그앤드롭 이벤트
+            // 업로드 성공 시 오버레이만 숨기고, 프리뷰/Canvas 등은 일체 표시하지 않음
+            async function handleFileUpload(file) {
+                if (!file) return;
+                const formData = new FormData();
+                formData.append('file', file);
+                try {
+                    const res = await fetch('/api/upload_image', { method: 'POST', body: formData });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                    const data = await res.json();
+                    if (data.success) {
+                        // 업로드 성공 시 오버레이만 숨김
+                        if (dragDropArea) dragDropArea.style.display = 'none';
+                        // 이미지 표시/프리뷰 등은 Python에서만 처리
+                    }
+                } catch (error) {
+                    // 에러 처리 (필요시)
+                }
+            }
+            if (uploadInput) {
+                uploadInput.onchange = function(e) {
+                    const file = e.target.files[0];
+                    if (file) handleFileUpload(file);
+                };
+            }
             if (dragDropArea) {
-                // 클릭 이벤트 (파일 선택)
-                dragDropArea.addEventListener('click', function() {
-                    uploadInput.click();
-                });
-                
-                // 드래그오버 이벤트
-                dragDropArea.addEventListener('dragover', function(e) {
-                    e.preventDefault();
-                    dragDropArea.style.borderColor = '#2563eb';
-                    dragDropArea.style.background = 'rgba(30, 58, 138, 0.9)';
-                    dragDropArea.style.transform = 'scale(1.02)';
-                });
-                
-                // 드래그리브 이벤트
-                dragDropArea.addEventListener('dragleave', function(e) {
-                    e.preventDefault();
-                    dragDropArea.style.borderColor = '#4a5568';
-                    dragDropArea.style.background = 'rgba(26, 26, 26, 0.9)';
-                    dragDropArea.style.transform = 'scale(1)';
-                });
-                
-                // 드롭 이벤트
+                dragDropArea.addEventListener('click', function() { uploadInput.click(); });
+                dragDropArea.addEventListener('dragover', function(e) { e.preventDefault(); });
+                dragDropArea.addEventListener('dragleave', function(e) { e.preventDefault(); });
                 dragDropArea.addEventListener('drop', function(e) {
                     e.preventDefault();
-                    dragDropArea.style.borderColor = '#4a5568';
-                    dragDropArea.style.background = 'rgba(26, 26, 26, 0.9)';
-                    dragDropArea.style.transform = 'scale(1)';
-                    
                     const files = e.dataTransfer.files;
                     if (files.length > 0) {
                         handleFileUpload(files[0]);
                     }
                 });
             }
-            
-            // 파일 업로드 처리 함수
-            async function handleFileUpload(file) {
-                if (!file) return;
-                
-                // 파일 타입 검증
-                if (!file.type.startsWith('image/')) {
-                    preview.innerHTML = '<span style="color:red">이미지 파일만 업로드 가능합니다.</span>';
-                    return;
-                }
-                
-                // 로딩 표시
-                preview.innerHTML = '<span style="color:gray">업로드 중...</span>';
-                
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                try {
-                    const res = await fetch('/api/upload_image', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    if (!res.ok) {
-                        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-                    }
-                    
-                    const data = await res.json();
-                    
-                    if (data.success && data.base64) {
-                        currentUploadedImage = data.base64;
-                        
-                        // 작은 프리뷰 표시
-                        preview.innerHTML = `
-                            <div style="margin-top: 10px;">
-                                <img src="${data.base64}" style="max-width:100%;max-height:200px;border-radius:8px;box-shadow:0 2px 8px #0003;" />
-                                <p style="color:green;margin-top:8px;font-size:12px;">✅ 업로드 성공: ${data.filename}</p>
-                                <p style="color:gray;font-size:11px;">크기: ${data.shape[1]}×${data.shape[0]}</p>
-                            </div>
-                        `;
-                        
-                        // 바로 Canvas에 적용
-                        if (window.canvasManager && window.canvasManager.loadImageFit) {
-                            window.canvasManager.loadImageFit(data.base64, 1024, 1024);
-                            console.log('Canvas에 이미지 바로 적용됨');
-                        }
-                        
-                        // 성공 메시지
-                        console.log('이미지 업로드 성공:', data.filename, data.shape);
-                        
-                    } else {
-                        preview.innerHTML = '<span style="color:red">업로드 실패: ' + (data.error || '알 수 없는 오류') + '</span>';
-                    }
-                } catch (error) {
-                    console.error('업로드 오류:', error);
-                    preview.innerHTML = '<span style="color:red">업로드 실패: ' + error.message + '</span>';
-                }
-            }
-            
-            // 파일 입력 이벤트
-            if (uploadInput) {
-                uploadInput.onchange = function(e) {
-                    const file = e.target.files[0];
-                    if (file) {
-                        handleFileUpload(file);
-                    }
-                };
-            }
         });
         </script>
         '''
-        
-        # JavaScript 코드를 body에 추가
         ui.add_body_html(upload_script)
 
     async def _clear_canvas(self):
-        """캔버스 비우기"""
+        """캔버스 비우기 (모든 이미지/프리뷰/썸네일/메시지/상태 완전 초기화)"""
         from nicegui import ui
-        try:
-            # Canvas 비우기
-            ui.run_javascript('if(window.canvasManager && window.canvasManager.clearCanvas){window.canvasManager.clearCanvas();}')
-            # 프리뷰 비우기
-            ui.run_javascript('document.getElementById("uploaded-image-preview").innerHTML = "";')
-            # StateManager에서 이미지 제거
-            self.state.set('init_image', None)
-            self.state.set('uploaded_image', None)
-            ui.notify('캔버스가 비워졌습니다', type='info')
-        except Exception as e:
-            print(f"❌ 캔버스 비우기 실패: {e}")
-            ui.notify(f'캔버스 비우기 실패: {str(e)}', type='negative')
+        self.state.set('init_image', None)
+        self.state.set('uploaded_image', None)
+        self.current_image_path = None
+        self.uploaded_image = None
+        # 프론트엔드 UI 완전 초기화 (오버레이만 다시 표시)
+        ui.run_javascript('''
+            // 업로드 안내 오버레이 다시 표시
+            const dragDropArea = document.getElementById('drag-drop-area');
+            if (dragDropArea) {
+                dragDropArea.style.display = 'flex';
+            }
+        ''')
+        ui.notify('캔버스가 비워졌습니다', type='info')
 
     # 기존 ImagePad 호환 메서드들 (뼈대 구현)
     async def _on_generation_started(self, data):
@@ -503,40 +519,9 @@ class ImagePad:
             print(f"🖼️ StateManager에서 이미지 변경 감지: {np_image.shape}")
             self.uploaded_image = np_image
             
-            # 이미지를 base64로 변환하여 프리뷰에 표시하고 바로 Canvas에 적용
-            try:
-                from PIL import Image
-                import io
-                import base64
-                
-                # numpy array를 PIL Image로 변환
-                pil_image = Image.fromarray(np_image)
-                
-                # base64로 인코딩
-                buf = io.BytesIO()
-                pil_image.save(buf, format='PNG')
-                b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-                
-                # JavaScript로 프리뷰 업데이트 및 바로 Canvas에 적용
-                ui.run_javascript(f'''
-                    // 프리뷰 업데이트
-                    const preview = document.getElementById('uploaded-image-preview');
-                    if (preview) {{
-                        preview.innerHTML = '<img src="data:image/png;base64,{b64}" style="max-width:100%;max-height:200px;border-radius:8px;box-shadow:0 2px 8px #0003;" />';
-                    }}
-                    
-                    // 바로 Canvas에 적용
-                    if (window.canvasManager && window.canvasManager.loadImageFit) {{
-                        window.canvasManager.loadImageFit("data:image/png;base64,{b64}", 1024, 1024);
-                    }}
-                ''')
-                
-                print(f"✅ 이미지 프리뷰 업데이트 및 Canvas 바로 적용 완료: {np_image.shape}")
-                
-            except Exception as e:
-                print(f"❌ 이미지 프리뷰 업데이트 실패: {e}")
-                # UI 컨텍스트가 없는 경우 조용히 처리
-                try:
-                    ui.notify(f'이미지 표시 실패: {str(e)}', type='negative')
-                except:
-                    pass 
+            # 생성된 이미지와 완전히 동일한 방식으로 처리
+            # JavaScript 호출 완전 제거 - UI 컨텍스트 오류 방지
+            print(f"✅ 업로드된 이미지 상태 업데이트 완료")
+            
+            # JavaScript 호출 없이 상태만 업데이트
+            # UI 업데이트는 사용자가 직접 새로고침하거나 다른 이벤트에서 처리 

@@ -13,8 +13,8 @@ import torch
 from ..services.model_scanner import ModelScanner
 from ..services.metadata_parser import MetadataParser
 from ..services.tokenizer_manager import TokenizerManager
-from ..domains.generation.models.generation_params import GenerationParams
-from ..domains.generation.models.history_item import HistoryItem
+from ..domains.generation.model_definitions.generation_params import GenerationParams
+from ..domains.generation.model_definitions.history_item import HistoryItem
 from ..domains.generation.services.model_loader import ModelLoader
 from ..domains.generation.services.image_saver import ImageSaver
 from ..domains.generation.strategies.basic_strategy import BasicGenerationStrategy

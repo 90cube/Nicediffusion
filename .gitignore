@@ -12,7 +12,7 @@ env/
 .venv/
 
 # Models and outputs
-models/
+/models/
 outputs/
 
 # OS/Editor

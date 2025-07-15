@@ -10,7 +10,7 @@ from typing import Optional
 
 from PIL import Image, PngImagePlugin
 
-from ..models.generation_params import GenerationParams
+from ..model_definitions.generation_params import GenerationParams
 
 
 class ImageSaver:
