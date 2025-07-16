@@ -490,81 +490,85 @@ class ParameterPanel:
 
             # txt2img 모드 전용 파라미터 배치
             current_mode = self.state.get('current_mode', 'txt2img')
+            
+            # 공통 파라미터 (모든 모드에서 사용)
+            # 샘플러 | 스케줄러
+            with ui.row().classes('w-full gap-1 min-w-0'):
+                # 샘플러 선택 (공식 영문명만)
+                sampler_options = [item['label'] for item in comfyui_samplers]
+                sampler_values = [item['value'] for item in comfyui_samplers]
+                
+                # 현재 샘플러 값에 맞는 UI 옵션 찾기
+                current_sampler_display = None
+                for item in comfyui_samplers:
+                    if item['value'] == current_params.sampler:
+                        current_sampler_display = item['label']
+                        break
+                
+                # 매칭되는 옵션이 없으면 기본값 사용
+                if current_sampler_display is None:
+                    current_sampler_display = sampler_options[0]  # 첫 번째 옵션을 기본값으로
+                
+                self.sampler_select = ui.select(
+                    options=sampler_options, 
+                    label='Sampler', 
+                    value=current_sampler_display
+                ).on('update:model-value', self._on_sampler_change).classes('flex-1 min-w-0')
+                
+                self.scheduler_select = ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler) \
+                    .on('update:model-value', self._on_param_change('scheduler', str)).classes('flex-1 min-w-0')
+            
+            # CFG | Steps
+            with ui.row().classes('w-full gap-1 min-w-0'):
+                self.cfg_input = ui.number(label='CFG', value=current_params.cfg_scale, min=1.0, max=30.0, step=0.5) \
+                    .on('update:model-value', self._on_param_change('cfg_scale', float)).classes('flex-1 min-w-0')
+                
+                self.steps_input = ui.number(label='Steps', value=current_params.steps, min=1, max=150) \
+                    .on('update:model-value', self._on_param_change('steps', int)).classes('flex-1 min-w-0')
+            
+            # 너비 | 높이 (모드별로 다르게 처리)
+            current_sd_model = self.state.get('sd_model', 'SD15')
+            min_size = 512 if current_sd_model == 'SD15' else 768
+            
+            with ui.row().classes('w-full gap-1 min-w-0'):
+                self.width_input = ui.number(value=current_params.width, label='너비', min=min_size, max=2048, step=8) \
+                    .on('update:model-value', self._on_param_change('width', int)).classes('flex-1 min-w-0')
+                
+                self.height_input = ui.number(value=current_params.height, label='높이', min=min_size, max=2048, step=8) \
+                    .on('update:model-value', self._on_param_change('height', int)).classes('flex-1 min-w-0')
+            
+            # SDXL 토글 (txt2img 모드에서만 활성화)
             if current_mode == 'txt2img':
-                # 샘플러 | 스케줄러
-                with ui.row().classes('w-full gap-1 min-w-0'):
-                    # 샘플러 선택 (공식 영문명만)
-                    sampler_options = [item['label'] for item in comfyui_samplers]
-                    sampler_values = [item['value'] for item in comfyui_samplers]
-                    
-                    # 현재 샘플러 값에 맞는 UI 옵션 찾기
-                    current_sampler_display = None
-                    for item in comfyui_samplers:
-                        if item['value'] == current_params.sampler:
-                            current_sampler_display = item['label']
-                            break
-                    
-                    # 매칭되는 옵션이 없으면 기본값 사용
-                    if current_sampler_display is None:
-                        current_sampler_display = sampler_options[0]  # 첫 번째 옵션을 기본값으로
-                    
-                    self.sampler_select = ui.select(
-                        options=sampler_options, 
-                        label='Sampler', 
-                        value=current_sampler_display
-                    ).on('update:model-value', self._on_sampler_change).classes('flex-1 min-w-0')
-                    
-                    self.scheduler_select = ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler) \
-                        .on('update:model-value', self._on_param_change('scheduler', str)).classes('flex-1 min-w-0')
-                
-                # CFG | Steps
-                with ui.row().classes('w-full gap-1 min-w-0'):
-                    self.cfg_input = ui.number(label='CFG', value=current_params.cfg_scale, min=1.0, max=30.0, step=0.5) \
-                        .on('update:model-value', self._on_param_change('cfg_scale', float)).classes('flex-1 min-w-0')
-                    
-                    self.steps_input = ui.number(label='Steps', value=current_params.steps, min=1, max=150) \
-                        .on('update:model-value', self._on_param_change('steps', int)).classes('flex-1 min-w-0')
-                
-                # 너비 | 높이 SDXL 토글
-                current_sd_model = self.state.get('sd_model', 'SD15')
-                min_size = 512 if current_sd_model == 'SD15' else 768
-                
-                with ui.row().classes('w-full gap-1 min-w-0'):
-                    self.width_input = ui.number(value=current_params.width, label='너비', min=min_size, max=2048, step=8) \
-                        .on('update:model-value', self._on_param_change('width', int)).classes('flex-1 min-w-0')
-                    
-                    self.height_input = ui.number(value=current_params.height, label='높이', min=min_size, max=2048, step=8) \
-                        .on('update:model-value', self._on_param_change('height', int)).classes('flex-1 min-w-0')
-                
-                # SDXL 토글
                 with ui.row().classes('w-full justify-center items-center gap-2 min-w-0'):
                     self.model_switch = ui.switch(value=(self.state.get('sd_model') == 'SDXL')).props('color=orange') \
                         .on('click', self._handle_model_change)
                     ui.label('SDXL').classes('text-xs text-gray-400')
 
-                # 종횡비 셋팅 (그대로 유지)
+            # 종횡비 셋팅 (txt2img 모드에서만 활성화)
+            if current_mode == 'txt2img':
                 self.ratio_buttons_container()
+            
+            # SEED 설정 (모든 모드에서 사용)
+            with ui.row().classes('w-full gap-1 items-center min-w-0'):
+                self.seed_input = ui.number(label='Seed', value=current_params.seed, min=-1) \
+                    .on('update:model-value', self._on_param_change('seed', int)).classes('flex-1 min-w-0')
                 
-                # SEED 설정 (기본 랜덤, 시드 고정 버튼)
-                with ui.row().classes('w-full gap-1 items-center min-w-0'):
-                    self.seed_input = ui.number(label='Seed', value=current_params.seed, min=-1) \
-                        .on('update:model-value', self._on_param_change('seed', int)).classes('flex-1 min-w-0')
-                    
-                    # 시드 고정 버튼 (핀 모양 아이콘) - 고정 크기로 설정
-                    icon_name = 'push_pin' if self.seed_pinned else 'push_pin_outlined'
-                    self.seed_pin_button = ui.button(
-                        icon=icon_name,
-                        on_click=lambda e: self._toggle_seed_pin()
-                    ).props('flat round size=sm').classes(
-                        f'self-center min-w-[32px] min-h-[32px] {"bg-blue-600 text-white" if self.seed_pinned else "text-gray-400 hover:text-white"}'
-                    ).tooltip('시드 고정' if not self.seed_pinned else '시드 고정 해제')
-                
-                # CLIP SKIP
-                clip_skip_value = getattr(current_params, 'clip_skip', 1)
-                self.clip_skip_input = ui.number(label='CLIP Skip', value=clip_skip_value, min=1, max=12, step=1) \
-                    .on('update:model-value', self._on_param_change('clip_skip', int)).classes('w-full min-w-0')
-                
-                # 배치 사이즈 | 반복회수 | 무한 반복 생성 토글
+                # 시드 고정 버튼 (핀 모양 아이콘) - 고정 크기로 설정
+                icon_name = 'push_pin' if self.seed_pinned else 'push_pin_outlined'
+                self.seed_pin_button = ui.button(
+                    icon=icon_name,
+                    on_click=lambda e: self._toggle_seed_pin()
+                ).props('flat round size=sm').classes(
+                    f'self-center min-w-[32px] min-h-[32px] {"bg-blue-600 text-white" if self.seed_pinned else "text-gray-400 hover:text-white"}'
+                ).tooltip('시드 고정' if not self.seed_pinned else '시드 고정 해제')
+            
+            # CLIP SKIP (모든 모드에서 사용)
+            clip_skip_value = getattr(current_params, 'clip_skip', 1)
+            self.clip_skip_input = ui.number(label='CLIP Skip', value=clip_skip_value, min=1, max=12, step=1) \
+                .on('update:model-value', self._on_param_change('clip_skip', int)).classes('w-full min-w-0')
+            
+            # 배치 사이즈 | 반복회수 | 무한 반복 생성 토글 (txt2img 모드에서만 활성화)
+            if current_mode == 'txt2img':
                 with ui.row().classes('w-full gap-1 items-center min-w-0'):
                     self.batch_size_input = ui.number(label="배치", min=1, max=32, value=current_params.batch_size) \
                         .on('update:model-value', self._on_param_change('batch_size', int)).classes('flex-1 min-w-0')
@@ -578,8 +582,8 @@ class ParameterPanel:
                         .on('click', self._handle_infinite_generation_change)
                     ui.icon('all_inclusive').classes('text-red-400 text-sm').tooltip('무한 반복 생성')
             
-            # img2img 모드 전용 컨트롤들 (기존 유지)
-            elif current_mode in ['img2img', 'inpaint', 'upscale']:
+            # img2img 모드 전용 컨트롤들
+            if current_mode in ['img2img', 'inpaint', 'upscale']:
                 # 이미지 크기 적용 버튼 (i2i 모드일 때만, 비율 아래에 표시)
                 init_image = self.state.get('init_image')
                 if init_image is not None:
@@ -767,6 +771,15 @@ class ParameterPanel:
     def _on_metadata_params_apply(self, params: dict):
         """메타데이터 파라미터 적용 (오직 '파라미터 적용' 버튼 클릭 시에만 호출됨)"""
         if not params: 
+            return
+
+        # 현재 모드 확인
+        current_mode = self.state.get('current_mode', 'txt2img')
+        
+        # i2i 모드에서는 파라미터 적용을 제한
+        if current_mode in ['img2img', 'inpaint', 'upscale']:
+            print(f"⚠️ {current_mode} 모드에서는 메타데이터 파라미터 적용이 제한됩니다")
+            ui.notify(f'{current_mode} 모드에서는 메타데이터 파라미터 적용이 제한됩니다', type='warning')
             return
 
         print(f"🔧 메타데이터 파라미터 적용 시작: {list(params.keys())}")

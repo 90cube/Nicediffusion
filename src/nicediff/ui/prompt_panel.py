@@ -17,6 +17,9 @@ class PromptPanel:
         self.char_count_negative = None
         self.token_count_positive = None
         self.token_count_negative = None
+        
+        # 이벤트 구독 설정
+        self.state.subscribe('metadata_prompts_apply', self._on_metadata_prompts_apply)
     
     async def render(self):
         """컴포넌트 렌더링 - 탭 방식으로 변경"""
@@ -576,3 +579,12 @@ class PromptPanel:
         # if hasattr(self, '_update_ui_from_state'):
         #     self._update_ui_from_state(current_params)
         ui.notify('프롬프트 패널이 새로고침되었습니다', type='info')
+
+    def _on_metadata_prompts_apply(self, data):
+        """메타데이터 프롬프트 적용 이벤트 핸들러"""
+        if self.positive_textarea:
+            self.positive_textarea.set_value(data.get('positive_prompt', ''))
+            self._on_positive_change(type('', (), {'args': data.get('positive_prompt', '')})())
+        if self.negative_textarea:
+            self.negative_textarea.set_value(data.get('negative_prompt', ''))
+            self._on_negative_change(type('', (), {'args': data.get('negative_prompt', '')})())
