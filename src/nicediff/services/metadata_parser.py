@@ -371,7 +371,15 @@ class MetadataParser:
                         #print(f"✅ SD3 힌트 발견: {key}={value[:50]}...")
                         return 'SD3', value
         
-        # 2. 파일명에서 추측
+        # 2. 파일 경로에서 추측 (폴더명 기반)
+        path_parts = [part.lower() for part in model_path.parts]
+        
+        # SDXL 폴더에 있으면 SDXL로 간주
+        if 'sdxl' in path_parts or 'xl' in path_parts:
+            print(f"📁 경로에서 SDXL 폴더 발견: {model_path}")
+            return 'SDXL', None
+        
+        # 3. 파일명에서 추측
         filename_lower = model_path.name.lower()
         
         # SDXL 키워드

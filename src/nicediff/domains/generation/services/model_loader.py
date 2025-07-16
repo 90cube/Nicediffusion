@@ -124,13 +124,32 @@ class ModelLoader:
             lora_name = Path(lora_path).stem
             
             def _load_lora():
-                # LoRA 로드
-                self.current_pipeline.load_lora_weights(
-                    lora_path,
-                    adapter_name=lora_name,
-                    weight=weight
-                )
-                return True
+                try:
+                    # 기존 LoRA가 있으면 먼저 언로드
+                    if hasattr(self.current_pipeline, 'unload_lora_weights'):
+                        self.current_pipeline.unload_lora_weights()
+                    
+                    # LoRA 로드 (더 안전한 방식)
+                    if hasattr(self.current_pipeline, 'load_lora_weights'):
+                        self.current_pipeline.load_lora_weights(
+                            lora_path,
+                            adapter_name=lora_name,
+                            weight=weight
+                        )
+                    else:
+                        # diffusers 버전에 따라 다른 방식 시도
+                        from diffusers.loaders import LoraLoaderMixin
+                        if hasattr(self.current_pipeline, 'load_attn_procs'):
+                            # 이전 버전 호환성
+                            self.current_pipeline.load_attn_procs(lora_path)
+                        else:
+                            print(f"❌ LoRA 로딩 방식을 찾을 수 없습니다.")
+                            return False
+                    
+                    return True
+                except Exception as e:
+                    print(f"❌ LoRA 로딩 중 오류: {e}")
+                    return False
             
             success = await asyncio.to_thread(_load_lora)
             

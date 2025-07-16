@@ -204,21 +204,27 @@ class Txt2ImgMode:
         if params.model_type == 'SD15':
             print(f"🔧 SD15 생성 최적화 적용: Steps={params.steps}, CFG={params.cfg_scale}")
         
-        # 생성기 설정
-        generator = torch.Generator(device=self.device)
-        if params.seed > 0:
-            generator.manual_seed(params.seed)
-        
         def _generate():
             """실제 생성 로직"""
-            # SD15에서 더 나은 품질을 위한 추가 파라미터
-            extra_params = {}
+            import torch  # 함수 내부에서 torch import
+            
+            # 생성기 설정
+            generator = torch.Generator(device=self.device)
+            if params.seed > 0:
+                generator.manual_seed(params.seed)
+            
+            # 기본 파라미터
+            extra_params: dict = {
+                'output_type': 'pil',  # PIL 이미지로 직접 반환
+            }
+            
+            # SD15에서만 특별한 최적화 적용
             if params.model_type == 'SD15':
-                extra_params.update({
-                    'eta': 1.0,  # DDIM 스케줄러에서 사용
-                    'output_type': 'pil',  # PIL 이미지로 직접 반환
-                    'guidance_rescale': 0.7,  # SD15에서 더 안정적인 생성
-                })
+                extra_params['eta'] = 1.0  # DDIM 스케줄러에서 사용
+                
+                # guidance_rescale은 특정 스케줄러에서만 사용
+                if params.scheduler in ['karras', 'exponential']:
+                    extra_params['guidance_rescale'] = 0.7
             
             # 실제 파이프라인 호출 파라미터 로깅
             pipeline_params = {
@@ -240,20 +246,37 @@ class Txt2ImgMode:
             print(f"   - Batch: {pipeline_params['num_images_per_prompt']}")
             print(f"   - Extra: {extra_params}")
             
-            result = self.pipeline(**pipeline_params)
-            
-            # 파이프라인 결과에서 images 반환
-            if hasattr(result, 'images'):
-                return result.images
-            else:
-                # result 자체가 이미지 리스트인 경우
-                return result if isinstance(result, list) else [result]
+            try:
+                result = self.pipeline(**pipeline_params)
+                
+                # 파이프라인 결과에서 images 반환
+                if hasattr(result, 'images'):
+                    return result.images
+                else:
+                    # result 자체가 이미지 리스트인 경우
+                    return result if isinstance(result, list) else [result]
+            except Exception as e:
+                print(f"❌ 파이프라인 호출 중 오류: {e}")
+                import traceback
+                traceback.print_exc()
+                return []
         
         # 별도 스레드에서 생성 수행
         generated_images = await asyncio.to_thread(_generate)
         
+        # 결과 검증
+        if generated_images is None:
+            print("❌ 파이프라인 호출 결과가 None입니다")
+            return []
+        
+        if not isinstance(generated_images, list):
+            generated_images = [generated_images]
+        
         print(f"✅ 생성된 이미지 개수: {len(generated_images)}")
         for i, image in enumerate(generated_images):
-            print(f"✅ 생성된 이미지 {i+1} 크기: {image.size}")
+            if hasattr(image, 'size'):
+                print(f"✅ 생성된 이미지 {i+1} 크기: {image.size}")
+            else:
+                print(f"✅ 생성된 이미지 {i+1}: {type(image)}")
         
         return generated_images

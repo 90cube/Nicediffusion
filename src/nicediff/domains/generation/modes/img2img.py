@@ -37,31 +37,50 @@ class Img2ImgMode:
         self.device = device
     
     def _encode_image(self, image: Image.Image) -> torch.Tensor:
-        """이미지를 latent space로 인코딩 (A1111 스타일)"""
+        """이미지를 latent space로 인코딩 (개선된 버전)"""
+        import torch  # 메서드 내부에서 torch import
+        
         print(f"🔍 이미지 인코딩 시작: 크기={image.size}, 모드={image.mode}")
         
+        # RGB로 변환 (필수)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
         with torch.no_grad():
-            # 이미지 전처리
-            if hasattr(self.pipeline, 'image_processor'):
-                # StableDiffusionImg2ImgPipeline의 경우
-                image_tensor = self.pipeline.image_processor.preprocess(image)
-            else:
-                # 일반 StableDiffusionPipeline의 경우
-                from diffusers.utils import PIL_INTERPOLATION
-                image_tensor = self.pipeline.feature_extractor(
-                    image, 
-                    return_tensors="pt"
-                ).pixel_values
+            # 이미지 전처리 - 더 안전한 방식
+            try:
+                # 방법 1: image_processor 사용
+                if hasattr(self.pipeline, 'image_processor') and self.pipeline.image_processor is not None:
+                    image_tensor = self.pipeline.image_processor.preprocess(image)
+                # 방법 2: feature_extractor 사용
+                elif hasattr(self.pipeline, 'feature_extractor') and self.pipeline.feature_extractor is not None:
+                    image_tensor = self.pipeline.feature_extractor(
+                        image, 
+                        return_tensors="pt"
+                    ).pixel_values
+                # 방법 3: 수동 전처리
+                else:
+                    import torchvision.transforms as transforms
+                    transform = transforms.Compose([
+                        transforms.ToTensor(),
+                        transforms.Normalize([0.5], [0.5])  # -1 to 1로 정규화
+                    ])
+                    image_tensor = transform(image).unsqueeze(0)
+                    
+            except Exception as e:
+                print(f"⚠️ 이미지 전처리 중 오류, 수동 처리로 대체: {e}")
+                # 최후의 수단: 직접 변환
+                import numpy as np
+                np_image = np.array(image).astype(np.float32) / 255.0
+                np_image = (np_image - 0.5) / 0.5  # -1 to 1
+                image_tensor = torch.from_numpy(np_image).permute(2, 0, 1).unsqueeze(0)
             
-            # 데이터 타입 통일 (float32로 변환)
-            image_tensor = image_tensor.to(self.device, dtype=torch.float32)
+            # 디바이스와 데이터 타입 맞추기
+            image_tensor = image_tensor.to(self.device, dtype=self.pipeline.vae.dtype)
             
             # VAE 인코딩
             latent = self.pipeline.vae.encode(image_tensor).latent_dist.sample()
             latent = latent * self.pipeline.vae.config.scaling_factor
-            
-            # latent도 float32로 통일
-            latent = latent.to(dtype=torch.float32)
             
             print(f"✅ 이미지 인코딩 완료: latent shape={latent.shape}, dtype={latent.dtype}")
             return latent
@@ -150,33 +169,45 @@ class Img2ImgMode:
             generator.manual_seed(params.seed)
         
         def _generate():
-            """실제 생성 로직 (A1111 스타일)"""
+            """실제 생성 로직 (올바른 Denoising Strength 구현)"""
+            import torch  # 함수 내부에서 torch import
+            
             print(f"🔍 파이프라인 타입: {type(self.pipeline)}")
             
             # 1. 이미지 → latent 변환
             init_latent = self._encode_image(init_image)
             
-            # 2. 노이즈 추가 (strength에 따라)
-            noise = torch.randn_like(init_latent)
+            # 2. 올바른 Denoising Strength 구현
+            # 전체 스텝 중 일부만 실행: Strength 0.7 + Steps 50 = 실제 35스텝만 실행
+            # 처음 15스텝은 건너뛰고 시작
+            effective_steps = int(params.steps * strength)
+            skipped_steps = params.steps - effective_steps
             
-            # 3. timesteps 계산 (strength에 따라)
-            timesteps = int(strength * params.steps)
-            print(f"🔍 노이즈 주입: strength={strength}, timesteps={timesteps}")
+            print(f"🔍 Denoising Strength 계산:")
+            print(f"   - 전체 스텝: {params.steps}")
+            print(f"   - Strength: {strength}")
+            print(f"   - 실제 실행 스텝: {effective_steps}")
+            print(f"   - 건너뛸 스텝: {skipped_steps}")
             
-            # 4. 스케줄러에 노이즈 추가
-            noised_latent = self.pipeline.scheduler.add_noise(
-                init_latent, 
-                noise, 
-                torch.tensor([timesteps], device=self.device)
-            )
-            
-            # 5. 파이프라인 호출 (latents 사용)
+            # 3. 파이프라인 호출 (올바른 strength 적용)
             try:
-                # StableDiffusionImg2ImgPipeline 또는 latents를 지원하는 파이프라인
+                # 스케줄러 timesteps 설정
+                if hasattr(self.pipeline.scheduler, 'set_timesteps'):
+                    self.pipeline.scheduler.set_timesteps(params.steps, device=self.device)
+                
+                # Denoising Strength가 제대로 적용되도록 파라미터 검증
+                print(f"🔍 최종 파라미터:")
+                print(f"   - strength: {strength}")
+                print(f"   - steps: {params.steps}")
+                print(f"   - cfg_scale: {params.cfg_scale}")
+                print(f"   - image size: {init_image.size}")
+                
+                # 파이프라인 호출 (strength 파라미터가 제대로 전달되는지 확인)
                 result = self.pipeline(
                     prompt=params.prompt,
                     negative_prompt=params.negative_prompt,
-                    latents=noised_latent,  # 'image' 대신 'latents' 사용
+                    image=init_image,
+                    strength=strength,  # 이 값이 제대로 적용되어야 함
                     num_inference_steps=params.steps,
                     guidance_scale=params.cfg_scale,
                     generator=generator,
@@ -184,19 +215,24 @@ class Img2ImgMode:
                     # SD15에서 더 나은 품질을 위한 추가 파라미터
                     **({"eta": 1.0} if params.model_type == 'SD15' else {})
                 )
-            except TypeError as e:
-                # latents 인자를 지원하지 않는 경우, 기존 방식으로 폴백
-                print(f"⚠️ latents 인자 미지원, 기존 방식으로 폴백: {e}")
+                
+                print(f"✅ 파이프라인 호출 완료")
+                
+            except Exception as e:
+                print(f"⚠️ 파이프라인 호출 실패: {e}")
+                import traceback
+                traceback.print_exc()
+                
+                # 최후의 수단: 기본 파라미터로 재시도
                 result = self.pipeline(
                     prompt=params.prompt,
                     negative_prompt=params.negative_prompt,
-                    image=init_image,  # 기존 방식
+                    image=init_image,
                     strength=strength,
                     num_inference_steps=params.steps,
                     guidance_scale=params.cfg_scale,
                     generator=generator,
-                    num_images_per_prompt=params.batch_size,
-                    **({"eta": 1.0} if params.model_type == 'SD15' else {})
+                    num_images_per_prompt=1
                 )
             
             # 파이프라인 결과에서 images 반환

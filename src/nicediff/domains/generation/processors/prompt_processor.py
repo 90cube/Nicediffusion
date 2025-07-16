@@ -42,9 +42,11 @@ class PromptChunk:
 class PromptProcessor:
     """고급 프롬프트 처리기"""
     
-    def __init__(self):
-        self.max_tokens = 77
-        self.warning_threshold = 70
+    def __init__(self, model_type='SD15'):
+        # SDXL은 225 토큰, SD15는 77 토큰 지원
+        self.model_type = model_type
+        self.max_tokens = 225 if model_type == 'SDXL' else 77
+        self.warning_threshold = 200 if model_type == 'SDXL' else 70
         self.break_keyword = "BREAK"
         
         # 가중치 패턴 정규식
@@ -332,7 +334,7 @@ class PromptProcessor:
             return state_manager.tokenizer_manager.get_current_tokenizer()
         return None
     
-    def add_break_keyword(self, prompt: str, position: int = None) -> str:
+    def add_break_keyword(self, prompt: str, position: Optional[int] = None) -> str:
         """BREAK 키워드 추가"""
         if position is None:
             # 문장 끝에 추가

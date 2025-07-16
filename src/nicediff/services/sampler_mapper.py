@@ -11,14 +11,25 @@ class SamplerMapper:
     """ComfyUI 샘플러명을 diffusers 스케줄러로 매핑"""
     
     SAMPLER_MAP = {
+        # 기본 샘플러들
         'euler': EulerDiscreteScheduler,
         'euler_a': EulerAncestralDiscreteScheduler,
         'euler a': EulerAncestralDiscreteScheduler,  # 공백 포함 버전
         'euler-a': EulerAncestralDiscreteScheduler,  # 하이픈 포함 버전
+        
+        # DPM++ 시리즈
         'dpmpp_2m': DPMSolverMultistepScheduler,
-        'dpmpp_sde_gpu': DPMSolverMultistepScheduler,  # SDE 알고리즘 사용
-        'dpmpp_2m_sde_gpu': DPMSolverMultistepScheduler,  # SDE 알고리즘 사용
-        'dpmpp_3m_sde_gpu': DPMSolverMultistepScheduler,  # 3차 방법
+        'dpmpp_2s_a': DPMSolverMultistepScheduler,  # Ancestral sampling
+        'dpmpp_sde': DPMSolverMultistepScheduler,  # SDE 알고리즘
+        'dpmpp_2m_sde': DPMSolverMultistepScheduler,  # 2M + SDE 조합
+        'dpmpp_3m_sde': DPMSolverMultistepScheduler,  # 3차 방법 + SDE
+        
+        # 기존 호환성 (GPU 접미사)
+        'dpmpp_sde_gpu': DPMSolverMultistepScheduler,
+        'dpmpp_2m_sde_gpu': DPMSolverMultistepScheduler,
+        'dpmpp_3m_sde_gpu': DPMSolverMultistepScheduler,
+        
+        # 기타 샘플러들
         'ddim': DDIMScheduler,
         'pndm': PNDMScheduler,
     }
@@ -38,16 +49,20 @@ class SamplerMapper:
         scheduler_class = SamplerMapper.SAMPLER_MAP.get(sampler_name, EulerDiscreteScheduler)
         config_overrides = SamplerMapper.SCHEDULER_CONFIG.get(scheduler_type, {})
         
-        # SDE 기반 샘플러들에 대한 특별 처리
-        if 'sde' in sampler_name.lower():
+        # DPM++ 시리즈별 특별 처리
+        if sampler_name == 'dpmpp_2m':
+            config_overrides['algorithm_type'] = 'dpmsolver++'
+            config_overrides['solver_order'] = 2
+        elif sampler_name == 'dpmpp_2s_a':
+            config_overrides['algorithm_type'] = 'dpmsolver++'
+            config_overrides['solver_order'] = 2
+            config_overrides['use_karras_sigmas'] = True
+        elif 'sde' in sampler_name.lower():
             config_overrides['algorithm_type'] = 'sde-dpmsolver++'
-            if sampler_name == 'dpmpp_3m_sde_gpu':
+            if '3m' in sampler_name.lower():
                 config_overrides['solver_order'] = 3
             else:
                 config_overrides['solver_order'] = 2
-        elif sampler_name == 'dpmpp_2m':
-            config_overrides['algorithm_type'] = 'dpmsolver++'
-            config_overrides['solver_order'] = 2
         
         # pipeline이 제공되면 기존 설정을 기반으로 생성
         if pipeline and hasattr(pipeline, 'scheduler'):

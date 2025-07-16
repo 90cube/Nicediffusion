@@ -312,10 +312,19 @@ class UtilitySidebar:
                 print("⚠️ 히스토리 컨테이너가 없습니다.")
                 return
                 
-            # Client가 유효한지 확인
-            if hasattr(self.history_container, 'client') and self.history_container.client is None:
-                print("⚠️ Client가 삭제되었습니다. 히스토리 업데이트를 건너뜁니다.")
-                return
+            # Client가 유효한지 확인 (더 안전한 검사)
+            try:
+                if hasattr(self.history_container, 'client'):
+                    client = self.history_container.client
+                    if client is None:
+                        print("⚠️ Client가 삭제되었습니다. 히스토리 업데이트를 건너뜁니다.")
+                        return
+            except RuntimeError as e:
+                if "deleted" in str(e).lower():
+                    print("⚠️ Client가 삭제되었습니다. 히스토리 업데이트를 건너뜁니다.")
+                    return
+                else:
+                    raise e
             
             print(f"📋 히스토리 업데이트 시작: {len(history_items)}개 항목")
             

@@ -1,5 +1,5 @@
 """
-중앙 이미지 뷰어/캔버스 컴포넌트 (단순화된 버전)
+중앙 이미지 뷰어/캔버스 컴포넌트
 """
 
 from nicegui import ui
@@ -9,12 +9,9 @@ import asyncio
 from PIL import Image
 import numpy as np
 from typing import Optional, Dict, Any
-import json
-import base64
-import io
 
 class ImagePad:
-    """이미지 패드 (단순화된 버전)"""
+    """이미지 패드 컴포넌트"""
     
     def __init__(self, state_manager: StateManager):
         self.state = state_manager
@@ -25,7 +22,7 @@ class ImagePad:
         self.status_label = None
         
         # 이벤트 구독
-        self.state.subscribe('current_mode', self._on_mode_changed)
+        self.state.subscribe('mode_changed', self._on_mode_changed)
         self.state.subscribe('image_generated', self._on_image_generated)
         self.state.subscribe('uploaded_image', self._on_uploaded_image_changed)
         
@@ -40,290 +37,277 @@ class ImagePad:
                 ui.button(icon='refresh', on_click=self._refresh_image_pad).props('round color=white text-color=black size=sm')
             
             # 메인 이미지 영역
-            with ui.column().classes('w-full h-full flex items-center justify-center') as image_container:
+            with ui.element('div').classes('w-full h-full flex items-center justify-center') as image_container:
                 self.image_container = image_container
                 await self._show_placeholder()
             
-            # 하단 버튼들
-            with ui.row().classes('absolute bottom-4 left-1/2 transform -translate-x-1/2 gap-2'):
-                ui.button('📁 이미지 선택', on_click=self._open_file_dialog).classes('bg-blue-500 text-white px-4 py-2 text-sm rounded')
-                ui.button('🗑️ 이미지 제거', on_click=self._remove_image).classes('bg-red-500 text-white px-4 py-2 text-sm rounded')
-                
             # 우측 상단 상태 표시
             with ui.row().classes('absolute top-2 right-2 z-10'):
                 self.status_label = ui.label('준비됨').classes('text-white text-sm bg-gray-800 px-2 py-1 rounded')
-
+    
     async def _show_placeholder(self):
         """플레이스홀더 표시"""
-        if self.image_container:
-            self.image_container.clear()
-            
-            with self.image_container:
-                current_mode = self.state.get('current_mode', 'txt2img')
-                
-                if current_mode in ['img2img', 'inpaint', 'upscale']:
-                    # 업로드 영역 표시
-                    await self._show_upload_area()
-                else:
-                    # 생성된 이미지 대기 영역
-                    ui.html('''
-                        <div style="text-align:center;color:white;padding:40px;">
-                            <div style="font-size:64px;margin-bottom:20px;">🎨</div>
-                            <div style="font-size:24px;margin-bottom:10px;">이미지 생성 대기</div>
-                            <div style="font-size:16px;color:#888;">
-                                생성 버튼을 클릭하여 이미지를 생성하세요
-                            </div>
-                        </div>
-                    ''')
-
+        current_mode = self.state.get('current_mode', 'txt2img')
+        
+        if current_mode in ['img2img', 'inpaint', 'upscale']:
+            await self._show_upload_area()
+        else:
+            # t2i 모드 - 생성 대기 메시지
+            if self.image_container:
+                try:
+                    self.image_container.clear()
+                except RuntimeError as e:
+                    if "deleted" in str(e).lower():
+                        print("⚠️ 클라이언트가 삭제되었습니다. 플레이스홀더 표시를 건너뜁니다.")
+                        return
+                    else:
+                        raise e
+                with self.image_container:
+                    with ui.card().classes('bg-gray-700 p-8 rounded-lg text-center'):
+                        ui.icon('auto_awesome', size='64px').classes('text-yellow-400 mb-4')
+                        ui.label('이미지 생성 대기').classes('text-white text-lg mb-2')
+                        ui.label('생성 버튼을 클릭하여 이미지를 생성하세요').classes('text-gray-300 text-sm')
+    
     async def _show_upload_area(self):
         """업로드 영역 표시"""
         if self.image_container:
-            self.image_container.clear()
+            # 기존 내용 제거
+            try:
+                self.image_container.clear()
+            except RuntimeError as e:
+                if "deleted" in str(e).lower():
+                    print("⚠️ 클라이언트가 삭제되었습니다. 업로드 영역 표시를 건너뜁니다.")
+                    return
+                else:
+                    raise e
             
             with self.image_container:
-                # 드래그 앤 드롭 영역
-                with ui.upload(
-                    label='🖼️ 이미지를 여기에 드래그하거나 클릭하여 선택하세요',
-                    on_upload=self._on_file_uploaded,
-                    multiple=False
-                ).classes('w-full h-full border-2 border-dashed border-gray-400 rounded-lg flex items-center justify-center bg-gray-700') as upload:
-                    self.upload_area = upload
+                # 업로드 영역
+                with ui.card().classes('bg-gray-700 p-8 rounded-lg text-center') as upload_card:
+                    self.upload_area = upload_card
                     
-                    # 안내 텍스트
-                    ui.html('''
-                        <div style="text-align:center;color:white;padding:40px;">
-                            <div style="font-size:48px;margin-bottom:20px;">📁</div>
-                            <div style="font-size:20px;margin-bottom:10px;">이미지 업로드</div>
-                            <div style="font-size:14px;color:#888;margin-bottom:20px;">
-                                이미지를 드래그하거나 클릭하여 선택하세요
-                            </div>
-                            <div style="font-size:12px;color:#666;">
-                                • PNG, JPG, JPEG, BMP, GIF, TIFF, WEBP 지원<br>
-                                • 최대 파일 크기: 50MB
-                            </div>
-                        </div>
-                    ''')
-
+                    ui.icon('cloud_upload', size='64px').classes('text-blue-400 mb-4')
+                    ui.label('이미지를 드래그하거나 클릭하여 업로드').classes('text-white text-lg mb-2')
+                    ui.label('PNG, JPG, JPEG, BMP, GIF, TIFF, WEBP 지원').classes('text-gray-300 text-sm mb-4')
+                    
+                    # 파일 업로드 버튼
+                    with ui.upload(
+                        on_upload=self._on_file_uploaded,
+                        auto_upload=True,
+                        multiple=False
+                    ).classes('w-full').props('accept="image/*"'):
+                        ui.button('📁 파일 선택', icon='folder_open').classes('bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg')
+    
     async def _on_file_uploaded(self, e):
-        """파일 업로드 이벤트 처리"""
+        """파일 업로드 처리"""
         try:
-            print(f"🎉 파일 업로드: {e.name}")
+            print(f"🔍 업로드 이벤트 타입: {type(e)}")
+            print(f"🔍 업로드 이벤트 속성: {dir(e)}")
             
-            # 파일 데이터를 PIL Image로 변환
-            file_content = e.content.read()
-            pil_image = Image.open(io.BytesIO(file_content))
+            # NiceGUI 파일 업로드 이벤트 처리
+            if hasattr(e, 'content'):
+                content = e.content
+                name = e.name if hasattr(e, 'name') else 'uploaded_image'
+            elif hasattr(e, 'sender') and hasattr(e.sender, 'value'):
+                # 구버전 호환성
+                content = e.sender.value
+                name = 'uploaded_image'
+            else:
+                print(f"❌ 지원되지 않는 업로드 이벤트 형식: {e}")
+                return
             
-            # RGBA로 변환
-            if pil_image.mode != 'RGBA':
-                pil_image = pil_image.convert('RGBA')
+            print(f"🔍 파일명: {name}")
+            print(f"🔍 콘텐츠 타입: {type(content)}")
             
-            # numpy array로 변환
-            np_image = np.array(pil_image)
-            
-            # 상태 업데이트
-            self.current_image = np_image
-            
-            # UI 업데이트
-            await self._show_uploaded_image(pil_image, e.name)
-            
-            # 메인 프로그램 상태 업데이트
-            self.state.set('uploaded_image', np_image)
-            self.state.set('init_image', np_image)
-            self.state.set('init_image_path', e.name)
-            
-            # 상태 업데이트
-            if self.status_label:
-                self.status_label.text = f"이미지 로드됨: {e.name} ({np_image.shape[1]}×{np_image.shape[0]})"
-            
-            print(f"✅ 이미지 업로드 완료: {np_image.shape}")
-            
+            if content:
+                # 파일 내용 읽기
+                if hasattr(content, 'read'):
+                    # 파일 객체인 경우
+                    print("📖 파일 객체에서 읽기 중...")
+                    file_data = content.read()
+                    print(f"📖 읽은 데이터 크기: {len(file_data)} bytes")
+                else:
+                    # 이미 바이트 데이터인 경우
+                    print("📖 바이트 데이터 사용 중...")
+                    file_data = content
+                
+                # PIL 이미지로 변환
+                from PIL import Image
+                import io
+                image = Image.open(io.BytesIO(file_data))
+                print(f"✅ 이미지 로드 성공: {image.size}")
+                
+                # 상태 업데이트
+                self.state.set('init_image', image)
+                self.state.set('uploaded_image', np.array(image))
+                
+                # 이미지 표시
+                await self._show_uploaded_image(image, name)
+                
+                ui.notify('이미지가 업로드되었습니다', type='positive')
+                print("✅ 이미지 업로드 완료")
+                
         except Exception as e:
-            error_msg = f"이미지 업로드 실패: {str(e)}"
-            print(f"❌ {error_msg}")
-            ui.notify(error_msg, type='negative')
-            
-            if self.status_label:
-                self.status_label.text = "업로드 실패"
-
+            print(f"❌ 업로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            ui.notify(f'업로드 실패: {str(e)}', type='negative')
+    
     async def _show_uploaded_image(self, pil_image, file_name: str):
         """업로드된 이미지 표시"""
-        try:
-            if self.image_container:
+        if self.image_container:
+            try:
+                # 기존 내용 제거 (클라이언트 삭제 오류 방지)
                 self.image_container.clear()
-                
-                with self.image_container:
-                    # 이미지 크기 조정 (최대 400x400)
-                    max_size = 400
-                    width, height = pil_image.size
-                    
-                    if width > max_size or height > max_size:
-                        ratio = min(max_size / width, max_size / height)
-                        new_width = int(width * ratio)
-                        new_height = int(height * ratio)
-                        pil_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                    
-                    # PIL 이미지를 base64로 변환
-                    buffer = io.BytesIO()
-                    pil_image.save(buffer, format='PNG')
-                    img_base64 = base64.b64encode(buffer.getvalue()).decode()
-                    
-                    # 이미지 표시
-                    ui.html(f'''
-                        <div style="text-align:center;">
-                            <img src="data:image/png;base64,{img_base64}" 
-                                 style="max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 4px 8px rgba(0,0,0,0.3);" />
-                            <div style="margin-top:10px;color:white;font-size:14px;">
-                                {file_name}
-                            </div>
-                            <div style="margin-top:5px;color:#888;font-size:12px;">
-                                크기: {width}×{height}
-                            </div>
-                        </div>
-                    ''')
-                    
-            print(f"✅ 이미지 표시 완료: {file_name}")
+            except RuntimeError as e:
+                if "deleted" in str(e).lower():
+                    print("⚠️ 클라이언트가 삭제되었습니다. 이미지 표시를 건너뜁니다.")
+                    return
+                else:
+                    raise e
             
-        except Exception as e:
-            print(f"❌ 이미지 표시 실패: {e}")
-            ui.notify(f"이미지 표시 실패: {str(e)}", type='negative')
-
-    async def _open_file_dialog(self):
-        """파일 선택 다이얼로그 열기"""
-        try:
-            # 업로드 영역 클릭 트리거
-            if self.upload_area:
-                # JavaScript로 파일 선택 다이얼로그 열기
-                await ui.run_javascript('''
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = '.png,.jpg,.jpeg,.bmp,.gif,.tiff,.webp';
-                    input.onchange = function(e) {
-                        if (e.target.files.length > 0) {
-                            const file = e.target.files[0];
-                            // NiceGUI upload 컴포넌트에 파일 전달
-                            const uploadElement = document.querySelector('input[type="file"]');
-                            if (uploadElement) {
-                                uploadElement.files = e.target.files;
-                                uploadElement.dispatchEvent(new Event('change', { bubbles: true }));
-                            }
-                        }
-                    };
-                    input.click();
-                ''')
-        except Exception as e:
-            print(f"❌ 파일 다이얼로그 오류: {e}")
-            ui.notify(f"파일 선택 실패: {str(e)}", type='negative')
-
+            with self.image_container:
+                # 이미지를 더 큰 영역에 표시 (카드 제거)
+                with ui.column().classes('w-full h-full items-center justify-center p-4'):
+                    # 이미지 표시 (더 큰 크기로)
+                    ui.image(pil_image).classes('max-w-full max-h-full object-contain rounded-lg shadow-lg')
+                    
+                    # 하단 정보 영역
+                    with ui.row().classes('w-full justify-between items-center mt-4'):
+                        # 파일 정보
+                        ui.label(f'📁 {file_name}').classes('text-white text-sm')
+                        ui.label(f'크기: {pil_image.size[0]} x {pil_image.size[1]}').classes('text-gray-300 text-xs')
+                        
+                        # 이미지 변경 버튼
+                        ui.button('🔄 이미지 변경', on_click=self._remove_image).classes('bg-orange-500 hover:bg-orange-600 text-white text-sm px-3 py-1 rounded')
+    
     async def _remove_image(self):
         """이미지 제거"""
-        try:
-            self.current_image = None
-            
-            # 메인 프로그램 상태 초기화
-            self.state.set('uploaded_image', None)
-            self.state.set('init_image', None)
-            self.state.set('init_image_path', None)
-            
-            # UI 업데이트
-            await self._show_placeholder()
-            
-            # 상태 업데이트
-            if self.status_label:
-                self.status_label.text = "이미지 제거됨"
-                
-            print("✅ 이미지 제거 완료")
-            
-        except Exception as e:
-            print(f"❌ 이미지 제거 실패: {e}")
-            ui.notify(f"이미지 제거 실패: {str(e)}", type='negative')
-
-    async def _on_mode_changed(self, mode: str):
-        """모드 변경 이벤트 처리"""
-        self.current_mode = mode
+        self.state.set('init_image', None)
+        self.state.set('uploaded_image', None)
         await self._show_placeholder()
-        print(f"🔄 모드 변경: {mode}")
+        ui.notify('이미지가 제거되었습니다', type='info')
+    
+    async def _on_mode_changed(self, data: dict):
+        """모드 변경 이벤트 처리"""
+        mode = data.get('mode', 'txt2img')
+        self.current_mode = mode
         
+        # t2i에서 i2i로 전환 시 생성된 이미지를 init_image로 설정
+        if mode in ['img2img', 'inpaint'] and self.current_image:
+            self.state.set('init_image', self.current_image)
+        
+        # UI 새로고침
+        await self._show_placeholder()
+        
+        print(f"🔄 모드 변경: {mode}")
+    
     async def _on_generation_started(self, data: dict):
-        """이미지 생성 시작 이벤트 처리"""
-        try:
-            # 상태 업데이트
-            if self.status_label:
-                self.status_label.text = "이미지 생성 중..."
-                
-            # 생성 중임을 나타내는 UI 표시
-            if self.image_container:
-                self.image_container.clear()
-                
-                with self.image_container:
-                    ui.html('''
-                        <div style="text-align:center;color:white;padding:40px;">
-                            <div style="font-size:64px;margin-bottom:20px;">🎨</div>
-                            <div style="font-size:24px;margin-bottom:10px;">이미지 생성 중...</div>
-                            <div style="font-size:16px;color:#888;">
-                                잠시만 기다려주세요
-                            </div>
-                        </div>
-                    ''')
-                    
-            print("🔄 이미지 생성 시작됨")
-            
-        except Exception as e:
-            print(f"❌ 생성 시작 이벤트 처리 실패: {e}")
-            
-    async def _on_image_generated(self, data: dict):
+        """생성 시작 이벤트 처리"""
+        if self.status_label:
+            self.status_label.text = '생성 중...'
+            self.status_label.classes('text-yellow-400')
+    
+    async def _on_image_generated(self, data):
         """이미지 생성 완료 이벤트 처리"""
-        image_path = data.get('image_path')
-        if image_path and Path(image_path).exists():
-            await self._show_generated_image(image_path)
-            
+        try:
+            # data가 딕셔너리인지 확인
+            if isinstance(data, dict):
+                image_path = data.get('image_path')
+                if image_path and Path(image_path).exists():
+                    await self._show_generated_image(image_path)
+                    
+                    # 생성된 이미지를 last_generated_images에 저장 (i2i 전환용)
+                    from PIL import Image
+                    pil_image = Image.open(image_path)
+                    self.current_image = pil_image
+                    self.state.set('last_generated_images', [pil_image])
+                    
+                    # 상태 업데이트
+                    if self.status_label:
+                        self.status_label.text = '생성 완료'
+                        self.status_label.classes('text-green-400')
+            else:
+                print(f"⚠️ 예상하지 못한 데이터 형식: {type(data)}")
+                    
+        except Exception as e:
+            print(f"❌ 생성된 이미지 표시 실패: {e}")
+            import traceback
+            traceback.print_exc()
+    
     async def _on_uploaded_image_changed(self, np_image):
         """업로드된 이미지 변경 이벤트 처리"""
         if np_image is not None:
+            from PIL import Image
             pil_image = Image.fromarray(np_image)
             await self._show_uploaded_image(pil_image, "업로드된 이미지")
-            
+    
     async def _show_generated_image(self, image_path: str):
         """생성된 이미지 표시"""
-        try:
-            if self.image_container:
+        if self.image_container:
+            try:
+                # 기존 내용 제거 (클라이언트 삭제 오류 방지)
                 self.image_container.clear()
-                
-                with self.image_container:
-                    # 이미지 표시
-                    ui.html(f'''
-                        <div style="text-align:center;">
-                            <img src="{image_path}" 
-                                 style="max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 4px 8px rgba(0,0,0,0.3);" />
-                            <div style="margin-top:10px;color:white;font-size:14px;">
-                                생성된 이미지
-                            </div>
-                        </div>
-                    ''')
+            except RuntimeError as e:
+                if "deleted" in str(e).lower():
+                    print("⚠️ 클라이언트가 삭제되었습니다. 이미지 표시를 건너뜁니다.")
+                    return
+                else:
+                    raise e
+            
+            with self.image_container:
+                # 이미지를 더 큰 영역에 표시 (카드 제거)
+                with ui.column().classes('w-full h-full items-center justify-center p-4'):
+                    # 이미지 표시 (더 큰 크기로)
+                    ui.image(image_path).classes('max-w-full max-h-full object-contain rounded-lg shadow-lg')
                     
-            # 상태 업데이트
-            if self.status_label:
-                self.status_label.text = "이미지 생성 완료"
-                
-            print(f"✅ 생성된 이미지 표시 완료: {image_path}")
+                    # 하단 정보 영역
+                    with ui.row().classes('w-full justify-between items-center mt-4'):
+                        # 파일 정보
+                        file_name = Path(image_path).name
+                        ui.label(f'🎨 {file_name}').classes('text-white text-sm')
+                        
+                        # 복사 버튼
+                        ui.button('📋 클립보드 복사', on_click=lambda: self._copy_to_clipboard(image_path)).classes('bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded')
+    
+    async def _copy_to_clipboard(self, image_path: str):
+        """이미지를 클립보드에 복사"""
+        try:
+            import pyperclip
+            from PIL import Image
+            import io
+            import base64
+            
+            # 이미지를 base64로 인코딩
+            image = Image.open(image_path)
+            buffer = io.BytesIO()
+            image.save(buffer, format='PNG')
+            img_str = base64.b64encode(buffer.getvalue()).decode()
+            
+            # 클립보드에 복사
+            pyperclip.copy(f'data:image/png;base64,{img_str}')
+            ui.notify('이미지가 클립보드에 복사되었습니다', type='positive')
             
         except Exception as e:
-            print(f"❌ 생성된 이미지 표시 실패: {e}")
-            
+            print(f"❌ 클립보드 복사 실패: {e}")
+            ui.notify('클립보드 복사에 실패했습니다', type='negative')
+    
     async def _refresh_image_pad(self):
         """이미지 패드 새로고침"""
         await self._show_placeholder()
-        
+        ui.notify('이미지 패드가 새로고침되었습니다', type='info')
+    
     def get_uploaded_image(self) -> Optional[np.ndarray]:
         """업로드된 이미지 반환"""
         return self.state.get('uploaded_image')
-        
+    
     def get_uploaded_image_resized(self, width: int, height: int) -> Optional[np.ndarray]:
         """리사이즈된 업로드 이미지 반환"""
-        uploaded_image = self.get_uploaded_image()
-        if uploaded_image is not None:
-            pil_image = Image.fromarray(uploaded_image)
-            resized_image = pil_image.resize((width, height), Image.Resampling.LANCZOS)
-            return np.array(resized_image)
+        image = self.get_uploaded_image()
+        if image is not None:
+            from PIL import Image
+            pil_image = Image.fromarray(image)
+            resized = pil_image.resize((width, height), Image.Resampling.LANCZOS)
+            return np.array(resized)
         return None
 

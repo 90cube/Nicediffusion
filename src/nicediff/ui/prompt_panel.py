@@ -2,6 +2,7 @@
 프롬프트 입력 패널
 """
 
+from typing import List
 from nicegui import ui
 from ..core.state_manager import StateManager
 
@@ -86,6 +87,11 @@ class PromptPanel:
                                 icon='optimize',
                                 on_click=self._optimize_prompt
                             ).props('dense flat size=sm color=green').tooltip('프롬프트 최적화')
+                            
+                            ui.button(
+                                icon='segment',
+                                on_click=self._show_long_prompt_dialog
+                            ).props('dense flat size=sm color=purple').tooltip('긴 프롬프트 처리')
                         
                         # 프롬프트 분석 결과 표시 (제거됨 - 팝업으로 대체)
                 
@@ -368,6 +374,136 @@ class PromptPanel:
         self._on_positive_change(type('', (), {'args': optimized_text})())
         dialog.close()
         ui.notify('최적화된 프롬프트가 적용되었습니다', type='positive')
+    
+    def _show_long_prompt_dialog(self):
+        """긴 프롬프트 처리 다이얼로그"""
+        current_text = self.positive_textarea.value if self.positive_textarea else ''
+        
+        if not current_text:
+            ui.notify('처리할 프롬프트를 입력해주세요', type='warning')
+            return
+        
+        # 프롬프트 통계 정보 가져오기
+        stats = self.state.get_prompt_stats(current_text)
+        
+        # 다이얼로그 표시
+        with ui.dialog() as dialog, ui.card().classes('w-full max-w-4xl'):
+            ui.label('긴 프롬프트 처리').classes('text-lg font-bold text-purple-400')
+            
+            with ui.column().classes('w-full gap-4'):
+                # 통계 정보
+                with ui.card().classes('w-full bg-gray-800 p-4'):
+                    ui.label('프롬프트 통계').classes('font-medium text-blue-400')
+                    with ui.row().classes('w-full justify-between text-sm'):
+                        ui.label(f'총 토큰: {stats["total_tokens"]}')
+                        ui.label(f'최대 토큰: {stats["max_tokens"]}')
+                        ui.label(f'청크 수: {stats["chunks_count"]}')
+                    
+                    # 경고 표시
+                    if stats['is_truncated']:
+                        ui.label('⚠️ 프롬프트가 잘릴 수 있습니다!').classes('text-orange-400 font-medium')
+                    else:
+                        ui.label('✅ 프롬프트가 토큰 제한 내에 있습니다.').classes('text-green-400 font-medium')
+                
+                # 청크별 상세 정보
+                if stats['chunks_count'] > 1:
+                    ui.label('분할된 청크들:').classes('font-medium text-green-400')
+                    
+                    for i, chunk in enumerate(stats['chunks']):
+                        with ui.card().classes('w-full bg-gray-700 p-3'):
+                            with ui.row().classes('w-full justify-between items-start'):
+                                ui.label(f'청크 {i+1}').classes('font-medium text-blue-400')
+                                with ui.column().classes('text-right text-xs'):
+                                    ui.label(f'{chunk["tokens"]} 토큰')
+                                    ui.label(f'중요도: {chunk["importance"]:.2f}')
+                            
+                            ui.textarea(value=chunk['text']).props('readonly outlined dense').classes('w-full mt-2')
+                
+                # 처리 옵션
+                ui.label('처리 옵션:').classes('font-medium text-yellow-400')
+                with ui.row().classes('w-full gap-2'):
+                    ui.button(
+                        '자동 BREAK 추가',
+                        on_click=lambda: self._add_auto_breaks(current_text, dialog)
+                    ).props('color=orange')
+                    
+                    ui.button(
+                        '프롬프트 최적화',
+                        on_click=lambda: self._optimize_long_prompt(current_text, dialog)
+                    ).props('color=green')
+                    
+                    ui.button(
+                        '수동 분할',
+                        on_click=lambda: self._manual_split(current_text, dialog)
+                    ).props('color=blue')
+                
+                with ui.row().classes('w-full justify-end gap-2'):
+                    ui.button('닫기', on_click=dialog.close).props('flat')
+        
+        dialog.open()
+    
+    def _add_auto_breaks(self, text: str, dialog):
+        """자동으로 BREAK 키워드 추가"""
+        optimized_text = self.state.add_break_keyword(text)
+        
+        if self.positive_textarea:
+            self.positive_textarea.set_value(optimized_text)
+        self._on_positive_change(type('', (), {'args': optimized_text})())
+        
+        ui.notify('자동 BREAK 키워드가 추가되었습니다', type='positive')
+        dialog.close()
+    
+    def _optimize_long_prompt(self, text: str, dialog):
+        """긴 프롬프트 최적화"""
+        optimized_text = self.state.optimize_long_prompt(text)
+        
+        if self.positive_textarea:
+            self.positive_textarea.set_value(optimized_text)
+        self._on_positive_change(type('', (), {'args': optimized_text})())
+        
+        ui.notify('프롬프트가 최적화되었습니다', type='positive')
+        dialog.close()
+    
+    def _manual_split(self, text: str, dialog):
+        """수동 분할 다이얼로그"""
+        chunks = self.state.split_long_prompt(text)
+        
+        with ui.dialog() as split_dialog, ui.card().classes('w-full max-w-4xl'):
+            ui.label('수동 분할 편집').classes('text-lg font-bold text-blue-400')
+            
+            with ui.column().classes('w-full gap-4'):
+                chunk_textareas = []
+                
+                for i, chunk in enumerate(chunks):
+                    ui.label(f'청크 {i+1} ({chunk["tokens"]} 토큰)').classes('font-medium')
+                    textarea = ui.textarea(value=chunk['text']).props('outlined').classes('w-full')
+                    chunk_textareas.append(textarea)
+                
+                with ui.row().classes('w-full justify-end gap-2'):
+                    ui.button('취소', on_click=split_dialog.close).props('flat')
+                    ui.button(
+                        '적용',
+                        on_click=lambda: self._apply_manual_split([ta.value for ta in chunk_textareas], split_dialog, dialog)
+                    ).props('color=primary')
+        
+        split_dialog.open()
+    
+    def _apply_manual_split(self, chunk_texts: List[str], split_dialog, main_dialog):
+        """수동 분할 결과 적용"""
+        # BREAK 키워드로 연결
+        break_keyword = "BREAK"
+        if hasattr(self.state, 'long_prompt_handler') and self.state.long_prompt_handler:
+            break_keyword = self.state.long_prompt_handler.break_keyword
+        
+        result_text = f" {break_keyword} ".join(chunk_texts)
+        
+        if self.positive_textarea:
+            self.positive_textarea.set_value(result_text)
+        self._on_positive_change(type('', (), {'args': result_text})())
+        
+        ui.notify('수동 분할이 적용되었습니다', type='positive')
+        split_dialog.close()
+        main_dialog.close()
     
     # _show_analysis 메서드 제거됨 (팝업으로 대체)
         

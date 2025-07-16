@@ -63,6 +63,8 @@ class TopBar:
                 with ui.row().classes('items-center flex-shrink-0'):
                     ui.label("모델 라이브러리").classes("text-lg font-bold text-white")
                     self.toggle_button = ui.button(icon='expand_less', on_click=self._toggle_visibility).props('flat round color=white size=sm ml-2')
+                    # 체크포인트 새로고침 버튼 추가
+                    ui.button(icon='refresh', on_click=self._refresh_checkpoints).props('flat round color=white size=sm ml-1').tooltip('체크포인트 새로고침')
                 
                 # 오른쪽: VAE 선택 + 중단 버튼 (반응형) - 파라미터 패널과 정렬
                 with ui.row().classes('items-center gap-2 flex-shrink-0 min-w-0 w-72 justify-end'):
@@ -395,7 +397,7 @@ class TopBar:
         
         # 유효성 검사 (정규화 적용)
         valid_params = {}
-        comfyui_samplers = ["euler", "euler_a", "dpmpp_2m", "dpmpp_sde_gpu", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde_gpu"]
+        comfyui_samplers = ["euler", "euler_a", "dpmpp_2m", "dpmpp_2s_a", "dpmpp_sde", "dpmpp_2m_sde", "dpmpp_3m_sde", "ddim", "pndm"]
         comfyui_schedulers = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
         
         for key, value in params.items():
@@ -443,6 +445,17 @@ class TopBar:
         
         # print(f"🔽 모델 라이브러리 {'펼침' if self.is_expanded else '접음'}")
         # ui.notify(f'모델 라이브러리가 {"펼쳐졌습니다" if self.is_expanded else "접혔습니다"}', type='info')
+    
+    async def _refresh_checkpoints(self):
+        """체크포인트 새로고침"""
+        try:
+            ui.notify('체크포인트 스캔 중...', type='info')
+            # StateManager의 모델 스캔 재실행
+            await self.state._scan_models()
+            ui.notify('체크포인트 새로고침 완료', type='positive')
+        except Exception as e:
+            print(f"❌ 체크포인트 새로고침 실패: {e}")
+            ui.notify(f'체크포인트 새로고침 실패: {str(e)}', type='negative')
 
     async def _on_model_selected(self, model_info: Optional[Dict[str, Any]]):
         """StateManager에서 모델 선택이 변경되었다는 알림을 받았을 때 호출됩니다."""

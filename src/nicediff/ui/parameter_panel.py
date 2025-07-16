@@ -214,6 +214,13 @@ class ParameterPanel:
                 init_image_path = self.state.get('init_image_path')
                 init_image_name = self.state.get('init_image_name')
                 print(f"🔍 추가 이미지 정보: 경로={init_image_path}, 이름={init_image_name}")
+                
+                # i2i 모드에서 strength 값 확인 및 고정
+                if hasattr(self, 'strength_slider') and self.strength_slider:
+                    final_strength = self.strength_slider.value
+                    print(f"🔧 i2i Strength 값: {final_strength}")
+                    # 최종 strength 값을 StateManager에 고정
+                    self.state.update_param('strength', final_strength)
         else:
             print(f"✅ txt2img 모드: 이미지 업로드 불필요")
         
@@ -241,6 +248,25 @@ class ParameterPanel:
             except (ValueError, TypeError, AttributeError) as ex:
                 print(f"경고: '{param_name}' 값을 {param_type}으로 변환할 수 없습니다. 오류: {ex}")
         return handler
+    
+    def _on_sampler_change(self, e):
+        """샘플러 변경 이벤트 핸들러"""
+        try:
+            # NiceGUI select 컴포넌트는 e.args[0]에 값을 전달
+            selected_text = e.args[0] if e.args else None
+            print(f"🔍 샘플러 선택 이벤트: {selected_text}, 타입: {type(selected_text)}")
+            
+            if selected_text and selected_text != 0 and isinstance(selected_text, str):  # 문자열인지 확인
+                # 공식 영문명을 그대로 사용
+                sampler_value = selected_text.lower().replace(' ', '_').replace('++', 'pp')
+                self.state.update_param('sampler', sampler_value)
+                print(f"✅ sampler 적용: {sampler_value}")
+            else:
+                print(f"⚠️ 샘플러 선택 값이 유효하지 않음: {selected_text}")
+        except Exception as e:
+            print(f"❌ 샘플러 변환 실패: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _randomize_seed(self):
         """시드 랜덤화"""
@@ -342,8 +368,28 @@ class ParameterPanel:
             self.cfg_input.set_value(params.cfg_scale)
         if self.seed_input and self.seed_input.value != params.seed:
             self.seed_input.set_value(params.seed)
-        if self.sampler_select and self.sampler_select.value != params.sampler:
-            self.sampler_select.set_value(params.sampler)
+        if self.sampler_select and hasattr(params, 'sampler'):
+            # 샘플러 값에 맞는 UI 표시 옵션 찾기
+            sampler_options = [
+                {"value": "euler", "label": "Euler"},
+                {"value": "euler_a", "label": "Euler Ancestral"},
+                {"value": "dpmpp_2m", "label": "DPM++ 2M"},
+                {"value": "dpmpp_2s_a", "label": "DPM++ 2S a"},
+                {"value": "dpmpp_sde", "label": "DPM++ SDE"},
+                {"value": "dpmpp_2m_sde", "label": "DPM++ 2M SDE"},
+                {"value": "dpmpp_3m_sde", "label": "DPM++ 3M SDE"},
+                {"value": "ddim", "label": "DDIM"},
+                {"value": "pndm", "label": "PNDM"}
+            ]
+            
+            current_sampler_display = None
+            for item in sampler_options:
+                if item['value'] == params.sampler:
+                    current_sampler_display = item['label']
+                    break
+            
+            if current_sampler_display and self.sampler_select.value != current_sampler_display:
+                self.sampler_select.set_value(current_sampler_display)
         if self.scheduler_select and self.scheduler_select.value != params.scheduler:
             self.scheduler_select.set_value(params.scheduler)
 
@@ -390,7 +436,23 @@ class ParameterPanel:
     @ui.refreshable
     async def render(self):
         """컴포넌트 렌더링 (새로고침 가능)"""
-        comfyui_samplers = ["euler", "euler_a", "dpmpp_2m", "dpmpp_sde_gpu", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde_gpu"]
+        # 샘플러 옵션 (공식 영문명만)
+        comfyui_samplers = [
+            # 기본 샘플러들
+            {"value": "euler", "label": "Euler"},
+            {"value": "euler_a", "label": "Euler Ancestral"},
+            
+            # DPM++ 시리즈
+            {"value": "dpmpp_2m", "label": "DPM++ 2M"},
+            {"value": "dpmpp_2s_a", "label": "DPM++ 2S a"},
+            {"value": "dpmpp_sde", "label": "DPM++ SDE"},
+            {"value": "dpmpp_2m_sde", "label": "DPM++ 2M SDE"},
+            {"value": "dpmpp_3m_sde", "label": "DPM++ 3M SDE"},
+            
+            # 기타 샘플러들
+            {"value": "ddim", "label": "DDIM"},
+            {"value": "pndm", "label": "PNDM"}
+        ]
         comfyui_schedulers = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
         current_params = self.state.get('current_params')
 
@@ -431,8 +493,26 @@ class ParameterPanel:
             if current_mode == 'txt2img':
                 # 샘플러 | 스케줄러
                 with ui.row().classes('w-full gap-1 min-w-0'):
-                    self.sampler_select = ui.select(options=comfyui_samplers, label='Sampler', value=current_params.sampler) \
-                        .on('update:model-value', self._on_param_change('sampler', str)).classes('flex-1 min-w-0')
+                    # 샘플러 선택 (공식 영문명만)
+                    sampler_options = [item['label'] for item in comfyui_samplers]
+                    sampler_values = [item['value'] for item in comfyui_samplers]
+                    
+                    # 현재 샘플러 값에 맞는 UI 옵션 찾기
+                    current_sampler_display = None
+                    for item in comfyui_samplers:
+                        if item['value'] == current_params.sampler:
+                            current_sampler_display = item['label']
+                            break
+                    
+                    # 매칭되는 옵션이 없으면 기본값 사용
+                    if current_sampler_display is None:
+                        current_sampler_display = sampler_options[0]  # 첫 번째 옵션을 기본값으로
+                    
+                    self.sampler_select = ui.select(
+                        options=sampler_options, 
+                        label='Sampler', 
+                        value=current_sampler_display
+                    ).on('update:model-value', self._on_sampler_change).classes('flex-1 min-w-0')
                     
                     self.scheduler_select = ui.select(options=comfyui_schedulers, label='Scheduler', value=current_params.scheduler) \
                         .on('update:model-value', self._on_param_change('scheduler', str)).classes('flex-1 min-w-0')
@@ -552,14 +632,20 @@ class ParameterPanel:
                         value=strength_value
                     ).on('update:model-value', self._on_param_change('strength', float))
                     
-                    # Strength 값 표시
+                    # Strength 값 표시 (개선된 버전)
                     with ui.row().classes('w-full justify-between text-xs text-gray-400'):
                         ui.label('0.0 (원본 유지)')
                         ui.label(f'{strength_value:.2f}')
                         ui.label('1.0 (완전 새로 생성)')
                     
-                    # Strength 설명
-                    ui.label('이미지 변형 강도: 낮을수록 원본 유지, 높을수록 새로 생성').classes('text-xs text-gray-500')
+                    # Strength 작동 원리 설명 (가이드 반영)
+                    with ui.column().classes('w-full gap-1 mt-2 p-2 bg-gray-800 rounded'):
+                        ui.label('📊 Denoising Strength 작동 원리').classes('text-xs font-medium text-blue-300')
+                        ui.label('• 전체 스텝 중 일부만 실행').classes('text-xs text-gray-300')
+                        ui.label('• Strength 0.7 + Steps 50 = 실제 35스텝만 실행').classes('text-xs text-gray-300')
+                        ui.label('• 처음 15스텝은 건너뛰고 시작').classes('text-xs text-gray-300')
+                        ui.label('• 높은 strength = 더 많은 노이즈 추가').classes('text-xs text-gray-300')
+                        ui.label('• 낮은 strength = 적은 노이즈 추가').classes('text-xs text-gray-300')
                 
                 # 크기 일치 토글
                 with ui.row().classes('w-full items-center gap-2 mt-4'):

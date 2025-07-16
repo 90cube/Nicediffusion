@@ -142,7 +142,7 @@ class BasicGenerationStrategy:
                 # 이미지 생성 (txt2img)
                 generated_images = await self.txt2img_mode.generate(txt2img_params)
             
-            if not generated_images:
+            if generated_images is None or len(generated_images) == 0:
                 result.errors = ["이미지 생성에 실패했습니다."]
                 print("❌ 이미지 생성 실패")
                 return result

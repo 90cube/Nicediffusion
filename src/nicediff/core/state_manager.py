@@ -3,7 +3,10 @@
 
 import asyncio
 import json
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -19,6 +22,7 @@ from ..domains.generation.services.model_loader import ModelLoader
 from ..domains.generation.services.image_saver import ImageSaver
 from ..domains.generation.strategies.basic_strategy import BasicGenerationStrategy
 from ..domains.generation.processors.prompt_processor import PromptProcessor
+from ..services.long_prompt_handler import LongPromptHandler
 
 
 class StateManager:
@@ -54,7 +58,8 @@ class StateManager:
         self.model_loader = ModelLoader(self.device)
         self.image_saver = ImageSaver()
         self.tokenizer_manager = None  # initialize에서 설정
-        self.prompt_processor = PromptProcessor()
+        self.prompt_processor = PromptProcessor('SD15')  # 기본값으로 SD15
+        self.long_prompt_handler = None  # initialize에서 설정
         
         print(f"🖥️ 사용 중인 디바이스: {self.device}")
     
@@ -144,6 +149,19 @@ class StateManager:
             
             # Top_bar에서는 파라미터 자동 적용 금지 - 프롬프트 패널과 파라미터 패널에서만 설정
             print(f"ℹ️ 파라미터 자동 적용 비활성화 (Top_bar에서는 체크포인트와 VAE만 선택)")
+            
+            # 모델 타입에 따라 PromptProcessor와 LongPromptHandler 업데이트
+            model_type = model_info.get('model_type', 'SD15')
+            self.prompt_processor = PromptProcessor(model_type)
+            
+            # LongPromptHandler 초기화 (토크나이저가 로드된 후)
+            pipeline = self.model_loader.get_current_pipeline()
+            if pipeline and hasattr(pipeline, 'tokenizer'):
+                max_tokens = 225 if model_type == 'SDXL' else 77
+                self.long_prompt_handler = LongPromptHandler(pipeline.tokenizer, max_tokens)
+                print(f"✅ LongPromptHandler 초기화: {model_type} 모드 (최대 {max_tokens} 토큰)")
+            
+            print(f"✅ PromptProcessor 업데이트: {model_type} 모드 (최대 {self.prompt_processor.max_tokens} 토큰)")
             
             # 모델 로딩 완료 알림 (선택 알림은 이미 select_model에서 발생했으므로 생략)
             self._notify('model_loaded', model_info)
@@ -340,8 +358,8 @@ class StateManager:
             self.set('is_loading_model', False)
 
     async def generate_image(self):
-        """이미지 생성 실행 (도메인 로직 사용)"""
-        if self.get('is_generating'): 
+        """이미지 생성 실행 (가이드 2단계 전략 적용)"""
+        if self.get('is_generating'):
             self._notify_user('이미 생성 중입니다.', 'warning')
             return
         
@@ -351,8 +369,6 @@ class StateManager:
         
         self.stop_generation_flag.clear()
         self.set('is_generating', True)
-        # 생성 시작 이벤트는 실제 생성이 시작될 때만 발생
-        # self._notify('generation_started', {})  # 여기서는 제거
         
         try:
             # 도메인 전략 사용
@@ -372,120 +388,86 @@ class StateManager:
                 'sampler': params.sampler,
                 'scheduler': params.scheduler,
                 'batch_size': params.batch_size,
-                'clip_skip': getattr(params, 'clip_skip', 1),  # CLIP Skip 추가
-                'strength': getattr(params, 'strength', 0.8),  # i2i Strength 추가
+                'clip_skip': getattr(params, 'clip_skip', 1),
                 'vae': self.get('current_vae_path'),
                 'loras': self.get('current_loras')
             }
             
-            # i2i 모드 처리
+            # 현재 모드 확인
             current_mode = self.get('current_mode', 'txt2img')
+            
+            # i2i 모드 처리 (가이드 2단계 전략)
             if current_mode in ['img2img', 'inpaint', 'upscale']:
                 params_dict['img2img_mode'] = True
-                # init_image는 ImagePad에서 설정되어야 함
+                
+                # strength 값 추가 (중요!)
+                strength = getattr(params, 'strength', 0.8)
+                params_dict['strength'] = strength
+                print(f"🔧 i2i Strength 값: {strength}")
+                
+                # init_image 추가 (중요!)
                 init_image = self.get('init_image')
-                print(f"🔍 StateManager에서 init_image 확인: {init_image}")
-                if init_image is not None:
-                    # numpy 배열인 경우 shape 정보 출력, PIL Image인 경우 size 정보 출력
-                    if hasattr(init_image, 'shape'):
-                        print(f"✅ init_image 확인됨: {type(init_image)}, 크기={init_image.shape[1]}×{init_image.shape[0]}")
-                    elif hasattr(init_image, 'size'):
-                        print(f"✅ init_image 확인됨: {type(init_image)}, {init_image.size}")
-                    else:
-                        print(f"✅ init_image 확인됨: {type(init_image)}")
-                else:
-                    print(f"❌ init_image가 None입니다!")
-                    # 글로벌 상태에서 이미지 다시 가져오기
-                    init_image = self._state.get('init_image')
-                    if init_image is not None:
-                        if hasattr(init_image, 'shape'):
-                            print(f"🔄 글로벌 상태에서 init_image 복구: 크기={init_image.shape[1]}×{init_image.shape[0]}")
-                        elif hasattr(init_image, 'size'):
-                            print(f"🔄 글로벌 상태에서 init_image 복구: {init_image.size}")
-                        else:
-                            print(f"🔄 글로벌 상태에서 init_image 복구: {type(init_image)}")
-                    else:
-                        mode_display = {
-                            'img2img': '이미지 → 이미지',
-                            'inpaint': '인페인팅',
-                            'upscale': '업스케일'
-                        }.get(current_mode, current_mode)
-                        self._notify_user(f'{mode_display} 모드에서는 초기 이미지가 필요합니다. 이미지 패드에서 이미지를 업로드해주세요.', 'warning')
-                        # 즉시 종료하고 finally 블록 실행하지 않음
-                        self.set('is_generating', False)
-                        return
-                
-                # 디버그: 이미지 정보 출력
-                if hasattr(init_image, 'size'):
-                    print(f"🔍 전달할 이미지 크기: {init_image.size}, 모드: {init_image.mode}")
-                else:
-                    print(f"❌ 이미지 객체가 올바르지 않음: {type(init_image)}")
-                
+                if init_image is None:
+                    # uploaded_image에서 가져오기 시도
+                    uploaded_image = self.get('uploaded_image')
+                    if uploaded_image is not None:
+                        # numpy to PIL
+                        from PIL import Image
+                        import numpy as np
+                        if isinstance(uploaded_image, np.ndarray):
+                            init_image = Image.fromarray(uploaded_image.astype('uint8'))
+                            self.set('init_image', init_image)  # 저장
+                    
                 params_dict['init_image'] = init_image
-                print(f"🎨 {current_mode} 모드 활성화 - Strength: {params_dict['strength']}")
+                
+                # 디버그 출력
+                print(f"🔍 i2i 모드 파라미터:")
+                print(f"  - init_image: {init_image}")
+                print(f"  - strength: {strength}")
+                print(f"  - size: {params.width}x{params.height}")
+                
+                if init_image is None:
+                    self._notify_user('이미지를 먼저 업로드해주세요.', 'warning')
+                    self.set('is_generating', False)
+                    return
             else:
                 params_dict['img2img_mode'] = False
                 print("🎨 txt2img 모드 활성화")
             
-            # 반복 생성 처리
-            iterations = int(params.iterations)
-            import random
-            base_seed = params.seed if params.seed > 0 else random.randint(0, 2**32 - 1)
+            # 모델 정보
+            model_info = self.get('current_model_info', {})
             
-            for i in range(iterations):
-                if self.stop_generation_flag.is_set():
-                    self._notify_user('생성이 중단되었습니다.', 'info')
-                    break
+            # 생성 시작 이벤트
+            self._notify('generation_started', {
+                'mode': current_mode,
+                'params': params_dict
+            })
+            
+            # 전략 실행
+            result = await strategy.execute(params_dict, model_info)
+            
+            if result.success and result.images:
+                # 결과 처리
+                self.set('last_generated_images', result.images)
                 
-                # 시드 업데이트
-                current_seed = base_seed + i
-                params_dict['seed'] = current_seed
+                # 후처리 (이미지 저장)
+                for i, image in enumerate(result.images):
+                    await self.finish_generation(image, params, params_dict['seed'])
                 
-                print(f"🎨 생성 시작 (Iteration {i+1}/{iterations}) - Seed: {current_seed}")
+                self._notify_user(f'{len(result.images)}개 이미지 생성 완료!', 'positive')
+            else:
+                error_msg = ', '.join(result.errors) if result.errors else '알 수 없는 오류'
+                self._notify_user(f'생성 실패: {error_msg}', 'negative')
                 
-                # 실제 생성 시작 시에만 이벤트 발생
-                if i == 0:  # 첫 번째 반복에서만
-                    self._notify('generation_started', {})
-                
-                # 전략 실행
-                result = await strategy.execute(params_dict, self.get('current_model_info'))
-                
-                if result.success:
-                    self._notify_user(f'{len(result.images)}개 이미지 생성 완료!', 'positive')
-                    
-                    # 도메인 전략에서 이미 저장된 이미지들의 이벤트 발생
-                    for i, post_result in enumerate(result.post_results):
-                        if post_result.success:
-                            # 이미 저장된 이미지이므로 이벤트만 발생
-                            self._notify('image_generated', {
-                                'image_path': post_result.image_path,
-                                'thumbnail_path': post_result.thumbnail_path,
-                                'params': params,
-                                'seed': current_seed
-                            })
-                            
-                            # 히스토리에 추가
-                            history_item = HistoryItem(
-                                image_path=post_result.image_path,
-                                thumbnail_path=post_result.thumbnail_path,
-                                params=params,
-                                model=self.get('current_model_info')['name'],
-                                vae=self.get('current_vae_path'),
-                                loras=self.get('current_loras', [])
-                            )
-                            self._add_to_history(history_item.to_dict())
-                    
-                else:
-                    self._notify_user(f'이미지 생성 실패: {result.errors}', 'negative')
-                    break
-                    
         except Exception as e:
+            print(f"❌ 생성 중 오류: {e}")
             import traceback
             traceback.print_exc()
             self._notify_user(f'생성 중 오류 발생: {str(e)}', 'negative')
+            
         finally:
             self.set('is_generating', False)
-            self._notify('generation_finished', {})
+            self._notify('generation_completed', {})
 
     async def finish_generation(self, image, params: GenerationParams, seed: int):
         """이미지 생성 완료 후처리 (도메인 서비스 사용)"""
@@ -763,6 +745,15 @@ class StateManager:
             print(f"⚠️ init_image가 None으로 설정됨")
             self._state['init_image'] = None
             self._notify('init_image_changed', {'status': 'cleared'})
+    
+    def transfer_generated_to_init(self):
+        """생성된 이미지를 init_image로 전달 (t2i → i2i 전환용)"""
+        last_images = self.get('last_generated_images')
+        if last_images and len(last_images) > 0:
+            self.set('init_image', last_images[0])
+            print(f"✅ 생성된 이미지를 init_image로 전달: {last_images[0].size if hasattr(last_images[0], 'size') else 'unknown'}")
+            return True
+        return False
 
     def update_param(self, param_name: str, value: Any):
         """파라미터 업데이트"""
@@ -873,7 +864,47 @@ class StateManager:
 
     def add_break_keyword(self, prompt: str, position: int = None) -> str:
         """BREAK 키워드 추가"""
+        if self.long_prompt_handler:
+            return self.long_prompt_handler.add_break_keywords(prompt)
         return self.prompt_processor.add_break_keyword(prompt, position)
+    
+    def get_prompt_stats(self, prompt: str) -> Dict:
+        """프롬프트 통계 정보 (LongPromptHandler 사용)"""
+        if self.long_prompt_handler:
+            return self.long_prompt_handler.get_prompt_stats(prompt)
+        
+        # 기본 통계 (LongPromptHandler가 없는 경우)
+        total_tokens = self.calculate_token_count(prompt)
+        return {
+            'total_tokens': total_tokens,
+            'max_tokens': self.prompt_processor.max_tokens,
+            'chunks_count': 1,
+            'is_truncated': total_tokens > self.prompt_processor.max_tokens,
+            'truncation_ratio': total_tokens / self.prompt_processor.max_tokens if self.prompt_processor.max_tokens > 0 else 0,
+            'chunks': [{'text': prompt, 'tokens': total_tokens, 'importance': 1.0}]
+        }
+    
+    def optimize_long_prompt(self, prompt: str) -> str:
+        """긴 프롬프트 최적화"""
+        if self.long_prompt_handler:
+            return self.long_prompt_handler.optimize_prompt(prompt)
+        return self.optimize_prompt(prompt)
+    
+    def split_long_prompt(self, prompt: str) -> List[Dict]:
+        """긴 프롬프트 분할"""
+        if self.long_prompt_handler:
+            chunks = self.long_prompt_handler.smart_split(prompt)
+            return [
+                {
+                    'text': chunk.text,
+                    'tokens': len(chunk.tokens),
+                    'importance': chunk.importance,
+                    'start_pos': chunk.start_pos,
+                    'end_pos': chunk.end_pos
+                }
+                for chunk in chunks
+            ]
+        return [{'text': prompt, 'tokens': self.calculate_token_count(prompt), 'importance': 1.0}]
 
     def apply_weight(self, keyword: str, weight: float = 1.1) -> str:
         """가중치 적용"""

@@ -288,12 +288,12 @@ async def shutdown():
 
 @app.post('/api/upload_image')
 async def upload_image(file: UploadFile = File(...)):
-    """이미지 업로드 API 엔드포인트"""
+    """이미지 업로드 API 엔드포인트 (개선)"""
     try:
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert('RGB')
         
-        # 1544 fit 리사이즈
+        # 크기 조정
         width, height = image.size
         max_size = 1544
         if width > max_size or height > max_size:
@@ -305,30 +305,27 @@ async def upload_image(file: UploadFile = File(...)):
                 new_width = int(width * (max_size / height))
             image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
-        # numpy array로 변환
-        np_image = np.array(image)
+        # StateManager에 저장
+        state_manager.set('init_image', image)  # PIL Image 저장
+        state_manager.set('uploaded_image', np.array(image))  # numpy도 저장
         
-        # StateManager에 numpy와 PIL 이미지 모두 저장
-        state_manager.set('uploaded_image', np_image)
-        state_manager.set('init_image', image)  # PIL Image 저장 (img2img용)
+        # 현재 모드가 txt2img면 자동으로 img2img로 전환
+        current_mode = state_manager.get('current_mode', 'txt2img')
+        if current_mode == 'txt2img':
+            state_manager.set('current_mode', 'img2img')
+            print("🔄 자동으로 img2img 모드로 전환")
         
-        # 자동으로 img2img 모드로 전환
-        state_manager.set('current_mode', 'img2img')
-        
-        # base64 PNG 반환
+        # base64 반환
         buf = io.BytesIO()
         image.save(buf, format='PNG')
         b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
         
-        print(f"✅ 이미지 업로드 성공: {file.filename} -> {np_image.shape}")
-        print(f"🔄 자동으로 img2img 모드로 전환됨")
-        
         return {
-            'success': True, 
-            'shape': np_image.shape, 
+            'success': True,
+            'shape': image.size,
             'base64': f'data:image/png;base64,{b64}',
             'filename': file.filename,
-            'mode': 'img2img'
+            'mode': state_manager.get('current_mode')
         }
         
     except Exception as e:
