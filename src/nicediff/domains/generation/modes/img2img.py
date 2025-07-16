@@ -215,6 +215,8 @@ class Img2ImgMode:
                     negative_prompt=params.negative_prompt,
                     image=init_image,
                     strength=strength,  # 이 값이 제대로 적용되어야 함
+                    width=params.width,  # 출력 크기 명시적 지정
+                    height=params.height,  # 출력 크기 명시적 지정
                     num_inference_steps=params.steps,
                     guidance_scale=params.cfg_scale,
                     generator=generator,
@@ -236,6 +238,8 @@ class Img2ImgMode:
                     negative_prompt=params.negative_prompt,
                     image=init_image,
                     strength=strength,
+                    width=params.width,  # 출력 크기 명시적 지정
+                    height=params.height,  # 출력 크기 명시적 지정
                     num_inference_steps=params.steps,
                     guidance_scale=params.cfg_scale,
                     generator=generator,
