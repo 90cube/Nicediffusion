@@ -405,6 +405,11 @@ class StateManager:
                 params_dict['strength'] = strength
                 print(f"🔧 i2i Strength 값: {strength}")
                 
+                # size_match_enabled 값 추가 (중요!)
+                size_match_enabled = getattr(params, 'size_match_enabled', False)
+                params_dict['size_match_enabled'] = size_match_enabled
+                print(f"🔧 i2i size_match_enabled: {size_match_enabled}")
+                
                 # init_image 추가 (중요!)
                 init_image = self.get('init_image')
                 if init_image is None:
@@ -424,6 +429,7 @@ class StateManager:
                 print(f"🔍 i2i 모드 파라미터:")
                 print(f"  - init_image: {init_image}")
                 print(f"  - strength: {strength}")
+                print(f"  - size_match_enabled: {size_match_enabled}")
                 print(f"  - size: {params.width}x{params.height}")
                 
                 if init_image is None:

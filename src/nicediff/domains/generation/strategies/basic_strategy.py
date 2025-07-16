@@ -117,7 +117,8 @@ class BasicGenerationStrategy:
                     scheduler=params.get('scheduler', 'karras'),
                     batch_size=params.get('batch_size', 1),
                     model_type=model_info.get('model_type', 'SD15'),
-                    clip_skip=params.get('clip_skip', 1)
+                    clip_skip=params.get('clip_skip', 1),
+                    size_match_enabled=params.get('size_match_enabled', False)  # 크기 일치 모드 추가
                 )
                 
                 # 이미지 생성 (i2i)

@@ -27,6 +27,7 @@ class Img2ImgParams:
     batch_size: int
     model_type: str = 'SD15'
     clip_skip: int = 1  # CLIP Skip 추가
+    size_match_enabled: bool = False  # 크기 일치 모드 추가
 
 
 class Img2ImgMode:
@@ -85,10 +86,15 @@ class Img2ImgMode:
             print(f"✅ 이미지 인코딩 완료: latent shape={latent.shape}, dtype={latent.dtype}")
             return latent
     
-    def _validate_init_image(self, init_image: Image.Image, target_width: int, target_height: int) -> Image.Image:
+    def _validate_init_image(self, init_image: Image.Image, target_width: int, target_height: int, size_match_enabled: bool = False) -> Image.Image:
         """초기 이미지 검증 및 리사이즈"""
         if init_image is None:
             raise ValueError("초기 이미지가 필요합니다.")
+        
+        # size_match_enabled가 활성화되어 있으면 원본 크기 유지
+        if size_match_enabled:
+            print(f"✅ 크기 일치 모드: 원본 이미지 크기 유지 {init_image.size}")
+            return init_image
         
         # 이미지 크기 조정
         if init_image.size != (target_width, target_height):
@@ -150,7 +156,8 @@ class Img2ImgMode:
             return []
         
         # 파라미터 검증
-        init_image = self._validate_init_image(params.init_image, params.width, params.height)
+        size_match_enabled = getattr(params, 'size_match_enabled', False)
+        init_image = self._validate_init_image(params.init_image, params.width, params.height, size_match_enabled)
         strength = self._validate_strength(params.strength)
         
         print(f"📝 프롬프트: {params.prompt[:100]}...")
