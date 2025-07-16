@@ -31,4 +31,7 @@ test/*.log
 
 # Installation artifacts
 *.tmp
-*.temp 
+*.temp
+
+# Guide folder
+guide/ 
