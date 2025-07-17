@@ -358,7 +358,12 @@ class StateManager:
             self.set('is_loading_model', False)
 
     async def generate_image(self):
-        """이미지 생성 실행 (가이드 2단계 전략 적용)"""
+        """
+        이미지 생성 실행 (가이드 2단계 정책 적용)
+        - 생성 파라미터는 반드시 current_params(파라미터/프롬프트 패널)에서만 수집
+        - 모델/LoRA/프리뷰 등 외부 상태는 생성 파라미터에 직접 포함하지 않음
+        - 혹시라도 외부 값이 params_dict에 들어가면 경고 로그 출력 및 무시
+        """
         if self.get('is_generating'):
             self._notify_user('이미 생성 중입니다.', 'warning')
             return
@@ -371,11 +376,10 @@ class StateManager:
         self.set('is_generating', True)
         
         try:
-            # 도메인 전략 사용
             pipeline = self.model_loader.get_current_pipeline()
             strategy = BasicGenerationStrategy(pipeline, self.device, state=self)
             
-            # 파라미터 준비
+            # [정책] 오직 current_params에서만 생성 파라미터 수집
             params = self.get('current_params')
             params_dict = {
                 'prompt': params.prompt,
@@ -389,49 +393,35 @@ class StateManager:
                 'scheduler': params.scheduler,
                 'batch_size': params.batch_size,
                 'clip_skip': getattr(params, 'clip_skip', 1),
-                'vae': self.get('current_vae_path'),
-                'loras': self.get('current_loras')
             }
+            # [방어] 외부 상태가 params_dict에 섞이면 경고
+            for forbidden in ['current_model_info', 'current_loras', 'current_vae_path', 'preview', 'preview_image']:
+                if forbidden in params_dict:
+                    print(f"⚠️ 경고: 생성 파라미터에 외부 상태({forbidden})가 포함되어 있음. 무시합니다.")
+                    params_dict.pop(forbidden)
             
-            # 현재 모드 확인
             current_mode = self.get('current_mode', 'txt2img')
-            
-            # i2i 모드 처리 (가이드 2단계 전략)
             if current_mode in ['img2img', 'inpaint', 'upscale']:
                 params_dict['img2img_mode'] = True
-                
-                # strength 값 추가 (중요!)
                 strength = getattr(params, 'strength', 0.8)
                 params_dict['strength'] = strength
-                print(f"🔧 i2i Strength 값: {strength}")
-                
-                # size_match_enabled 값 추가 (중요!)
                 size_match_enabled = getattr(params, 'size_match_enabled', False)
                 params_dict['size_match_enabled'] = size_match_enabled
-                print(f"🔧 i2i size_match_enabled: {size_match_enabled}")
-                
-                # init_image 추가 (중요!)
                 init_image = self.get('init_image')
                 if init_image is None:
-                    # uploaded_image에서 가져오기 시도
                     uploaded_image = self.get('uploaded_image')
                     if uploaded_image is not None:
-                        # numpy to PIL
                         from PIL import Image
                         import numpy as np
                         if isinstance(uploaded_image, np.ndarray):
                             init_image = Image.fromarray(uploaded_image.astype('uint8'))
-                            self.set('init_image', init_image)  # 저장
-                    
+                            self.set('init_image', init_image)
                 params_dict['init_image'] = init_image
-                
-                # 디버그 출력
                 print(f"🔍 i2i 모드 파라미터:")
                 print(f"  - init_image: {init_image}")
                 print(f"  - strength: {strength}")
                 print(f"  - size_match_enabled: {size_match_enabled}")
                 print(f"  - size: {params.width}x{params.height}")
-                
                 if init_image is None:
                     self._notify_user('이미지를 먼저 업로드해주세요.', 'warning')
                     self.set('is_generating', False)
@@ -440,26 +430,20 @@ class StateManager:
                 params_dict['img2img_mode'] = False
                 print("🎨 txt2img 모드 활성화")
             
-            # 모델 정보
+            # 모델 정보는 파이프라인에만 영향, 생성 파라미터에는 직접 포함하지 않음
             model_info = self.get('current_model_info', {})
             
-            # 생성 시작 이벤트
             self._notify('generation_started', {
                 'mode': current_mode,
                 'params': params_dict
             })
             
-            # 전략 실행
             result = await strategy.execute(params_dict, model_info)
             
             if result.success and result.images:
-                # 결과 처리
                 self.set('last_generated_images', result.images)
-                
-                # 후처리 (이미지 저장)
                 for i, image in enumerate(result.images):
                     await self.finish_generation(image, params, params_dict['seed'])
-                
                 self._notify_user(f'{len(result.images)}개 이미지 생성 완료!', 'positive')
             else:
                 error_msg = ', '.join(result.errors) if result.errors else '알 수 없는 오류'

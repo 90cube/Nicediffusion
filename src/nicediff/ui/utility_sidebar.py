@@ -6,6 +6,7 @@ from nicegui import ui
 from pathlib import Path
 from ..core.state_manager import StateManager
 import asyncio
+from ..utils.image_filters import get_available_filters, apply_filter
 
 class UtilitySidebar:
     """유틸리티 사이드바"""
@@ -243,21 +244,94 @@ class UtilitySidebar:
         self.toggle_button.tooltip('사이드바 닫기' if self.is_expanded else '사이드바 열기')
     
     def _create_edit_tools(self):
-        """편집 도구 생성"""
-        with ui.column().classes('w-full gap-1'):  # 갭 줄임
+        """편집 도구 섹션 생성 (이미지 필터 포함)"""
+        with ui.column().classes('w-full gap-2'):
+            # 기존 편집 도구(예: 자르기, 회전 등)
             tools = [
                 ('crop', '자르기'),
                 ('rotate_right', '회전'),
                 ('flip', '뒤집기'),
                 ('tune', '조정'),
             ]
-            
             for icon, name in tools:
                 ui.button(
                     text=name,
                     icon=icon,
                     on_click=lambda t=name: self._on_tool_click(t)
                 ).props('flat').classes('w-full justify-start text-white hover:bg-gray-700 h-8 text-xs')
+
+            # --- 이미지 필터 UI 추가 ---
+            ui.label('이미지 필터').classes('text-sm font-medium text-purple-400')
+            available_filters = get_available_filters()
+            filter_options = {filter_name: filter_name.replace('_', ' ').title() for filter_name in available_filters}
+            self.filter_select = ui.select(
+                options=filter_options,
+                label='필터 선택',
+                value=None
+            ).props('outlined')
+            ui.label('필터 강도').classes('text-sm font-medium')
+            self.filter_strength_slider = ui.slider(
+                min=0.1,
+                max=3.0,
+                step=0.1,
+                value=1.0
+            ).props('outlined')
+            with ui.row().classes('w-full gap-2'):
+                ui.button(
+                    '필터 적용',
+                    on_click=self._apply_image_filter
+                ).props('outlined color=purple')
+                ui.button(
+                    '필터 초기화',
+                    on_click=self._reset_image_filter
+                ).props('outlined color=gray')
+
+    async def _apply_image_filter(self):
+        """이미지 필터 적용 (유틸리티 사이드바)"""
+        try:
+            if not hasattr(self, 'filter_select') or not self.filter_select.value:
+                ui.notify('필터를 선택해주세요', type='warning')
+                return
+            init_image = self.state.get('init_image')
+            if not init_image:
+                ui.notify('적용할 이미지가 없습니다', type='warning')
+                return
+            filter_strength = 1.0
+            if hasattr(self, 'filter_strength_slider') and self.filter_strength_slider:
+                filter_strength = self.filter_strength_slider.value
+            filter_name = self.filter_select.value
+            import numpy as np
+            img_array = np.array(init_image)
+            filter_params = {}
+            if filter_name in ['brightness', 'contrast']:
+                filter_params['factor'] = filter_strength
+            elif filter_name == 'blur':
+                filter_params['kernel_size'] = int(filter_strength * 5) + 1
+            filtered_array = apply_filter(filter_name, img_array, **filter_params)
+            from PIL import Image
+            filtered_image = Image.fromarray(filtered_array)
+            self.state.set('init_image', filtered_image)
+            self.state.set('image_filter_applied', True)
+            ui.notify(f'{filter_name} 필터가 적용되었습니다', type='positive')
+        except Exception as e:
+            print(f"❌ 필터 적용 실패: {e}")
+            ui.notify(f'필터 적용 실패: {str(e)}', type='negative')
+
+    async def _reset_image_filter(self):
+        """이미지 필터 초기화 (유틸리티 사이드바)"""
+        try:
+            init_image_path = self.state.get('init_image_path')
+            if init_image_path:
+                from PIL import Image
+                original_image = Image.open(init_image_path)
+                self.state.set('init_image', original_image)
+                self.state.set('image_filter_reset', True)
+                ui.notify('필터가 초기화되었습니다', type='positive')
+            else:
+                ui.notify('원본 이미지를 찾을 수 없습니다', type='warning')
+        except Exception as e:
+            print(f"❌ 필터 초기화 실패: {e}")
+            ui.notify(f'필터 초기화 실패: {str(e)}', type='negative')
     
     def _on_tool_click(self, tool_name: str):
         """편집 도구 클릭"""

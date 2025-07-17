@@ -641,15 +641,6 @@ class ParameterPanel:
                         ui.label('0.0 (원본 유지)')
                         ui.label(f'{strength_value:.2f}')
                         ui.label('1.0 (완전 새로 생성)')
-                    
-                    # Strength 작동 원리 설명 (가이드 반영)
-                    with ui.column().classes('w-full gap-1 mt-2 p-2 bg-gray-800 rounded'):
-                        ui.label('📊 Denoising Strength 작동 원리').classes('text-xs font-medium text-blue-300')
-                        ui.label('• 전체 스텝 중 일부만 실행').classes('text-xs text-gray-300')
-                        ui.label('• Strength 0.7 + Steps 50 = 실제 35스텝만 실행').classes('text-xs text-gray-300')
-                        ui.label('• 처음 15스텝은 건너뛰고 시작').classes('text-xs text-gray-300')
-                        ui.label('• 높은 strength = 더 많은 노이즈 추가').classes('text-xs text-gray-300')
-                        ui.label('• 낮은 strength = 적은 노이즈 추가').classes('text-xs text-gray-300')
                 
                 # 크기 일치 토글
                 with ui.row().classes('w-full items-center gap-2 mt-4'):
@@ -658,41 +649,7 @@ class ParameterPanel:
                     ui.label('크기 일치').classes('text-sm text-green-400')
                     ui.label('(업로드된 이미지 크기로 생성)').classes('text-xs text-gray-500')
                 
-                # 이미지 필터 섹션 (I2I 제안서 스타일)
-                with ui.column().classes('w-full gap-2 mt-4') as self.filter_container:
-                    ui.label('이미지 필터').classes('text-sm font-medium text-purple-400')
-                    
-                    # 필터 선택
-                    available_filters = get_available_filters()
-                    filter_options = {filter_name: filter_name.replace('_', ' ').title() for filter_name in available_filters}
-                    
-                    self.filter_select = ui.select(
-                        options=filter_options,
-                        label='필터 선택',
-                        value=None
-                    ).props('outlined')
-                    
-                    # 필터 강도 슬라이더 (일부 필터에만 적용)
-                    ui.label('필터 강도').classes('text-sm font-medium')
-                    self.filter_strength_slider = ui.slider(
-                        min=0.1,
-                        max=3.0,
-                        step=0.1,
-                        value=1.0
-                    ).props('outlined')
-                    
-                    # 필터 적용 버튼
-                    with ui.row().classes('w-full gap-2'):
-                        self.apply_filter_button = ui.button(
-                            '필터 적용',
-                            on_click=self._apply_image_filter
-                        ).props('outlined color=purple')
-                        
-                        ui.button(
-                            '필터 초기화',
-                            on_click=self._reset_image_filter
-                        ).props('outlined color=gray')
-
+                # 이미지 필터 섹션 (I2I 제안서 스타일) 삭제
 
 
             # 생성 버튼
@@ -873,75 +830,6 @@ class ParameterPanel:
         except Exception as e:
             print(f"❌ 이미지 크기 파라미터 적용 실패: {e}")
             ui.notify(f'이미지 크기 적용 실패: {e}', type='negative')
-    
-    async def _apply_image_filter(self):
-        """이미지 필터 적용 (I2I 제안서 스타일)"""
-        try:
-            # 필터 선택 확인
-            if not self.filter_select or not self.filter_select.value:
-                ui.notify('필터를 선택해주세요', type='warning')
-                return
-            
-            # 이미지 확인
-            init_image = self.state.get('init_image')
-            if not init_image:
-                ui.notify('적용할 이미지가 없습니다', type='warning')
-                return
-            
-            # 필터 강도 가져오기
-            filter_strength = 1.0
-            if self.filter_strength_slider:
-                filter_strength = self.filter_strength_slider.value
-            
-            # 필터 적용
-            filter_name = self.filter_select.value
-            import numpy as np
-            img_array = np.array(init_image)
-            
-            # 필터별 파라미터 설정
-            filter_params = {}
-            if filter_name in ['brightness', 'contrast']:
-                filter_params['factor'] = filter_strength
-            elif filter_name == 'blur':
-                filter_params['kernel_size'] = int(filter_strength * 5) + 1
-            
-            # 필터 적용
-            filtered_array = apply_filter(filter_name, img_array, **filter_params)
-            
-            # 결과를 StateManager에 저장
-            from PIL import Image
-            filtered_image = Image.fromarray(filtered_array)
-            self.state.set('init_image', filtered_image)
-            
-            # ImagePad 업데이트 트리거
-            self.state.set('image_filter_applied', True)
-            
-            ui.notify(f'{filter_name} 필터가 적용되었습니다', type='positive')
-            
-        except Exception as e:
-            print(f"❌ 필터 적용 실패: {e}")
-            ui.notify(f'필터 적용 실패: {str(e)}', type='negative')
-    
-    async def _reset_image_filter(self):
-        """이미지 필터 초기화"""
-        try:
-            # 원본 이미지 경로에서 다시 로드
-            init_image_path = self.state.get('init_image_path')
-            if init_image_path:
-                from PIL import Image
-                original_image = Image.open(init_image_path)
-                self.state.set('init_image', original_image)
-                
-                # ImagePad 업데이트 트리거
-                self.state.set('image_filter_reset', True)
-                
-                ui.notify('필터가 초기화되었습니다', type='positive')
-            else:
-                ui.notify('원본 이미지를 찾을 수 없습니다', type='warning')
-                
-        except Exception as e:
-            print(f"❌ 필터 초기화 실패: {e}")
-            ui.notify(f'필터 초기화 실패: {str(e)}', type='negative')
 
     async def _on_mode_button_click(self, mode: str):
         """모드 선택 버튼 클릭 처리"""

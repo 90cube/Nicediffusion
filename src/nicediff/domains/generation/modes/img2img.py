@@ -6,7 +6,7 @@ UI나 Services에 의존하지 않는 순수한 비즈니스 로직
 import torch
 import asyncio
 from typing import Dict, Any, List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from PIL import Image
 
 
@@ -45,11 +45,11 @@ class Img2ImgParams:
     seed_resize_from_h: int =-1  # 시드 리사이즈 높이
     seed_resize_from_w: int =-1  # 시드 리사이즈 너비
     sampler_index: int = 0  # 샘플러 인덱스
-    script_name: str =스크립트 이름
-    script_args: list = None  # 스크립트 인수
-    send_images: bool = true # 이미지 전송
+    script_name: str = ""  # 스크립트 이름
+    script_args: list = field(default_factory=list)  # 스크립트 인수
+    send_images: bool = True  # 이미지 전송
     save_images: bool = False  # 이미지 저장
-    alwayson_scripts: dict = None  # 항상 실행 스크립트
+    alwayson_scripts: dict = field(default_factory=dict)  # 항상 실행 스크립트
 
 
 class Img2ImgMode:
