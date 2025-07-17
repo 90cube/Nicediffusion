@@ -215,10 +215,10 @@ class Img2ImgTab(BaseTab):
         self.generated_image = None  # 생성 결과 (독립 관리)
     
     def render(self, container):
-        """I2I 탭 렌더링 - 좌우 분할 뷰"""
+        """I2I 탭 렌더링 - 좌우 분할 뷰 (넓은 공간)"""
         with container:
-            # 좌우 분할: 원본 | 결과
-            with ui.splitter(value=50).classes('w-full h-96') as splitter:
+            # 좌우 분할: 원본 | 결과 (더 넓은 높이와 적절한 분할 비율)
+            with ui.splitter(value=45).classes('w-full h-[600px]') as splitter:
                 with splitter.before:
                     self.render_original_section()
                 
@@ -229,27 +229,28 @@ class Img2ImgTab(BaseTab):
             self.transfer_area = ui.element('div').classes('w-full')
     
     def render_original_section(self):
-        """원본 이미지 섹션"""
-        with ui.column().classes('w-full h-full p-2'):
-            ui.label('원본 이미지').classes('text-sm font-medium mb-2 text-green-400')
+        """원본 이미지 섹션 (넓은 공간)"""
+        with ui.column().classes('w-full h-full p-3'):
+            ui.label('원본 이미지').classes('text-sm font-medium mb-3 text-green-400')
             
-            # Props 메서드 오류 수정
+            # Props 메서드 오류 수정 - 더 넓은 영역
             self.upload_area = ui.element('div').classes(
                 'w-full flex-1 border-2 border-dashed border-green-500 '
-                'rounded-lg bg-gray-800 flex items-center justify-center cursor-pointer upload-area'
+                'rounded-lg bg-gray-800 flex items-center justify-center cursor-pointer upload-area '
+                'min-h-[500px]'
             ).props(f'data-tab-id={self.tab_id}')
             
             # 드래그 앤 드롭 + 클릭 업로드
             self.setup_upload_area()
     
     def render_result_section(self):
-        """생성 결과 섹션"""
-        with ui.column().classes('w-full h-full p-2'):
-            ui.label('생성 결과').classes('text-sm font-medium mb-2 text-blue-400')
+        """생성 결과 섹션 (넓은 공간)"""
+        with ui.column().classes('w-full h-full p-3'):
+            ui.label('생성 결과').classes('text-sm font-medium mb-3 text-blue-400')
             
             self.result_area = ui.element('div').classes(
                 'w-full flex-1 border border-blue-500 rounded-lg bg-gray-800 '
-                'flex items-center justify-center'
+                'flex items-center justify-center min-h-[500px]'
             )
             
             with self.result_area:
@@ -375,10 +376,10 @@ class Img2ImgTab(BaseTab):
             print(f"❌ 이미지 검증 중 오류: {e}")
             return False
     
-    def optimize_image_for_display(self, image: Image, max_size: int = 512) -> Image:
-        """이미지 최적화 (WebSocket 연결 중단 방지)"""
+    def optimize_image_for_display(self, image: Image, max_size: int = 800) -> Image:
+        """이미지 최적화 (더 큰 크기로 표시)"""
         try:
-            # 크기가 큰 경우 리사이즈
+            # 크기가 큰 경우 리사이즈 (더 큰 최대 크기)
             if max(image.size) > max_size:
                 ratio = max_size / max(image.size)
                 new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
