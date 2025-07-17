@@ -389,7 +389,27 @@ class TopBar:
             ui.notify('메타데이터가 없습니다', type='warning')
             return
         
-        # 파라미터만 추출 (프롬프트는 적용하지 않음)
+        # 현재 모드 확인
+        current_mode = self.state.get('current_mode', 'txt2img')
+        
+        # i2i 모드에서는 파라미터 적용을 제한하고 프롬프트만 적용
+        if current_mode in ['img2img', 'inpaint', 'upscale']:
+            # 프롬프트만 추출하여 프롬프트 패널에 적용
+            positive_prompt = metadata.get('prompt', '').strip()
+            negative_prompt = metadata.get('negative_prompt', '').strip()
+            
+            if positive_prompt or negative_prompt:
+                # 프롬프트 패널에 적용하는 이벤트 발생
+                self.state._notify('metadata_prompts_apply', {
+                    'positive_prompt': positive_prompt,
+                    'negative_prompt': negative_prompt
+                })
+                ui.notify('메타데이터 프롬프트가 프롬프트 패널에 적용되었습니다', type='success')
+            else:
+                ui.notify('적용할 프롬프트가 없습니다', type='info')
+            return
+        
+        # txt2img 모드에서만 파라미터 적용
         params = metadata.get('parameters', {})
         if not params:
             ui.notify('적용할 파라미터가 없습니다', type='warning')
@@ -424,7 +444,7 @@ class TopBar:
             ui.notify('적용할 유효한 파라미터가 없습니다.', type='info')
             return
 
-        # 새로운 이벤트로 파라미터 적용 (오직 파라미터 패널에만)
+        # 새로운 이벤트로 파라미터 적용 (오직 버튼 클릭 시에만)
         self.state._notify('metadata_params_apply', valid_params)
         ui.notify('메타데이터 파라미터가 파라미터 패널에 적용되었습니다', type='success')
 

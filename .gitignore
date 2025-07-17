@@ -34,4 +34,4 @@ test/*.log
 *.temp
 
 # Guide folder
-guide/ 
+guide/ reserch/

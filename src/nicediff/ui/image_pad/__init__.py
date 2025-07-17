@@ -1,3 +1,3 @@
-from ..image_viewer import ImagePad
+from .tab_system import ImagePadTabSystem
 
-__all__ = ['ImagePad'] 
+__all__ = ['ImagePadTabSystem'] 

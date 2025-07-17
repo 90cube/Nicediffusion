@@ -5,7 +5,7 @@ from nicegui import ui
 from ..core.state_manager import StateManager
 from ..ui.top_bar import TopBar
 from ..ui.utility_sidebar import UtilitySidebar
-from ..ui.image_pad import ImagePadTabSystem
+from ..ui.image_pad import ImagePad
 from ..ui.parameter_panel import ParameterPanel
 from ..ui.prompt_panel import PromptPanel
 from ..ui.lora_panel import LoraPanel
@@ -19,7 +19,7 @@ class InferencePage:
         # 모든 UI 컴포넌트 인스턴스 생성
         self.top_bar = TopBar(state_manager)
         self.sidebar = UtilitySidebar(state_manager)
-        self.image_pad = ImagePadTabSystem(state_manager)
+        self.image_pad = ImagePad(state_manager)
         self.param_panel = ParameterPanel(state_manager)
         self.prompt_panel = PromptPanel(state_manager)
         self.lora_panel = LoraPanel(state_manager)
@@ -45,7 +45,7 @@ class InferencePage:
                 
                 with ui.column().classes('flex-1 min-w-0 h-full gap-2 overflow-hidden'):
                     with ui.card().classes('w-full flex-1 min-h-0 p-0 overflow-hidden'):
-                        self.image_pad.render()
+                        await self.image_pad.render()
                     
                     # 프롬프트 패널과 LoRA 패널을 가로로 배치 (같은 높이)
                     with ui.row().classes('w-full h-100 gap-2 overflow-hidden'):
@@ -82,7 +82,8 @@ class InferencePage:
         self.state.subscribe('param_changed', self.param_panel._on_param_changed)
         self.state.subscribe('prompt_changed', self.prompt_panel._on_prompt_changed)
         self.state.subscribe('vae_changed', self.top_bar._on_vae_changed)
-        self.state.subscribe('generation_started', lambda data: self.image_pad.on_mode_changed(data))
+        self.state.subscribe('image_generated', self.image_pad._on_image_generated)
+        self.state.subscribe('generation_started', self.image_pad._on_generation_started)
         self.state.subscribe('history_updated', self.sidebar._update_history)
         self.state.subscribe('model_selection_changed', self.top_bar._on_model_selected)
         

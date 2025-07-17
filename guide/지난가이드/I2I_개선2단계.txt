@@ -1,0 +1,80 @@
+i2i 생성 로직을 확인해보겠습니다.코드를 분석한 결과, i2i 생성 로직에서 몇 가지 문제점을 발견했습니다:
+
+## 🔍 i2i 생성 로직 문제점 분석
+
+### 1. **init_image 전달 경로 문제**
+```
+업로드 → StateManager → BasicGenerationStrategy → Img2ImgMode
+```
+각 단계에서 이미지가 제대로 전달되지 않는 부분이 있습니다.
+
+### 2. **파라미터 전달 누락**
+- `strength` 값이 params_dict에서 제대로 전달되지 않을 수 있음
+- `init_image`가 params_dict에 포함되지 않음
+
+### 3. **VAE 처리 문제**
+- VAE 인코딩 시 이미지 전처리가 파이프라인 타입에 따라 다르게 처리됨
+- 일부 파이프라인에서 `image_processor`가 없을 수 있음
+
+## 🛠️ 해결 방안### 추가로 확인할 사항:## 📋 i2i 생성 로직 체크리스트
+
+문제를 해결하기 위해 다음 사항들을 확인하세요:
+
+### 1. **이미지 업로드 및 저장**
+- [ ] 업로드 시 `init_image`가 PIL Image로 저장되는지
+- [ ] `uploaded_image`가 numpy array로 저장되는지
+- [ ] 모드가 자동으로 img2img로 전환되는지
+
+### 2. **파라미터 전달**
+- [ ] `strength` 값이 parameter panel에서 설정되는지
+- [ ] `strength` 값이 params_dict에 포함되는지
+- [ ] `init_image`가 params_dict에 포함되는지
+
+### 3. **VAE 처리**
+- [ ] VAE가 제대로 로드되었는지
+- [ ] VAE의 scaling_factor가 정상적인지
+- [ ] 이미지 인코딩 시 오류가 없는지
+
+### 4. **프롬프트 처리**
+- [ ] 프롬프트가 제대로 전달되는지
+- [ ] 네거티브 프롬프트가 전달되는지
+- [ ] CLIP Skip이 적용되는지
+
+### 5. **디버깅 추가**
+
+generation 전에 다음 코드를 실행하여 상태를 확인하세요:
+
+```python
+# state_manager.py의 start_generation 시작 부분에 추가
+print("\n=== i2i 생성 디버그 정보 ===")
+print(f"현재 모드: {self.get('current_mode')}")
+print(f"init_image: {self.get('init_image')}")
+print(f"uploaded_image: {self.get('uploaded_image')}")
+print(f"strength: {getattr(params, 'strength', 'None')}")
+print(f"프롬프트: {params.prompt[:50]}...")
+print(f"VAE 경로: {self.get('current_vae_path')}")
+print("===========================\n")
+```
+
+### 6. **테스트 순서**
+
+1. **이미지 업로드 테스트**
+   - 이미지를 드래그앤드롭 또는 업로드
+   - 개발자 콘솔에서 네트워크 탭 확인
+   - `/api/upload_image` 응답 확인
+
+2. **모드 전환 테스트**
+   - txt2img에서 이미지 생성
+   - img2img 버튼 클릭
+   - 생성된 이미지가 자동으로 전달되는지 확인
+
+3. **파라미터 테스트**
+   - Strength 슬라이더 조작
+   - 콘솔에서 값 변경 확인
+
+4. **생성 테스트**
+   - 생성 버튼 클릭
+   - 콘솔 로그 확인
+   - 오류 메시지 확인
+
+이렇게 수정하면 i2i 생성이 정상적으로 작동할 것입니다!

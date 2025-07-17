@@ -53,10 +53,6 @@ class ParameterPanel:
         # 시드 고정 상태
         self.seed_pinned = False
         
-        # StateManager의 current_params에 시드 고정 상태 설정
-        current_params = self.state.get('current_params')
-        current_params.seed_pinned = False
-        
         # 이벤트 구독 (한 번만 등록)
         self._setup_event_subscriptions()
     
@@ -280,89 +276,22 @@ class ParameterPanel:
         if self.seed_input:
             self.seed_input.value = new_seed
 
-    def _set_random_seed_mode(self):
-        """랜덤 시드 모드로 설정"""
-        # 이미 랜덤 모드가 활성화되어 있으면 아무것도 하지 않음
-        if not self.seed_pinned:
-            print(f"🔍 랜덤 시드 모드 이미 활성화됨 - 중복 클릭 무시")
-            return
+    def _toggle_seed_pin(self):
+        """시드 고정 토글"""
+        self.seed_pinned = not self.seed_pinned
+        if hasattr(self, 'seed_pin_button'):
+            # 아이콘 변경: 고정됨 = push_pin, 고정 해제됨 = push_pin_outlined
+            icon_name = 'push_pin' if self.seed_pinned else 'push_pin_outlined'
+            self.seed_pin_button.props(f'icon={icon_name}')
             
-        print(f"🔄 랜덤 시드 모드로 전환 시작")
-        self.seed_pinned = False
-        
-        # StateManager의 current_params에 시드 고정 상태 업데이트
-        current_params = self.state.get('current_params')
-        current_params.seed_pinned = False
-        
-        # 랜덤 시드 생성 및 표시
-        import random
-        random_seed = random.randint(1, 2147483647)
-        self.state.update_param('seed', random_seed)
-        
-        # 버튼 스타일 업데이트 및 검증 (props 사용)
-        if hasattr(self, 'random_seed_button'):
-            # 랜덤 시드 버튼 활성화 (초록색 배경, 흰색 글자)
-            self.random_seed_button.props('color=green text-color=white')
-            print(f"✅ 랜덤 시드 버튼 활성화 (초록색 배경, 흰색 글자)")
-        else:
-            print(f"❌ 랜덤 시드 버튼을 찾을 수 없음")
+            # 클래스 변경
+            self.seed_pin_button.classes(
+                f'{"bg-blue-600 text-white" if self.seed_pinned else "text-gray-400 hover:text-white"}'
+            )
             
-        if hasattr(self, 'fixed_seed_button'):
-            # 시드 고정 버튼 비활성화 (파란색 배경, 초록색 글자)
-            self.fixed_seed_button.props('color=blue text-color=green')
-            print(f"✅ 시드 고정 버튼 비활성화 (파란색 배경, 초록색 글자)")
-        else:
-            print(f"❌ 시드 고정 버튼을 찾을 수 없음")
-        
-        # 시드 입력란 비활성화 및 랜덤 값 표시
-        if hasattr(self, 'seed_input') and self.seed_input:
-            self.seed_input.props('disable')
-            self.seed_input.classes('w-full min-w-0 opacity-50')
-            self.seed_input.set_value(random_seed)
-            print(f"✅ 시드 입력란 비활성화 (회색 처리, 값: {random_seed})")
-        else:
-            print(f"❌ 시드 입력란을 찾을 수 없음")
-        
-        print(f"🎲 랜덤 시드 모드 활성화 완료: {random_seed}")
-
-    def _set_fixed_seed_mode(self):
-        """시드 고정 모드로 설정"""
-        # 이미 고정 모드가 활성화되어 있으면 아무것도 하지 않음
-        if self.seed_pinned:
-            print(f"🔍 시드 고정 모드 이미 활성화됨 - 중복 클릭 무시")
-            return
-            
-        print(f"🔄 시드 고정 모드로 전환 시작")
-        self.seed_pinned = True
-        
-        # StateManager의 current_params에 시드 고정 상태 업데이트
-        current_params = self.state.get('current_params')
-        current_params.seed_pinned = True
-        
-        # 버튼 스타일 업데이트 및 검증 (props 사용)
-        if hasattr(self, 'random_seed_button'):
-            # 랜덤 시드 버튼 비활성화 (초록색 배경, 초록색 글자)
-            self.random_seed_button.props('color=green text-color=green')
-            print(f"✅ 랜덤 시드 버튼 비활성화 (초록색 배경, 초록색 글자)")
-        else:
-            print(f"❌ 랜덤 시드 버튼을 찾을 수 없음")
-            
-        if hasattr(self, 'fixed_seed_button'):
-            # 시드 고정 버튼 활성화 (파란색 배경, 흰색 글자)
-            self.fixed_seed_button.props('color=blue text-color=white')
-            print(f"✅ 시드 고정 버튼 활성화 (파란색 배경, 흰색 글자)")
-        else:
-            print(f"❌ 시드 고정 버튼을 찾을 수 없음")
-        
-        # 시드 입력란 활성화
-        if hasattr(self, 'seed_input') and self.seed_input:
-            self.seed_input.props('')
-            self.seed_input.classes('w-full min-w-0 opacity-100')
-            print(f"✅ 시드 입력란 활성화 (정상 색상)")
-        else:
-            print(f"❌ 시드 입력란을 찾을 수 없음")
-        
-        print(f"🎲 시드 고정 모드 활성화 완료")
+            # 툴팁 변경
+            self.seed_pin_button.tooltip('시드 고정' if not self.seed_pinned else '시드 고정 해제')
+        print(f"🔒 시드 고정: {'활성화' if self.seed_pinned else '비활성화'}")
 
     def _handle_model_change(self):
         """모델 타입 변경 처리"""
@@ -538,9 +467,30 @@ class ParameterPanel:
                     on_click=self._refresh_parameter_panel
                 ).props('round color=white text-color=black size=sm').tooltip('파라미터 패널 새로고침')
             
+            # 모드 선택 버튼들 (헤더 아래에 작은 크기로 배치)
+            with ui.row().classes('w-full justify-center gap-1 mb-3 min-w-0'):
+                current_mode = self.state.get('current_mode', 'txt2img')
+                modes = [
+                    ('txt2img', 'TXT', 'text_fields'),
+                    ('img2img', 'IMG', 'image'),
+                    ('inpaint', 'INP', 'auto_fix_normal'),
+                    ('upscale', 'UPS', 'zoom_in')
+                ]
+                
+                for mode, short_name, icon in modes:
+                    is_active = current_mode == mode
+                    ui.button(
+                        icon=icon,
+                        on_click=lambda e, m=mode: asyncio.create_task(self._on_mode_button_click(m))
+                    ).props('flat round').classes(
+                        f'text-xs {"bg-blue-600 text-white" if is_active else "text-gray-400 hover:text-white"}'
+                    ).tooltip(mode.upper())
+            
 
 
-
+            # txt2img 모드 전용 파라미터 배치
+            current_mode = self.state.get('current_mode', 'txt2img')
+            
             # 공통 파라미터 (모든 모드에서 사용)
             # 샘플러 | 스케줄러
             with ui.row().classes('w-full gap-1 min-w-0'):
@@ -576,7 +526,7 @@ class ParameterPanel:
                 self.steps_input = ui.number(label='Steps', value=current_params.steps, min=1, max=150) \
                     .on('update:model-value', self._on_param_change('steps', int)).classes('flex-1 min-w-0')
             
-            # 너비 | 높이
+            # 너비 | 높이 (모드별로 다르게 처리)
             current_sd_model = self.state.get('sd_model', 'SD15')
             min_size = 512 if current_sd_model == 'SD15' else 768
             
@@ -587,122 +537,121 @@ class ParameterPanel:
                 self.height_input = ui.number(value=current_params.height, label='높이', min=min_size, max=2048, step=8) \
                     .on('update:model-value', self._on_param_change('height', int)).classes('flex-1 min-w-0')
             
-            # SDXL 토글 (모든 모드에서 노출)
-            with ui.row().classes('w-full justify-center items-center gap-2 min-w-0'):
-                self.model_switch = ui.switch(value=(self.state.get('sd_model') == 'SDXL')).props('color=orange') \
-                    .on('click', self._handle_model_change)
-                ui.label('SDXL').classes('text-xs text-gray-400')
+            # SDXL 토글 (txt2img 모드에서만 활성화)
+            if current_mode == 'txt2img':
+                with ui.row().classes('w-full justify-center items-center gap-2 min-w-0'):
+                    self.model_switch = ui.switch(value=(self.state.get('sd_model') == 'SDXL')).props('color=orange') \
+                        .on('click', self._handle_model_change)
+                    ui.label('SDXL').classes('text-xs text-gray-400')
+
+            # 종횡비 셋팅 (txt2img 모드에서만 활성화)
+            if current_mode == 'txt2img':
+                self.ratio_buttons_container()
             
-            # 종횡비 셋팅 (모든 모드에서 노출)
-            self.ratio_buttons_container()
-            
-            # SEED 설정 (모든 모드에서 사용) - 개선된 UI
-            with ui.column().classes('w-full gap-2'):
-                # 시드 모드 선택 버튼 (시드 입력란 위쪽)
-                with ui.row().classes('w-full gap-1 items-center min-w-0'):
-                    # 랜덤 시드 버튼
-                    self.random_seed_button = ui.button(
-                        '랜덤 시드',
-                        on_click=self._set_random_seed_mode
-                    ).props('flat size=sm').classes(
-                        f'flex-1 {"bg-green-600 text-white" if not self.seed_pinned else "text-gray-400 hover:text-white"}'
-                    ).tooltip('생성 시마다 무작위 시드 사용')
-                    
-                    # 시드 고정 버튼
-                    self.fixed_seed_button = ui.button(
-                        '시드 고정',
-                        on_click=self._set_fixed_seed_mode
-                    ).props('flat size=sm').classes(
-                        f'flex-1 {"bg-blue-600 text-white" if self.seed_pinned else "text-gray-400 hover:text-white"}'
-                    ).tooltip('입력한 시드 값 고정 사용')
+            # SEED 설정 (모든 모드에서 사용)
+            with ui.row().classes('w-full gap-1 items-center min-w-0'):
+                self.seed_input = ui.number(label='Seed', value=current_params.seed, min=-1) \
+                    .on('update:model-value', self._on_param_change('seed', int)).classes('flex-1 min-w-0')
                 
-                # 시드 입력란
-                self.seed_input = ui.number(
-                    label='Seed', 
-                    value=current_params.seed, 
-                    min=-1
-                ).on('update:model-value', self._on_param_change('seed', int)).classes(
-                    f'w-full min-w-0 {"opacity-50" if not self.seed_pinned else ""}'
-                )
-                
-                # 시드 입력란 비활성화/활성화 처리
-                if not self.seed_pinned:
-                    self.seed_input.props('disable')
-                    self.seed_input.classes('w-full min-w-0 opacity-50')
-                    print(f"🔍 초기 렌더링: 시드 입력란 비활성화 (랜덤 모드)")
-                else:
-                    self.seed_input.props('')
-                    self.seed_input.classes('w-full min-w-0 opacity-100')
-                    print(f"🔍 초기 렌더링: 시드 입력란 활성화 (고정 모드)")
-                
-                # 초기 버튼 색상 설정
-                if not self.seed_pinned:
-                    # 랜덤 모드: 랜덤 버튼 활성화 (초록색 배경, 흰색 글자), 고정 버튼 비활성화 (파란색 배경, 초록색 글자)
-                    if hasattr(self, 'random_seed_button'):
-                        self.random_seed_button.props('color=green text-color=white')
-                    if hasattr(self, 'fixed_seed_button'):
-                        self.fixed_seed_button.props('color=blue text-color=green')
-                    print(f"🔍 초기 렌더링: 랜덤 시드 버튼 활성화 (초록색 배경, 흰색 글자)")
-                else:
-                    # 고정 모드: 고정 버튼 활성화 (파란색 배경, 흰색 글자), 랜덤 버튼 비활성화 (초록색 배경, 초록색 글자)
-                    if hasattr(self, 'random_seed_button'):
-                        self.random_seed_button.props('color=green text-color=green')
-                    if hasattr(self, 'fixed_seed_button'):
-                        self.fixed_seed_button.props('color=blue text-color=white')
-                    print(f"🔍 초기 렌더링: 시드 고정 버튼 활성화 (파란색 배경, 흰색 글자)")
-                
-                # 초기 버튼 상태 검증
-                print(f"🔍 초기 시드 모드 상태: {'랜덤' if not self.seed_pinned else '고정'}")
-                print(f"🔍 랜덤 시드 버튼 생성됨: {hasattr(self, 'random_seed_button')}")
-                print(f"🔍 시드 고정 버튼 생성됨: {hasattr(self, 'fixed_seed_button')}")
-                print(f"🔍 시드 입력란 생성됨: {hasattr(self, 'seed_input')}")
+                # 시드 고정 버튼 (핀 모양 아이콘) - 고정 크기로 설정
+                icon_name = 'push_pin' if self.seed_pinned else 'push_pin_outlined'
+                self.seed_pin_button = ui.button(
+                    icon=icon_name,
+                    on_click=lambda e: self._toggle_seed_pin()
+                ).props('flat round size=sm').classes(
+                    f'self-center min-w-[32px] min-h-[32px] {"bg-blue-600 text-white" if self.seed_pinned else "text-gray-400 hover:text-white"}'
+                ).tooltip('시드 고정' if not self.seed_pinned else '시드 고정 해제')
             
             # CLIP SKIP (모든 모드에서 사용)
             clip_skip_value = getattr(current_params, 'clip_skip', 1)
             self.clip_skip_input = ui.number(label='CLIP Skip', value=clip_skip_value, min=1, max=12, step=1) \
                 .on('update:model-value', self._on_param_change('clip_skip', int)).classes('w-full min-w-0')
             
-            # 배치 사이즈 | 반복회수 | 무한 반복 생성 토글 (모든 모드에서 노출)
-            with ui.row().classes('w-full gap-1 items-center min-w-0'):
-                self.batch_size_input = ui.number(label="배치", min=1, max=32, value=current_params.batch_size) \
-                    .on('update:model-value', self._on_param_change('batch_size', int)).classes('flex-1 min-w-0')
+            # 배치 사이즈 | 반복회수 | 무한 반복 생성 토글 (txt2img 모드에서만 활성화)
+            if current_mode == 'txt2img':
+                with ui.row().classes('w-full gap-1 items-center min-w-0'):
+                    self.batch_size_input = ui.number(label="배치", min=1, max=32, value=current_params.batch_size) \
+                        .on('update:model-value', self._on_param_change('batch_size', int)).classes('flex-1 min-w-0')
                 
-                self.iterations_input = ui.number(label="반복", min=1, max=100, value=current_params.iterations) \
-                    .on('update:model-value', self._on_param_change('iterations', int)).classes('flex-1 min-w-0')
+                    self.iterations_input = ui.number(label="반복", min=1, max=100, value=current_params.iterations) \
+                        .on('update:model-value', self._on_param_change('iterations', int)).classes('flex-1 min-w-0')
                 
-                # 무한 반복 생성 토글 (무한 아이콘)
-                infinite_generation = self.state.get('infinite_generation', False)
-                self.infinite_generation_switch = ui.switch(value=infinite_generation).props('color=red') \
-                    .on('click', self._handle_infinite_generation_change)
-                ui.icon('all_inclusive').classes('text-red-400 text-sm').tooltip('무한 반복 생성')
+                    # 무한 반복 생성 토글 (무한 아이콘)
+                    infinite_generation = self.state.get('infinite_generation', False)
+                    self.infinite_generation_switch = ui.switch(value=infinite_generation).props('color=red') \
+                        .on('click', self._handle_infinite_generation_change)
+                    ui.icon('all_inclusive').classes('text-red-400 text-sm').tooltip('무한 반복 생성')
             
-            # Denoise Strength 슬라이더 (모든 모드에서 노출)
-            current_params = self.state.get('current_params')
-            strength_value = getattr(current_params, 'strength', 0.8)
-            size_match_enabled = getattr(current_params, 'size_match_enabled', False)
-            
-            with ui.column().classes('w-full gap-2 mt-4') as self.denoise_container:
-                ui.label('Denoise Strength').classes('text-sm font-medium text-blue-400')
-                self.strength_slider = ui.slider(
-                    min=0.0, 
-                    max=1.0, 
-                    step=0.01, 
-                    value=strength_value
-                ).on('update:model-value', self._on_param_change('strength', float))
+            # img2img 모드 전용 컨트롤들
+            if current_mode in ['img2img', 'inpaint', 'upscale']:
+                # 이미지 크기 적용 버튼 (i2i 모드일 때만, 비율 아래에 표시)
+                init_image = self.state.get('init_image')
+                if init_image is not None:
+                    with ui.card().classes('w-full bg-blue-900 p-2 mt-2'):
+                        with ui.row().classes('w-full justify-between items-center'):
+                            ui.label('업로드된 이미지').classes('text-sm font-medium text-blue-300')
+                            ui.button(
+                                icon='aspect_ratio',
+                                on_click=self._apply_image_size_to_params
+                            ).props('round color=blue text-color=white size=sm').tooltip('이미지 크기를 파라미터에 적용')
+                        
+                        with ui.row().classes('w-full justify-between text-xs'):
+                            # numpy 배열 처리
+                            if hasattr(init_image, 'shape'):
+                                # numpy 배열인 경우
+                                width, height = init_image.shape[1], init_image.shape[0]
+                            else:
+                                # PIL Image인 경우
+                                width, height = init_image.size[0], init_image.size[1]
+                            ui.label(f'크기: {width}×{height}').classes('text-blue-200')
+                            ui.label(f'모드: {getattr(init_image, "mode", "N/A")}').classes('text-blue-200')
+                        
+                        # 현재 파라미터와 비교
+                        current_width = getattr(current_params, 'width', 512)
+                        current_height = getattr(current_params, 'height', 512)
+                        # numpy 배열 비교 문제 해결
+                        image_size = init_image.size
+                        if isinstance(image_size, (list, tuple)):
+                            image_width, image_height = image_size[0], image_size[1]
+                        else:
+                            # numpy 배열인 경우
+                            image_width, image_height = int(image_size[0]), int(image_size[1])
+                        
+                        if current_width != image_width or current_height != image_height:
+                            ui.label('⚠️ 파라미터 크기와 다릅니다').classes('text-xs text-yellow-400')
+                        else:
+                            ui.label('✅ 파라미터 크기와 일치합니다').classes('text-xs text-green-400')
+
+                # Denoise Strength 슬라이더
+                current_params = self.state.get('current_params')
+                strength_value = getattr(current_params, 'strength', 0.8)
+                size_match_enabled = getattr(current_params, 'size_match_enabled', False)
                 
-                # Strength 값 표시 (개선된 버전)
-                with ui.row().classes('w-full justify-between text-xs text-gray-400'):
-                    ui.label('0.0 (원본 유지)')
-                    ui.label(f'{strength_value:.2f}')
-                    ui.label('1.0 (완전 새로 생성)')
-            
-            # 크기 일치 토글 (모든 모드에서 노출)
-            with ui.row().classes('w-full items-center gap-2 mt-4'):
-                self.size_match_toggle = ui.switch(value=size_match_enabled).props('color=green') \
-                    .on('click', self._handle_size_match_toggle)
-                ui.label('크기 일치').classes('text-sm text-green-400')
-                ui.label('(업로드된 이미지 크기로 생성)').classes('text-xs text-gray-500')
-            
+                with ui.column().classes('w-full gap-2 mt-4') as self.denoise_container:
+                    ui.label('Denoise Strength').classes('text-sm font-medium text-blue-400')
+                    self.strength_slider = ui.slider(
+                        min=0.0, 
+                        max=1.0, 
+                        step=0.01, 
+                        value=strength_value
+                    ).on('update:model-value', self._on_param_change('strength', float))
+                    
+                    # Strength 값 표시 (개선된 버전)
+                    with ui.row().classes('w-full justify-between text-xs text-gray-400'):
+                        ui.label('0.0 (원본 유지)')
+                        ui.label(f'{strength_value:.2f}')
+                        ui.label('1.0 (완전 새로 생성)')
+                
+                # 크기 일치 토글
+                with ui.row().classes('w-full items-center gap-2 mt-4'):
+                    self.size_match_toggle = ui.switch(value=size_match_enabled).props('color=green') \
+                        .on('click', self._handle_size_match_toggle)
+                    ui.label('크기 일치').classes('text-sm text-green-400')
+                    ui.label('(업로드된 이미지 크기로 생성)').classes('text-xs text-gray-500')
+                
+                # 이미지 필터 섹션 (I2I 제안서 스타일) 삭제
+
+
             # 생성 버튼
             self.generate_button = ui.button('생성', on_click=self._on_generate_click) \
                 .props('size=lg color=blue').classes('w-full mt-4')
@@ -781,9 +730,18 @@ class ParameterPanel:
         if not params: 
             return
 
+        # 현재 모드 확인
+        current_mode = self.state.get('current_mode', 'txt2img')
+        
+        # i2i 모드에서는 파라미터 적용을 제한
+        if current_mode in ['img2img', 'inpaint', 'upscale']:
+            print(f"⚠️ {current_mode} 모드에서는 메타데이터 파라미터 적용이 제한됩니다")
+            ui.notify(f'{current_mode} 모드에서는 메타데이터 파라미터 적용이 제한됩니다', type='warning')
+            return
+
         print(f"🔧 메타데이터 파라미터 적용 시작: {list(params.keys())}")
 
-        # 실제 상태에 파라미터 적용 (모든 모드에서 허용)
+        # 실제 상태에 파라미터 적용
         for key, value in params.items():
             try:
                 if key == 'width':
@@ -873,3 +831,25 @@ class ParameterPanel:
             print(f"❌ 이미지 크기 파라미터 적용 실패: {e}")
             ui.notify(f'이미지 크기 적용 실패: {e}', type='negative')
 
+    async def _on_mode_button_click(self, mode: str):
+        """모드 선택 버튼 클릭 처리"""
+        print(f"🔄 모드 선택: {mode}")
+        
+        # StateManager에 현재 모드 설정
+        self.state.set('current_mode', mode)
+        
+        # 모드별 기본 설정
+        if mode in ['img2img', 'inpaint', 'upscale']:
+            # i2i 관련 모드일 때 기본 Strength 값 설정
+            current_params = self.state.get('current_params')
+            if not hasattr(current_params, 'strength') or current_params.strength is None:
+                self.state.update_param('strength', 0.8)  # 기본값 0.8
+                print(f"✅ {mode} 모드 기본 Strength 값 설정: 0.8")
+        
+        # 모드 변경 이벤트 발생
+        self.state._notify('mode_changed', {'mode': mode})
+        
+        # 파라미터 패널 새로고침
+        self.render.refresh()
+        
+        print(f"✅ 모드 변경 완료: {mode}")
