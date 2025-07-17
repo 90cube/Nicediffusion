@@ -474,8 +474,9 @@ class StateManager:
                 print(f"✅ StateManager에 generated_images 독립 저장 완료")
                 print(f"   - 저장된 이미지 개수: {len(generated_images)}")
                 
-                # 원본 이미지 보존 확인
+                # 원본 이미지 보존 확인 및 강화
                 self.preserve_init_image()
+                self.ensure_image_state_preservation()
                 
                 # 각 이미지별 후처리
                 for i, image in enumerate(generated_images):
@@ -882,7 +883,36 @@ class StateManager:
         if init_image:
             print(f"✅ 원본 이미지 보존 확인: {init_image.size}")
             return True
-        return False
+        else:
+            print(f"⚠️ 원본 이미지가 없음 - 보존할 이미지 없음")
+            return False
+    
+    def ensure_image_state_preservation(self):
+        """이미지 상태 보존 강화 - 생성 전후 호출"""
+        try:
+            print(f"🔄 이미지 상태 보존 강화 시작")
+            
+            # 원본 이미지 보존 확인
+            init_image = self.get('init_image')
+            if init_image:
+                print(f"✅ 원본 이미지 보존됨: {init_image.size}")
+            else:
+                print(f"ℹ️ 원본 이미지 없음")
+            
+            # 생성된 이미지 확인
+            generated_images = self.get('generated_images', [])
+            if generated_images:
+                print(f"✅ 생성된 이미지 보존됨: {len(generated_images)}개")
+            else:
+                print(f"ℹ️ 생성된 이미지 없음")
+            
+            # 이벤트 플래그 초기화 (새로운 이벤트 발생 허용)
+            self.reset_image_events()
+            
+            print(f"✅ 이미지 상태 보존 강화 완료")
+            
+        except Exception as e:
+            print(f"❌ 이미지 상태 보존 강화 중 오류: {e}")
     
     def reset_image_events(self):
         """이미지 관련 이벤트 플래그 초기화"""

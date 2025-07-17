@@ -427,81 +427,185 @@ class Img2ImgTab(BaseTab):
             print(f"❌ 업로드 초기화 중 오류: {e}")
     
     def activate(self):
-        """탭 활성화 (무한 재귀 방지)"""
+        """탭 활성화 (이벤트 구독 및 기존 이미지 복원)"""
         try:
+            print(f"🔄 Img2Img 탭 활성화 시작")
             self.is_active = True
             self.state.set('current_mode', 'img2img')
             
             # 이벤트 구독 (중복 구독 방지)
             if not hasattr(self, '_subscribed'):
+                print(f"📡 이벤트 구독 시작")
                 self.state.subscribe('generation_completed', self.on_generation_completed)
                 self.state.subscribe('init_image_changed', self.on_init_image_changed)
                 self.state.subscribe('generated_images_changed', self.on_generated_images_changed)
                 self._subscribed = True
+                print(f"✅ 이벤트 구독 완료")
+            
+            # 기존 이미지 상태 복원
+            self.restore_image_state()
+            
         except Exception as e:
             print(f"❌ 탭 활성화 중 오류: {e}")
     
     def cleanup(self):
-        """탭 정리"""
+        """탭 정리 (안전한 이벤트 구독 해제)"""
         try:
+            print(f"🔄 Img2Img 탭 정리 시작")
             self.is_active = False
-            if hasattr(self, '_subscribed'):
-                self.state.unsubscribe('generation_completed', self.on_generation_completed)
-                self.state.unsubscribe('init_image_changed', self.on_init_image_changed)
-                self.state.unsubscribe('generated_images_changed', self.on_generated_images_changed)
+            
+            # 안전한 이벤트 구독 해제
+            if hasattr(self, '_subscribed') and self._subscribed:
+                print(f"📡 이벤트 구독 해제 시작")
+                try:
+                    self.state.unsubscribe('generation_completed', self.on_generation_completed)
+                except Exception as e:
+                    print(f"⚠️ generation_completed 구독 해제 실패: {e}")
+                
+                try:
+                    self.state.unsubscribe('init_image_changed', self.on_init_image_changed)
+                except Exception as e:
+                    print(f"⚠️ init_image_changed 구독 해제 실패: {e}")
+                
+                try:
+                    self.state.unsubscribe('generated_images_changed', self.on_generated_images_changed)
+                except Exception as e:
+                    print(f"⚠️ generated_images_changed 구독 해제 실패: {e}")
+                
                 self._subscribed = False
+                print(f"✅ 이벤트 구독 해제 완료")
+            
         except Exception as e:
             print(f"❌ 탭 정리 중 오류: {e}")
     
+    def restore_image_state(self):
+        """기존 이미지 상태 복원"""
+        try:
+            print(f"🔄 이미지 상태 복원 시작")
+            
+            # 원본 이미지 복원
+            init_image = self.state.get_init_image()
+            if init_image:
+                print(f"✅ 원본 이미지 복원: {init_image.size}")
+                self.set_original_image(init_image)
+            else:
+                print(f"ℹ️ 원본 이미지 없음")
+            
+            # 생성된 이미지 복원
+            generated_images = self.state.get_generated_images()
+            if generated_images:
+                print(f"✅ 생성된 이미지 복원: {len(generated_images)}개")
+                self.set_generated_image(generated_images[0])
+            else:
+                print(f"ℹ️ 생성된 이미지 없음")
+                
+        except Exception as e:
+            print(f"❌ 이미지 상태 복원 중 오류: {e}")
+    
     def on_generation_completed(self, event_data):
-        """생성 완료 이벤트 처리 (무한 재귀 방지)"""
-        if not self.is_active or hasattr(self, '_processing_generation'):
+        """생성 완료 이벤트 처리 (디버깅 강화)"""
+        print(f"🔍 Img2Img: generation_completed 이벤트 수신")
+        print(f"   - 이벤트 데이터: {event_data}")
+        print(f"   - 탭 활성 상태: {self.is_active}")
+        
+        if not self.is_active:
+            print(f"⚠️ 탭이 비활성 상태 - 이벤트 무시")
+            return
+        
+        if hasattr(self, '_processing_generation') and self._processing_generation:
+            print(f"⚠️ 이미 처리 중 - 중복 이벤트 무시")
             return
         
         try:
             self._processing_generation = True
             images = event_data.get('images', [])
+            print(f"   - 수신된 이미지 개수: {len(images)}")
+            
             if images:
-                # 생성된 이미지를 독립적으로 표시 (원본 이미지는 유지)
+                print(f"✅ 생성된 이미지 표시 시작")
                 self.set_generated_image(images[0])
+                print(f"✅ 생성된 이미지 표시 완료")
+            else:
+                print(f"⚠️ 생성된 이미지가 없음")
+                
         except Exception as e:
             print(f"❌ 생성 완료 이벤트 처리 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             self._processing_generation = False
     
     def on_init_image_changed(self, event_data):
-        """원본 이미지 변경 이벤트 처리 (무한 재귀 방지)"""
-        if not self.is_active or hasattr(self, '_processing_init_change'):
+        """원본 이미지 변경 이벤트 처리 (디버깅 강화)"""
+        print(f"🔍 Img2Img: init_image_changed 이벤트 수신")
+        print(f"   - 이벤트 데이터: {event_data}")
+        print(f"   - 탭 활성 상태: {self.is_active}")
+        
+        if not self.is_active:
+            print(f"⚠️ 탭이 비활성 상태 - 이벤트 무시")
+            return
+        
+        if hasattr(self, '_processing_init_change') and self._processing_init_change:
+            print(f"⚠️ 이미 처리 중 - 중복 이벤트 무시")
             return
         
         try:
             self._processing_init_change = True
             status = event_data.get('status')
+            print(f"   - 상태: {status}")
+            
             if status == 'success':
-                # 원본 이미지가 업데이트된 경우
+                print(f"✅ 원본 이미지 업데이트 시작")
                 original_image = self.state.get_init_image()
                 if original_image:
                     self.set_original_image(original_image)
+                    print(f"✅ 원본 이미지 업데이트 완료")
+                else:
+                    print(f"⚠️ StateManager에서 원본 이미지를 찾을 수 없음")
+            else:
+                print(f"ℹ️ 원본 이미지 상태: {status}")
+                
         except Exception as e:
             print(f"❌ 원본 이미지 변경 이벤트 처리 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             self._processing_init_change = False
     
     def on_generated_images_changed(self, event_data):
-        """생성된 이미지 변경 이벤트 처리 (무한 재귀 방지)"""
-        if not self.is_active or hasattr(self, '_processing_generated_change'):
+        """생성된 이미지 변경 이벤트 처리 (디버깅 강화)"""
+        print(f"🔍 Img2Img: generated_images_changed 이벤트 수신")
+        print(f"   - 이벤트 데이터: {event_data}")
+        print(f"   - 탭 활성 상태: {self.is_active}")
+        
+        if not self.is_active:
+            print(f"⚠️ 탭이 비활성 상태 - 이벤트 무시")
+            return
+        
+        if hasattr(self, '_processing_generated_change') and self._processing_generated_change:
+            print(f"⚠️ 이미 처리 중 - 중복 이벤트 무시")
             return
         
         try:
             self._processing_generated_change = True
             count = event_data.get('count', 0)
+            print(f"   - 이미지 개수: {count}")
+            
             if count > 0:
-                # 생성된 이미지가 있는 경우
+                print(f"✅ 생성된 이미지 업데이트 시작")
                 generated_images = self.state.get_generated_images()
                 if generated_images:
                     self.set_generated_image(generated_images[0])
+                    print(f"✅ 생성된 이미지 업데이트 완료")
+                else:
+                    print(f"⚠️ StateManager에서 생성된 이미지를 찾을 수 없음")
+            else:
+                print(f"ℹ️ 생성된 이미지 없음")
+                
         except Exception as e:
             print(f"❌ 생성된 이미지 변경 이벤트 처리 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             self._processing_generated_change = False
 
