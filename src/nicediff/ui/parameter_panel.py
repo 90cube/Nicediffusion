@@ -827,8 +827,23 @@ class ParameterPanel:
         print("🔄 파라미터 패널 새로고침 중...")
         
         try:
-            # @ui.refreshable로 만든 render 함수를 새로고침
-            self.render.refresh()
+            # 생성 버튼 가시성 확인 및 복구
+            if hasattr(self, 'generate_button') and self.generate_button:
+                # 생성 버튼이 숨겨져 있다면 다시 표시
+                if not self.generate_button.visible:
+                    self.generate_button.visible = True
+                    print("✅ 생성 버튼 가시성 복구")
+                
+                # 생성 버튼 텍스트 확인
+                if self.generate_button.text != '생성':
+                    self.generate_button.text = '생성'
+                    print("✅ 생성 버튼 텍스트 복구")
+            
+            # @ui.refreshable로 만든 render 함수를 새로고침 (선택적)
+            if hasattr(self, 'render') and hasattr(self.render, 'refresh'):
+                self.render.refresh()
+                print("✅ render 함수 새로고침 완료")
+            
             print(f"✅ 파라미터 패널 새로고침 완료")
         except Exception as e:
             print(f"❌ 파라미터 패널 새로고침 실패: {e}")

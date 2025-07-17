@@ -12,7 +12,7 @@ from PIL import Image
 
 @dataclass
 class Img2ImgParams:
-    """이미지-이미지 생성 파라미터"""
+    """이미지-이미지 생성 파라미터 (A1111 스타일)"""
     prompt: str
     negative_prompt: str
     init_image: Image.Image
@@ -28,6 +28,28 @@ class Img2ImgParams:
     model_type: str = 'SD15'
     clip_skip: int = 1  # CLIP Skip 추가
     size_match_enabled: bool = False  # 크기 일치 모드 추가
+    
+    # A1111 추가 파라미터들
+    image_cfg_scale: float = 10  # 이미지 CFG 스케일 (A1111 image_cfg_scale)
+    resize_mode: int = 0  # 리사이즈 모드 (0st resize, 1: Crop and resize, 2 Resize and fill)
+    mask_blur: int = 4 # 마스크 블러 (인페인팅용)
+    inpainting_fill: int = 1  # 인페인팅 채우기 모드 (0: fill, 1: original, 2: latent noise,3: latent nothing)
+    inpaint_full_res: bool = False  # 전체 해상도 인페인팅
+    inpaint_full_res_padding: int = 32# 전체 해상도 패딩
+    inpainting_mask_invert: int = 0  # 마스크 반전 (0: normal, 1: invert)
+    eta: float = 1.0 # ETA (노이즈 스케줄링)
+    tiling: bool = False  # 타일링 모드
+    restore_faces: bool = False  # 얼굴 복원
+    subseed: int = -1# 서브시드
+    subseed_strength: float = 0# 서브시드 강도
+    seed_resize_from_h: int =-1  # 시드 리사이즈 높이
+    seed_resize_from_w: int =-1  # 시드 리사이즈 너비
+    sampler_index: int = 0  # 샘플러 인덱스
+    script_name: str =스크립트 이름
+    script_args: list = None  # 스크립트 인수
+    send_images: bool = true # 이미지 전송
+    save_images: bool = False  # 이미지 저장
+    alwayson_scripts: dict = None  # 항상 실행 스크립트
 
 
 class Img2ImgMode:

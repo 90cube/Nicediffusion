@@ -41,8 +41,8 @@ class ImagePad:
                 self.image_container = image_container
                 await self._show_placeholder()
             
-            # 우측 상단 상태 표시
-            with ui.row().classes('absolute top-2 right-2 z-10'):
+            # 우측 하단 상태 표시 (생성 완료 등)
+            with ui.row().classes('absolute bottom-2 right-2 z-10'):
                 self.status_label = ui.label('준비됨').classes('text-white text-sm bg-gray-800 px-2 py-1 rounded')
     
     async def _show_placeholder(self):
