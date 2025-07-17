@@ -783,6 +783,17 @@ class ParameterPanel:
 
         print(f"🔧 메타데이터 파라미터 적용 시작: {list(params.keys())}")
 
+        # 이미지 상태 보존 (img2img 모드에서 중요)
+        current_mode = self.state.get('current_mode', 'txt2img')
+        preserved_init_image = None
+        preserved_generated_images = None
+        
+        if current_mode in ['img2img', 'inpaint', 'upscale']:
+            # 현재 이미지 상태 보존
+            preserved_init_image = self.state.get_init_image()
+            preserved_generated_images = self.state.get_generated_images()
+            print(f"🔒 이미지 상태 보존: init_image={preserved_init_image is not None}, generated_images={len(preserved_generated_images) if preserved_generated_images else 0}")
+
         # 실제 상태에 파라미터 적용 (모든 모드에서 허용)
         for key, value in params.items():
             try:
@@ -804,6 +815,18 @@ class ParameterPanel:
                     self.state.update_param('clip_skip', int(value))
             except (ValueError, TypeError) as e:
                 print(f"경고: 메타데이터 값 '{value}'를 '{key}' 상태에 적용 실패: {e}")
+
+        # 이미지 상태 복원 (필요한 경우)
+        if current_mode in ['img2img', 'inpaint', 'upscale']:
+            if preserved_init_image is not None:
+                # 원본 이미지 복원
+                self.state.set_init_image(preserved_init_image)
+                print(f"✅ 원본 이미지 상태 복원 완료")
+            
+            if preserved_generated_images:
+                # 생성된 이미지들 복원
+                self.state.set_generated_images(preserved_generated_images)
+                print(f"✅ 생성된 이미지 상태 복원 완료")
 
         print(f"✅ 메타데이터 파라미터 적용 완료: {list(params.keys())}")
         ui.notify('메타데이터 파라미터가 파라미터 패널에 적용되었습니다!', type='positive')
