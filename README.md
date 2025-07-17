@@ -21,11 +21,11 @@ venv\Scripts\activate.bat
 
 3. PyTorch를 CUDA 버전에 맞게 설치합니다:
 ```cmd
-# CUDA 11.8 사용 시
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# CUDA 12.1 사용 시  
+# CUDA 12.1 사용 시
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# CUDA 12.8 사용 시 (최신)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 # CPU만 사용 시
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
@@ -57,11 +57,11 @@ source venv/bin/activate
 
 3. PyTorch를 CUDA 버전에 맞게 설치합니다:
 ```bash
-# CUDA 11.8 사용 시
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
 # CUDA 12.1 사용 시
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# CUDA 12.8 사용 시 (최신)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 # CPU만 사용 시
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu

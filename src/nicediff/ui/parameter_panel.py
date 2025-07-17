@@ -183,8 +183,15 @@ class ParameterPanel:
         self.ratio_buttons_container.refresh()
 
     async def _on_generate_click(self):
-        """생성 버튼 클릭"""
+        """생성 버튼 클릭 (중복 클릭 방지 강화)"""
         print(f"🔄 생성 버튼 클릭됨")
+        
+        # 중복 클릭 방지 (생성 중이면 즉시 리턴)
+        if self.state.get('is_generating', False):
+            print(f"⚠️ 이미 생성 중입니다 - 중복 클릭 무시")
+            ui.notify('이미 생성 중입니다. 잠시 기다려주세요.', type='warning')
+            return
+        
         current_mode = self.state.get('current_mode', 'txt2img')
         print(f"🔍 현재 모드: {current_mode}")
         

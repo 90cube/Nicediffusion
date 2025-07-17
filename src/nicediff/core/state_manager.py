@@ -364,12 +364,20 @@ class StateManager:
 
     async def generate_image(self):
         """
-        이미지 생성 실행 (가이드 2단계 정책 적용)
+        이미지 생성 실행 (중복 생성 방지 강화 + UI 동기화 강화)
         - 생성 파라미터는 반드시 current_params(파라미터/프롬프트 패널)에서만 수집
         - 모델/LoRA/프리뷰 등 외부 상태는 생성 파라미터에 직접 포함하지 않음
         - 혹시라도 외부 값이 params_dict에 들어가면 경고 로그 출력 및 무시
         """
+        # 중복 생성 방지 강화
         if self.get('is_generating'):
+            print(f"⚠️ 이미 생성 중입니다 - 중복 요청 무시")
+            self._notify_user('이미 생성 중입니다.', 'warning')
+            return
+        
+        # 생성 상태 체크 (추가 안전장치)
+        if hasattr(self, '_generation_in_progress') and self._generation_in_progress:
+            print(f"⚠️ 생성 진행 중 - 중복 요청 무시")
             self._notify_user('이미 생성 중입니다.', 'warning')
             return
         
@@ -377,146 +385,134 @@ class StateManager:
             self._notify_user('모델을 먼저 로드해주세요.', 'warning')
             return
         
+        # 생성 상태 설정 (중복 방지 강화)
         self.stop_generation_flag.clear()
         self.set('is_generating', True)
+        self._generation_in_progress = True
+        print(f"🔄 이미지 생성 시작...")
         
         try:
             pipeline = self.model_loader.get_current_pipeline()
-            strategy = BasicGenerationStrategy(pipeline, self.device, state=self)
-            
-            # [정책] 오직 current_params에서만 생성 파라미터 수집
-            params = self.get('current_params')
-            
-            # 랜덤 시드 처리 (파라미터 패널의 시드 고정 상태 확인)
-            seed = params.seed
-            if hasattr(params, 'seed_pinned') and not params.seed_pinned:
-                # 랜덤 시드 모드: 새로운 랜덤 시드 생성
-                import random
-                seed = random.randint(1, 2147483647)
-                print(f"🎲 랜덤 시드 모드: 새로운 시드 생성 - {seed}")
-            else:
-                # 시드 고정 모드: 기존 시드 사용
-                print(f"🔒 시드 고정 모드: 기존 시드 사용 - {seed}")
-            
-            params_dict = {
-                'prompt': params.prompt,
-                'negative_prompt': params.negative_prompt,
-                'width': params.width,
-                'height': params.height,
-                'steps': params.steps,
-                'cfg_scale': params.cfg_scale,
-                'seed': seed,  # 처리된 시드 사용
-                'sampler': params.sampler,
-                'scheduler': params.scheduler,
-                'batch_size': params.batch_size,
-                'clip_skip': getattr(params, 'clip_skip', 1),
-            }
-            # [방어] 외부 상태가 params_dict에 섞이면 경고
-            for forbidden in ['current_model_info', 'current_loras', 'current_vae_path', 'preview', 'preview_image']:
-                if forbidden in params_dict:
-                    print(f"⚠️ 경고: 생성 파라미터에 외부 상태({forbidden})가 포함되어 있음. 무시합니다.")
-                    params_dict.pop(forbidden)
-            
             current_mode = self.get('current_mode', 'txt2img')
+            
+            # 파라미터 수집 (current_params에서만)
+            params = self.get('current_params')
+            if not params:
+                print(f"❌ 파라미터가 없습니다")
+                return
+            
+            # img2img 모드에서 원본 이미지 보존 강화
             if current_mode in ['img2img', 'inpaint', 'upscale']:
-                params_dict['img2img_mode'] = True
-                strength = getattr(params, 'strength', 0.8)
-                params_dict['strength'] = strength
-                size_match_enabled = getattr(params, 'size_match_enabled', False)
-                params_dict['size_match_enabled'] = size_match_enabled
                 init_image = self.get('init_image')
-                if init_image is None:
-                    uploaded_image = self.get('uploaded_image')
-                    if uploaded_image is not None:
-                        from PIL import Image
-                        import numpy as np
-                        if isinstance(uploaded_image, np.ndarray):
-                            init_image = Image.fromarray(uploaded_image.astype('uint8'))
-                            self.set('init_image', init_image)
-                params_dict['init_image'] = init_image
-                print(f"🔍 i2i 모드 파라미터:")
-                print(f"  - init_image: {init_image}")
-                print(f"  - strength: {strength}")
-                print(f"  - size_match_enabled: {size_match_enabled}")
-                print(f"  - size: {params.width}x{params.height}")
-                if init_image is None:
+                if not init_image:
+                    print(f"❌ img2img 모드에서 원본 이미지가 없습니다")
                     self._notify_user('이미지를 먼저 업로드해주세요.', 'warning')
-                    self.set('is_generating', False)
                     return
+                
+                print(f"✅ 원본 이미지 보존 확인: {init_image.size}")
+                # 원본 이미지를 파라미터에 추가
+                params.init_image = init_image
+            
+            # 생성 실행
+            result = await self._execute_generation(pipeline, params, current_mode)
+            
+            if result and result.images:
+                print(f"✅ 생성 완료: {len(result.images)}개 이미지")
+                
+                # 생성된 이미지 저장 (원본 이미지 보존)
+                # self.set_generated_images(result.images)  # 중복 저장 제거 - _execute_generation에서 이미 저장됨
+                
+                # 이벤트 발생
+                self._notify('generation_completed', {'images': result.images})
+                
+                # 히스토리 업데이트 (메서드명 수정)
+                # self._update_history(result.images)  # 이 메서드는 존재하지 않음
+                
             else:
-                params_dict['img2img_mode'] = False
-                print("🎨 txt2img 모드 활성화")
-            
-            # 모델 정보는 파이프라인에만 영향, 생성 파라미터에는 직접 포함하지 않음
-            model_info = self.get('current_model_info', {})
-            
-            self._notify('generation_started', {
-                'mode': current_mode,
-                'params': params_dict
-            })
-            
-            result = await strategy.execute(params_dict, model_info)
-            
-            # 1단계: 생성 완료 후 이미지가 StateManager에 저장되는지 확인
-            print("=" * 80)
-            print("🔍 [디버깅 1단계] 생성 완료 후 이미지 저장 확인")
-            print("=" * 80)
-            
-            if result.success and result.images:
-                print(f"✅ 생성 성공: {len(result.images)}개 이미지")
-                print(f"   - result.images 타입: {type(result.images)}")
-                print(f"   - result.images[0] 타입: {type(result.images[0])}")
-                print(f"   - result.images[0] 크기: {result.images[0].size if hasattr(result.images[0], 'size') else 'N/A'}")
+                print(f"❌ 생성 실패")
+                self._notify_user('이미지 생성에 실패했습니다.', 'negative')
                 
-                # 생성된 이미지를 독립적으로 저장 (개선안 5 적용)
-                generated_images = result.images
-                self.set_generated_images(generated_images)
-                print(f"✅ StateManager에 generated_images 독립 저장 완료")
-                print(f"   - 저장된 이미지 개수: {len(generated_images)}")
-                
-                # 원본 이미지 보존 확인 및 강화
-                self.preserve_init_image()
-                self.ensure_image_state_preservation()
-                
-                # 각 이미지별 후처리
-                for i, image in enumerate(generated_images):
-                    print(f"   - 이미지 {i+1} 후처리 시작")
-                    await self.finish_generation(image, params, params_dict['seed'])
-                    print(f"   - 이미지 {i+1} 후처리 완료")
-                
-                self._notify_user(f'{len(result.images)}개 이미지 생성 완료!', 'positive')
-            else:
-                error_msg = ', '.join(result.errors) if result.errors else '알 수 없는 오류'
-                print(f"❌ 생성 실패: {error_msg}")
-                self._notify_user(f'생성 실패: {error_msg}', 'negative')
-                generated_images = []
-            
         except Exception as e:
-            print(f"❌ 생성 중 오류: {e}")
+            print(f"❌ 이미지 생성 중 오류: {e}")
             import traceback
             traceback.print_exc()
-            self._notify_user(f'생성 중 오류 발생: {str(e)}', 'negative')
-            generated_images = []
+            self._notify_user(f'생성 중 오류가 발생했습니다: {str(e)}', 'negative')
             
         finally:
+            # 생성 상태 해제
             self.set('is_generating', False)
+            self._generation_in_progress = False
+            print(f"✅ 이미지 생성 완료")
+
+    async def _execute_generation(self, pipeline, params: GenerationParams, current_mode: str):
+        """실제 생성 로직을 수행하는 내부 메서드"""
+        strategy = BasicGenerationStrategy(pipeline, self.device, state=self)
+        
+        # [정책] 오직 current_params에서만 생성 파라미터 수집
+        params_dict = {
+            'prompt': params.prompt,
+            'negative_prompt': params.negative_prompt,
+            'width': params.width,
+            'height': params.height,
+            'steps': params.steps,
+            'cfg_scale': params.cfg_scale,
+            'seed': params.seed,  # 처리된 시드 사용
+            'sampler': params.sampler,
+            'scheduler': params.scheduler,
+            'batch_size': params.batch_size,
+            'clip_skip': getattr(params, 'clip_skip', 1),
+        }
+        # [방어] 외부 상태가 params_dict에 섞이면 경고
+        for forbidden in ['current_model_info', 'current_loras', 'current_vae_path', 'preview', 'preview_image']:
+            if forbidden in params_dict:
+                print(f"⚠️ 경고: 생성 파라미터에 외부 상태({forbidden})가 포함되어 있음. 무시합니다.")
+                params_dict.pop(forbidden)
+        
+        # 모델 정보는 파이프라인에만 영향, 생성 파라미터에는 직접 포함하지 않음
+        model_info = self.get('current_model_info', {})
+        
+        self._notify('generation_started', {
+            'mode': current_mode,
+            'params': params_dict
+        })
+        
+        result = await strategy.execute(params_dict, model_info)
+        
+        # 1단계: 생성 완료 후 이미지가 StateManager에 저장되는지 확인
+        print("=" * 80)
+        print("🔍 [디버깅 1단계] 생성 완료 후 이미지 저장 확인")
+        print("=" * 80)
+        
+        if result.success and result.images:
+            print(f"✅ 생성 성공: {len(result.images)}개 이미지")
+            print(f"   - result.images 타입: {type(result.images)}")
+            print(f"   - result.images[0] 타입: {type(result.images[0])}")
+            print(f"   - result.images[0] 크기: {result.images[0].size if hasattr(result.images[0], 'size') else 'N/A'}")
             
-            # 2단계: 'generation_completed' 이벤트가 발생하는지 확인
-            print("=" * 80)
-            print("🔍 [디버깅 2단계] generation_completed 이벤트 발생 확인")
-            print("=" * 80)
+            # 생성된 이미지를 독립적으로 저장 (UI 동기화 강화)
+            generated_images = result.images
+            self.set_generated_images(generated_images)
+            print(f"✅ StateManager에 generated_images 독립 저장 완료")
+            print(f"   - 저장된 이미지 개수: {len(generated_images)}")
             
-            if generated_images:
-                print(f"✅ generation_completed 이벤트 발생 (이미지 {len(generated_images)}개 포함)")
-                print(f"   - 이벤트 데이터: {{'images': {len(generated_images)}개 이미지}}")
-                self._notify('generation_completed', {'images': generated_images})
-            else:
-                print(f"⚠️ generation_completed 이벤트 발생 (이미지 없음)")
-                self._notify('generation_completed', {})
+            # 원본 이미지 보존 확인 및 강화
+            self.preserve_init_image()
+            self.ensure_image_state_preservation()
             
-            print("=" * 80)
-            print("🎉 StateManager 디버깅 완료")
-            print("=" * 80)
+            # 각 이미지별 후처리
+            for i, image in enumerate(generated_images):
+                print(f"   - 이미지 {i+1} 후처리 시작")
+                await self.finish_generation(image, params, params_dict['seed'])
+                print(f"   - 이미지 {i+1} 후처리 완료")
+            
+            self._notify_user(f'{len(result.images)}개 이미지 생성 완료!', 'positive')
+            return result
+        else:
+            error_msg = ', '.join(result.errors) if result.errors else '알 수 없는 오류'
+            print(f"❌ 생성 실패: {error_msg}")
+            self._notify_user(f'생성 실패: {error_msg}', 'negative')
+            generated_images = []
+            return result
 
     async def finish_generation(self, image, params: GenerationParams, seed: int):
         """이미지 생성 완료 후처리 (도메인 서비스 사용)"""
@@ -775,13 +771,19 @@ class StateManager:
         self._notify(f'{key}_changed', value)
     
     def set_init_image(self, image):
-        """img2img용 원본 이미지 설정 (영구 보존) - 무한 재귀 방지"""
+        """img2img용 원본 이미지 설정 (영구 보존) - 이미지 프리뷰 강화"""
         print(f"🔍 set_init_image 호출: 이미지 타입={type(image)}")
         
-        # 무한 재귀 방지 플래그 확인
+        # 무한 재귀 방지 플래그 확인 (완화 - 이미지가 실제로 다른 경우에는 허용)
         if hasattr(self, '_setting_init_image') and self._setting_init_image:
-            print(f"⚠️ set_init_image 중복 호출 방지됨")
-            return
+            current_image = self._state.get('init_image')
+            if current_image is not None and image is not None:
+                if hasattr(current_image, 'size') and hasattr(image, 'size'):
+                    if current_image.size == image.size:
+                        print(f"⚠️ set_init_image 중복 호출 방지됨 (동일한 크기)")
+                        return
+            # 다른 이미지인 경우에는 허용
+            print(f"ℹ️ 다른 이미지로 업데이트 허용")
         
         try:
             self._setting_init_image = True
@@ -796,28 +798,37 @@ class StateManager:
                 saved_image = self._state.get('init_image')
                 print(f"🔍 저장 후 확인: 타입={type(saved_image)}, 크기={saved_image.size if saved_image else 'None'}")
                 
-                # 이벤트 발생 제한 (무한 재귀 방지)
-                if not hasattr(self, '_init_image_event_sent'):
-                    self._notify('init_image_changed', {'status': 'success', 'size': image.size})
-                    self._init_image_event_sent = True
-                    print(f"✅ init_image_changed 이벤트 발생")
+                # 이벤트 발생 (이미지 프리뷰 강화)
+                self._notify('init_image_changed', {'status': 'success', 'size': image.size})
+                print(f"✅ init_image_changed 이벤트 발생")
             else:
                 print(f"⚠️ init_image가 None으로 설정됨")
                 self._state['init_image'] = None
                 
-                # 이벤트 발생 제한
-                if not hasattr(self, '_init_image_event_sent'):
-                    self._notify('init_image_changed', {'status': 'cleared'})
-                    self._init_image_event_sent = True
-                    print(f"✅ init_image_changed 이벤트 발생 (cleared)")
+                # 이벤트 발생
+                self._notify('init_image_changed', {'status': 'cleared'})
+                print(f"✅ init_image_changed 이벤트 발생 (cleared)")
                     
         except Exception as e:
             print(f"❌ set_init_image 오류: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
+            # 플래그 해제 (이미지 프리뷰 강화)
             self._setting_init_image = False
     
     def set_generated_images(self, images):
-        """생성된 이미지들 설정 (독립 관리) - 무한 재귀 방지"""
+        """
+        생성된 이미지들 설정 (독립 관리) - UI 동기화 강화
+        
+        ⚠️ 중요: StateManager에는 오직 원본 이미지만 저장합니다!
+        - 썸네일은 절대 저장하지 않음
+        - 썸네일은 히스토리 표시용으로만 사용됨
+        - UI 프리뷰에는 원본 이미지를 사용
+        
+        Args:
+            images: 원본 이미지 리스트 (썸네일이 아님)
+        """
         print(f"🔍 set_generated_images 호출: 이미지 개수={len(images) if images else 0}")
         
         # 무한 재귀 방지 플래그 확인
@@ -829,22 +840,25 @@ class StateManager:
             self._setting_generated_images = True
             
             if images:
+                # 각 이미지의 크기 확인 (원본인지 확인)
+                for i, img in enumerate(images):
+                    print(f"🔍 생성된 이미지 {i+1}: 크기={img.size}, 타입={type(img)}")
+                    # 썸네일 크기인지 확인 (150x150)
+                    if img.size == (150, 150):
+                        print(f"⚠️ 경고: 썸네일 크기(150x150)가 StateManager에 저장됨 - 원본 이미지가 필요함")
+                
                 self._state['generated_images'] = images
                 print(f"✅ generated_images 독립 저장 완료: {len(images)}개")
                 
-                # 이벤트 발생 제한
-                if not hasattr(self, '_generated_images_event_sent'):
-                    self._notify('generated_images_changed', {'count': len(images)})
-                    self._generated_images_event_sent = True
-                    print(f"✅ generated_images_changed 이벤트 발생")
+                # 이벤트 발생 (UI 동기화 강화)
+                self._notify('generated_images_changed', {'count': len(images)})
+                print(f"✅ generated_images_changed 이벤트 발생")
             else:
                 self._state['generated_images'] = []
                 
-                # 이벤트 발생 제한
-                if not hasattr(self, '_generated_images_event_sent'):
-                    self._notify('generated_images_changed', {'count': 0})
-                    self._generated_images_event_sent = True
-                    print(f"✅ generated_images_changed 이벤트 발생 (cleared)")
+                # 이벤트 발생
+                self._notify('generated_images_changed', {'count': 0})
+                print(f"✅ generated_images_changed 이벤트 발생 (cleared)")
                     
         except Exception as e:
             print(f"❌ set_generated_images 오류: {e}")
@@ -860,16 +874,13 @@ class StateManager:
         return self._state.get('generated_images', [])
     
     def clear_generated_images(self):
-        """생성된 이미지들 초기화 - 무한 재귀 방지"""
+        """생성된 이미지들 초기화 - UI 동기화 강화"""
         if not hasattr(self, '_clearing_generated_images') or not self._clearing_generated_images:
             try:
                 self._clearing_generated_images = True
                 self._state['generated_images'] = []
                 
-                # 이벤트 플래그 초기화
-                if hasattr(self, '_generated_images_event_sent'):
-                    delattr(self, '_generated_images_event_sent')
-                
+                # 이벤트 발생 (UI 동기화 강화)
                 self._notify('generated_images_changed', {'count': 0})
                 print(f"✅ generated_images 초기화 완료")
             except Exception as e:
@@ -906,21 +917,10 @@ class StateManager:
             else:
                 print(f"ℹ️ 생성된 이미지 없음")
             
-            # 이벤트 플래그 초기화 (새로운 이벤트 발생 허용)
-            self.reset_image_events()
-            
             print(f"✅ 이미지 상태 보존 강화 완료")
             
         except Exception as e:
             print(f"❌ 이미지 상태 보존 강화 중 오류: {e}")
-    
-    def reset_image_events(self):
-        """이미지 관련 이벤트 플래그 초기화"""
-        if hasattr(self, '_init_image_event_sent'):
-            delattr(self, '_init_image_event_sent')
-        if hasattr(self, '_generated_images_event_sent'):
-            delattr(self, '_generated_images_event_sent')
-        print(f"✅ 이미지 이벤트 플래그 초기화 완료")
 
     def update_param(self, param_name: str, value: Any):
         """파라미터 업데이트"""

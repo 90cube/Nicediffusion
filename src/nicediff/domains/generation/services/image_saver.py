@@ -70,18 +70,36 @@ class ImageSaver:
         return pnginfo
     
     def _save_thumbnail(self, image: Image.Image, original_filename: str) -> Path:
-        """썸네일 생성 및 저장"""
-        # 썸네일 크기 (150x150)
+        """
+        썸네일 생성 및 저장
+        
+        ⚠️ 중요: 썸네일은 오직 히스토리 표시용으로만 사용됩니다!
+        - UI 프리뷰에는 사용하지 않음
+        - StateManager에는 원본 이미지만 저장
+        - 원본 이미지는 절대 변경하면 안됨
+        
+        Args:
+            image: 원본 이미지 (변경되지 않음)
+            original_filename: 원본 파일명
+            
+        Returns:
+            썸네일 파일 경로
+        """
+        # 썸네일 크기 (150x150) - 히스토리 전용
         thumbnail_size = (150, 150)
         
-        # 원본 비율 유지하면서 썸네일 생성
-        image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
+        # ⚠️ 원본 이미지 보존: image.copy() 사용 필수!
+        # PIL의 thumbnail() 메서드는 원본을 직접 수정하므로 copy() 필요
+        thumbnail_image = image.copy()
+        
+        # 원본 비율 유지하면서 썸네일 생성 (복사된 이미지에만 적용)
+        thumbnail_image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
         
         # 썸네일 파일명
         thumbnail_filename = f"thumb_{original_filename}"
         thumbnail_path = self.output_dir / thumbnail_filename
         
         # 썸네일 저장
-        image.save(thumbnail_path, "PNG")
+        thumbnail_image.save(thumbnail_path, "PNG")
         
         return thumbnail_path 

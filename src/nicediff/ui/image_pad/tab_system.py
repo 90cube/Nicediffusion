@@ -109,9 +109,21 @@ class BaseTab(ABC):
         success = self.tab_manager.transfer_image(image, target_tab)
         
         if success:
-            ui.notify(f'{self.get_tab_info(target_tab)["name"]}으로 전달됨', type='positive')
+            self.safe_notify(f'{self.get_tab_info(target_tab)["name"]}으로 전달됨', 'positive')
         else:
-            ui.notify('전달할 수 없습니다', type='warning')
+            self.safe_notify('전달할 수 없습니다', 'warning')
+    
+    def safe_notify(self, message: str, type: str = 'info'):
+        """안전한 알림 표시 (부모 요소 삭제 오류 방지)"""
+        try:
+            ui.notify(message, type=type)
+        except RuntimeError as e:
+            if "parent element" in str(e) and "deleted" in str(e):
+                print(f"⚠️ 알림 표시 실패 (부모 요소 삭제됨): {message}")
+            else:
+                print(f"⚠️ 알림 표시 실패: {e}")
+        except Exception as e:
+            print(f"⚠️ 알림 표시 실패: {e}")
     
     def get_tab_info(self, tab_id: str) -> Dict[str, str]:
         """탭 정보 조회"""
@@ -136,10 +148,10 @@ class Txt2ImgTab(BaseTab):
         self.transfer_area = None
     
     def render(self, container):
-        """T2I 탭 렌더링"""
+        """T2I 탭 렌더링 (반응형 높이)"""
         with container:
-            # 생성 결과 표시 영역
-            with ui.card().classes('w-full h-96 flex items-center justify-center bg-gray-800'):
+            # 생성 결과 표시 영역 (반응형 높이)
+            with ui.card().classes('w-full h-full min-h-[500px] flex items-center justify-center bg-gray-800'):
                 self.result_display = ui.element('div').classes('w-full h-full')
                 
                 with self.result_display:
@@ -194,14 +206,50 @@ class Txt2ImgTab(BaseTab):
                 self.create_transfer_buttons(images[0])
     
     def display_single_image(self, image):
-        """단일 이미지 표시"""
-        ui.image(image).classes('max-w-full max-h-full object-contain')
+        """단일 이미지 표시 - 원본 크기 보존"""
+        try:
+            print(f"🔄 단일 이미지 표시 시작: {image.size}")
+            
+            # 원본 이미지 직접 표시 (최적화하지 않음)
+            buffer = io.BytesIO()
+            image.save(buffer, format='PNG', optimize=True)
+            img_str = base64.b64encode(buffer.getvalue()).decode()
+            
+            with ui.column().classes('w-full h-full items-center justify-center'):
+                ui.image(f'data:image/png;base64,{img_str}').classes(
+                    'max-w-full max-h-full object-contain rounded-lg shadow-lg'
+                ).style('width: auto; height: auto; max-width: 100%; max-height: 100%;')
+                
+                # 이미지 정보
+                with ui.row().classes('mt-2 text-sm text-gray-400'):
+                    ui.label(f'생성됨: {image.size[0]}×{image.size[1]}')
+                    
+            print(f"✅ 단일 이미지 표시 완료: {image.size}")
+                    
+        except Exception as e:
+            print(f"❌ 단일 이미지 표시 중 오류: {e}")
+            # 오류 시 기본 표시
+            ui.image(image).classes('max-w-full max-h-full object-contain')
     
     def display_image_grid(self, images):
         """다중 이미지 그리드 표시"""
         with ui.grid(columns=2).classes('w-full gap-2'):
             for image in images:
                 ui.image(image).classes('w-full h-auto object-contain')
+    
+    def optimize_image_for_display(self, image: Image, max_size: int = 2048) -> Image:
+        """이미지 표시용 최적화 (원본 크기 보존, UI에서만 비율 맞춤)"""
+        try:
+            print(f"🔄 이미지 최적화 시작: {image.size}")
+            
+            # 원본 크기 보존 (최적화하지 않고 그대로 반환)
+            # UI에서 CSS로 비율을 맞추므로 이미지 자체는 원본 유지
+            print(f"✅ 원본 크기 보존: {image.size}, RGB")
+            return image.convert('RGB')
+            
+        except Exception as e:
+            print(f"❌ 이미지 최적화 중 오류: {e}")
+            return image.convert('RGB')
 
 class Img2ImgTab(BaseTab):
     """이미지→이미지 탭 - 개선안 5 적용"""
@@ -215,10 +263,10 @@ class Img2ImgTab(BaseTab):
         self.generated_image = None  # 생성 결과 (독립 관리)
     
     def render(self, container):
-        """I2I 탭 렌더링 - 좌우 분할 뷰 (넓은 공간)"""
+        """I2I 탭 렌더링 - 좌우 분할 뷰 (반응형 높이)"""
         with container:
-            # 좌우 분할: 원본 | 결과 (더 넓은 높이와 적절한 분할 비율)
-            with ui.splitter(value=45).classes('w-full h-[600px]') as splitter:
+            # 좌우 분할: 원본 | 결과 (반응형 높이)
+            with ui.splitter(value=45).classes('w-full h-full min-h-[500px]') as splitter:
                 with splitter.before:
                     self.render_original_section()
                 
@@ -229,28 +277,28 @@ class Img2ImgTab(BaseTab):
             self.transfer_area = ui.element('div').classes('w-full')
     
     def render_original_section(self):
-        """원본 이미지 섹션 (넓은 공간)"""
+        """원본 이미지 섹션 (반응형 높이)"""
         with ui.column().classes('w-full h-full p-3'):
             ui.label('원본 이미지').classes('text-sm font-medium mb-3 text-green-400')
             
-            # Props 메서드 오류 수정 - 더 넓은 영역
+            # 반응형 높이 영역
             self.upload_area = ui.element('div').classes(
                 'w-full flex-1 border-2 border-dashed border-green-500 '
                 'rounded-lg bg-gray-800 flex items-center justify-center cursor-pointer upload-area '
-                'min-h-[500px]'
+                'min-h-[400px]'
             ).props(f'data-tab-id={self.tab_id}')
             
             # 드래그 앤 드롭 + 클릭 업로드
             self.setup_upload_area()
     
     def render_result_section(self):
-        """생성 결과 섹션 (넓은 공간)"""
+        """생성 결과 섹션 (반응형 높이)"""
         with ui.column().classes('w-full h-full p-3'):
             ui.label('생성 결과').classes('text-sm font-medium mb-3 text-blue-400')
             
             self.result_area = ui.element('div').classes(
                 'w-full flex-1 border border-blue-500 rounded-lg bg-gray-800 '
-                'flex items-center justify-center min-h-[500px]'
+                'flex items-center justify-center min-h-[400px]'
             )
             
             with self.result_area:
@@ -258,27 +306,41 @@ class Img2ImgTab(BaseTab):
     
     def setup_upload_area(self):
         """업로드 영역 설정 - WebSocket 연결 중단 방지"""
-        with self.upload_area:
-            # 기본 업로드 UI
-            with ui.column().classes('items-center'):
-                ui.icon('cloud_upload').classes('text-4xl text-green-400 mb-2')
-                ui.label('이미지를 드래그하거나 클릭하세요').classes('text-green-400')
-                ui.label('(최대 10MB, 권장: 2048x2048 이하)').classes('text-xs text-gray-500')
-                
-                # 숨겨진 파일 입력 - 크기 제한 및 압축 적용
-                ui.upload(
-                    on_upload=self.handle_upload,
-                    auto_upload=True,
-                    multiple=False
-                ).props('accept=image/*').classes('mt-2')
-        
-        # 기존 원본 이미지 확인 (무한 재귀 방지)
-        if not hasattr(self, '_initialized'):
-            self.check_existing_original_image()
-            self._initialized = True
-        
-        # JavaScript 드래그 앤 드롭 설정
-        self.setup_drag_and_drop()
+        # UI 요소 존재 여부 및 클라이언트 상태 확인
+        if not self.upload_area or not hasattr(self.upload_area, 'client') or not self.upload_area.client:
+            print(f"⚠️ 업로드 영역이 없거나 클라이언트가 없음 - 설정 건너뜀")
+            return
+            
+        try:
+            with self.upload_area:
+                # 기본 업로드 UI
+                with ui.column().classes('items-center'):
+                    ui.icon('cloud_upload').classes('text-4xl text-green-400 mb-2')
+                    ui.label('이미지를 드래그하거나 클릭하세요').classes('text-green-400')
+                    ui.label('(최대 10MB, 권장: 2048x2048 이하)').classes('text-xs text-gray-500')
+                    
+                    # 숨겨진 파일 입력 - 크기 제한 및 압축 적용
+                    ui.upload(
+                        on_upload=self.handle_upload,
+                        auto_upload=True,
+                        multiple=False
+                    ).props('accept=image/*').classes('mt-2')
+            
+            # 기존 원본 이미지 확인 (무한 재귀 방지)
+            if not hasattr(self, '_initialized'):
+                self.check_existing_original_image()
+                self._initialized = True
+            
+            # JavaScript 드래그 앤 드롭 설정
+            self.setup_drag_and_drop()
+            
+        except RuntimeError as e:
+            if "client has been deleted" in str(e):
+                print(f"⚠️ 클라이언트가 삭제됨 - 업로드 영역 설정 건너뜀")
+            else:
+                print(f"❌ 업로드 영역 설정 중 오류: {e}")
+        except Exception as e:
+            print(f"❌ 업로드 영역 설정 중 오류: {e}")
     
     def check_existing_original_image(self):
         """기존 원본 이미지 확인 (무한 재귀 방지)"""
@@ -291,7 +353,7 @@ class Img2ImgTab(BaseTab):
             print(f"⚠️ 기존 이미지 확인 중 오류: {e}")
     
     def set_original_image(self, image: Image):
-        """원본 이미지 설정 (영구 보존) - 절대 사라지지 않도록 보장"""
+        """원본 이미지 설정 (영구 보존) - 이미지 프리뷰 강화"""
         try:
             print(f"🔄 원본 이미지 설정 시작: {image.size}")
             
@@ -304,51 +366,73 @@ class Img2ImgTab(BaseTab):
             self.original_image = image
             print(f"✅ 원본 이미지 메모리 보존: {image.size}")
             
-            # StateManager에 영구 보존 (무한 재귀 방지)
-            if not hasattr(self, '_setting_image'):
-                self._setting_image = True
-                self.state.set_init_image(image)
-                self._setting_image = False
-                print(f"✅ StateManager에 원본 이미지 보존 완료")
+            # StateManager에 영구 보존 (이미지 프리뷰 강화)
+            print(f"🔄 StateManager에 원본 이미지 저장 시작")
+            self.state.set_init_image(image)
+            print(f"✅ StateManager에 원본 이미지 보존 완료")
+            
+            # UI 요소 존재 여부 체크 및 강제 재생성
+            if not self._check_ui_elements():
+                print(f"⚠️ UI 요소가 삭제됨 - 강제 재생성 시작")
+                self._force_recreate_ui()
+                return
             
             # 업로드 영역 업데이트 (결과 영역은 절대 건드리지 않음)
             if self.upload_area:
-                print(f"🔄 원본 영역 업데이트 시작")
-                self.upload_area.clear()
-                
-                with self.upload_area:
-                    # 이미지 압축 및 최적화
-                    optimized_image = self.optimize_image_for_display(image)
+                try:
+                    print(f"🔄 원본 영역 업데이트 시작")
                     
-                    # 이미지 표시
-                    buffer = io.BytesIO()
-                    optimized_image.save(buffer, format='PNG', optimize=True)
-                    img_str = base64.b64encode(buffer.getvalue()).decode()
+                    # UI 업데이트 시도 (오류가 있어도 계속 진행)
+                    try:
+                        self.upload_area.clear()
+                        print(f"✅ 업로드 영역 클리어 완료")
+                    except RuntimeError as e:
+                        if "client has been deleted" in str(e):
+                            print(f"⚠️ 클라이언트가 삭제됨 - 강제 재생성")
+                            self._force_recreate_ui()
+                            return
+                        else:
+                            print(f"⚠️ 업로드 영역 클리어 실패: {e}")
+                            return
+                    except Exception as e:
+                        print(f"⚠️ 업로드 영역 클리어 중 예상치 못한 오류: {e}")
+                        return
                     
-                    with ui.column().classes('w-full h-full items-center justify-center'):
-                        ui.image(f'data:image/png;base64,{img_str}').classes(
-                            'max-w-full max-h-full object-contain'
-                        )
+                    # 이미지 표시 시도
+                    try:
+                        with self.upload_area:
+                            # 원본 이미지 직접 표시 (최적화하지 않음)
+                            print(f"🔄 원본 이미지 직접 표시: {image.size}")
+                            
+                            # 이미지 표시
+                            buffer = io.BytesIO()
+                            image.save(buffer, format='PNG', optimize=True)
+                            img_str = base64.b64encode(buffer.getvalue()).decode()
+                            
+                            with ui.column().classes('w-full h-full items-center justify-center'):
+                                ui.image(f'data:image/png;base64,{img_str}').classes(
+                                    'max-w-full max-h-full object-contain rounded-lg shadow-lg'
+                                ).style('width: auto; height: auto; max-width: 100%; max-height: 100%;')
+                                
+                                # 이미지 정보
+                                with ui.row().classes('mt-2 text-sm text-gray-400'):
+                                    ui.label(f'원본: {image.size[0]}×{image.size[1]}')
                         
-                        # 이미지 정보
-                        with ui.row().classes('mt-2 text-sm text-gray-400'):
-                            ui.label(f'{image.size[0]}×{image.size[1]}')
-                            ui.label(image.mode)
-                        
-                        # 새 이미지 버튼
-                        ui.button(
-                            '다른 이미지 선택',
-                            icon='refresh',
-                            on_click=self.reset_upload
-                        ).props('outline size=sm')
+                        print(f"✅ 원본 영역 업데이트 완료")
+                    except Exception as e:
+                        print(f"❌ 이미지 표시 중 오류: {e}")
+                        # 이미지 표시 실패 시 기본 메시지 표시
+                        try:
+                            with self.upload_area:
+                                with ui.column().classes('w-full h-full items-center justify-center'):
+                                    ui.label('이미지가 로드되었습니다').classes('text-green-400')
+                                    ui.label(f'크기: {image.size[0]}×{image.size[1]}').classes('text-sm text-gray-400')
+                        except:
+                            pass
                 
-                print(f"✅ 원본 영역 업데이트 완료")
-                
-                # 결과 영역이 여전히 보존되는지 확인
-                if self.generated_image:
-                    print(f"✅ 결과 이미지 여전히 보존됨: {self.generated_image.size}")
-                else:
-                    print(f"ℹ️ 결과 이미지 없음 (정상)")
+                except Exception as e:
+                    print(f"❌ 원본 영역 업데이트 중 오류: {e}")
+                    # UI 오류가 있어도 StateManager에는 이미지가 저장되어 있음
             else:
                 print(f"⚠️ 업로드 영역이 없음")
                 
@@ -376,23 +460,198 @@ class Img2ImgTab(BaseTab):
             print(f"❌ 이미지 검증 중 오류: {e}")
             return False
     
-    def optimize_image_for_display(self, image: Image, max_size: int = 800) -> Image:
-        """이미지 최적화 (더 큰 크기로 표시)"""
+    def optimize_image_for_display(self, image: Image, max_size: int = 2048) -> Image:
+        """이미지 표시용 최적화 (원본 크기 보존, UI에서만 비율 맞춤)"""
         try:
-            # 크기가 큰 경우 리사이즈 (더 큰 최대 크기)
-            if max(image.size) > max_size:
-                ratio = max_size / max(image.size)
-                new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
-                image = image.resize(new_size, Image.Resampling.LANCZOS)
+            print(f"🔄 이미지 최적화 시작: {image.size}")
             
-            # RGB 변환
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
+            # 원본 크기 보존 (최적화하지 않고 그대로 반환)
+            # UI에서 CSS로 비율을 맞추므로 이미지 자체는 원본 유지
+            print(f"✅ 원본 크기 보존: {image.size}, RGB")
+            return image.convert('RGB')
             
-            return image
         except Exception as e:
             print(f"❌ 이미지 최적화 중 오류: {e}")
-            return image
+            return image.convert('RGB')
+    
+    def _check_ui_elements(self) -> bool:
+        """UI 요소 존재 여부 체크"""
+        try:
+            # 업로드 영역 체크
+            if not self.upload_area:
+                print(f"⚠️ 업로드 영역이 없음")
+                return False
+            
+            # 클라이언트 연결 상태 체크
+            if not hasattr(self.upload_area, 'client') or not self.upload_area.client:
+                print(f"⚠️ 업로드 영역 클라이언트가 없음")
+                return False
+            
+            # 결과 영역 체크
+            if not self.result_area:
+                print(f"⚠️ 결과 영역이 없음")
+                return False
+            
+            # 결과 영역 클라이언트 체크
+            if not hasattr(self.result_area, 'client') or not self.result_area.client:
+                print(f"⚠️ 결과 영역 클라이언트가 없음")
+                return False
+            
+            print(f"✅ UI 요소 상태 정상")
+            return True
+            
+        except Exception as e:
+            print(f"❌ UI 요소 체크 중 오류: {e}")
+            return False
+    
+    def _force_recreate_ui(self):
+        """강제 UI 재생성 - 부모 요소 삭제 즉시 해결"""
+        try:
+            print(f"🚨 강제 UI 재생성 시작")
+            
+            # 현재 이미지 상태 보존
+            current_image = self.original_image
+            current_generated = self.generated_image
+            
+            print(f"📸 현재 상태 보존: 원본={current_image.size if current_image else None}, 생성={current_generated.size if current_generated else None}")
+            
+            # 탭 재활성화 (UI 재생성)
+            print(f"🔄 탭 재활성화 시작")
+            self.activate()
+            
+            # 이미지 상태 복원
+            if current_image:
+                print(f"🔄 원본 이미지 복원: {current_image.size}")
+                self.original_image = current_image
+                self.state.set_init_image(current_image)
+                
+                # UI 업데이트 시도
+                try:
+                    if self.upload_area and hasattr(self.upload_area, 'client') and self.upload_area.client:
+                        self.upload_area.clear()
+                        with self.upload_area:
+                            # 이미지 최적화
+                            optimized_image = self.optimize_image_for_display(current_image, max_size=2048)
+                            
+                            # 이미지 표시
+                            buffer = io.BytesIO()
+                            optimized_image.save(buffer, format='PNG', optimize=True)
+                            img_str = base64.b64encode(buffer.getvalue()).decode()
+                            
+                            with ui.column().classes('w-full h-full items-center justify-center'):
+                                ui.image(f'data:image/png;base64,{img_str}').classes(
+                                    'max-w-full max-h-full object-contain rounded-lg shadow-lg'
+                                ).style('width: auto; height: auto; max-width: 100%; max-height: 100%;')
+                                
+                                # 이미지 정보
+                                with ui.row().classes('mt-2 text-sm text-gray-400'):
+                                    ui.label(f'원본: {current_image.size[0]}×{current_image.size[1]}')
+                        
+                        print(f"✅ 원본 이미지 UI 복원 완료")
+                except Exception as e:
+                    print(f"⚠️ 원본 이미지 UI 복원 실패: {e}")
+            
+            if current_generated:
+                print(f"🔄 생성된 이미지 복원: {current_generated.size}")
+                self.generated_image = current_generated
+                
+                # 결과 영역 업데이트 시도
+                try:
+                    if self.result_area and hasattr(self.result_area, 'client') and self.result_area.client:
+                        self.result_area.clear()
+                        with self.result_area:
+                            # 이미지 최적화
+                            optimized_image = self.optimize_image_for_display(current_generated, max_size=2048)
+                            
+                            # 이미지 표시
+                            buffer = io.BytesIO()
+                            optimized_image.save(buffer, format='PNG', optimize=True)
+                            img_str = base64.b64encode(buffer.getvalue()).decode()
+                            
+                            with ui.column().classes('w-full h-full items-center justify-center'):
+                                ui.image(f'data:image/png;base64,{img_str}').classes(
+                                    'max-w-full max-h-full object-contain rounded-lg shadow-lg'
+                                ).style('width: auto; height: auto; max-width: 100%; max-height: 100%;')
+                                
+                                # 이미지 정보
+                                with ui.row().classes('mt-2 text-sm text-gray-400'):
+                                    ui.label(f'생성됨: {current_generated.size[0]}×{current_generated.size[1]}')
+                                
+                                # 전달 버튼
+                                ui.button(
+                                    '다른 탭으로 전달',
+                                    icon='send',
+                                    on_click=lambda: self.create_transfer_buttons(current_generated)
+                                ).props('outline size=sm')
+                        
+                        print(f"✅ 생성된 이미지 UI 복원 완료")
+                except Exception as e:
+                    print(f"⚠️ 생성된 이미지 UI 복원 실패: {e}")
+            
+            print(f"✅ 강제 UI 재생성 완료")
+            
+        except Exception as e:
+            print(f"❌ 강제 UI 재생성 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _update_ui_only(self, image: Image):
+        """UI 업데이트만 수행 (StateManager 저장 없음) - 부모 요소 삭제 방지"""
+        try:
+            print(f"🔄 UI 전용 업데이트 시작: {image.size}")
+            
+            # 업로드 영역 업데이트 (결과 영역은 절대 건드리지 않음)
+            if self.upload_area:
+                try:
+                    print(f"🔄 원본 영역 UI 업데이트 시작")
+                    
+                    # UI 요소 존재 여부 및 클라이언트 상태 확인
+                    if hasattr(self.upload_area, 'client') and self.upload_area.client:
+                        try:
+                            self.upload_area.clear()
+                        except RuntimeError as e:
+                            if "client has been deleted" in str(e):
+                                print(f"⚠️ 클라이언트가 삭제됨 - UI 업데이트 건너뜀")
+                                return
+                            else:
+                                raise e
+                    else:
+                        print(f"⚠️ 업로드 영역 클라이언트가 없음 - UI 업데이트 건너뜀")
+                        return
+                    
+                    with self.upload_area:
+                        # 이미지 최적화 (2048까지 허용)
+                        optimized_image = self.optimize_image_for_display(image, max_size=2048)
+                        
+                        # 이미지 표시
+                        buffer = io.BytesIO()
+                        optimized_image.save(buffer, format='PNG', optimize=True)
+                        img_str = base64.b64encode(buffer.getvalue()).decode()
+                        
+                        with ui.column().classes('w-full h-full items-center justify-center'):
+                            ui.image(f'data:image/png;base64,{img_str}').classes(
+                                'max-w-full max-h-full object-contain rounded-lg shadow-lg'
+                            ).style('width: 100%; height: 100%;')
+                    
+                    print(f"✅ 원본 영역 UI 업데이트 완료")
+                except Exception as e:
+                    print(f"❌ 원본 영역 UI 업데이트 실패: {e}")
+                    # 오류 시 기본 메시지 표시
+                    try:
+                        if self.upload_area and hasattr(self.upload_area, 'client') and self.upload_area.client:
+                            self.upload_area.clear()
+                            with self.upload_area:
+                                with ui.column().classes('w-full h-full items-center justify-center'):
+                                    ui.label('이미지 표시 중 오류가 발생했습니다').classes('text-red-500')
+                    except Exception as ui_error:
+                        print(f"⚠️ 기본 메시지 표시 실패: {ui_error}")
+            else:
+                print(f"⚠️ 업로드 영역이 없음")
+                
+        except Exception as e:
+            print(f"❌ UI 전용 업데이트 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
     
     def set_generated_image(self, image: Image):
         """생성 결과 이미지 설정 (원본 이미지 보존 + 결과 영역만 업데이트)"""
@@ -407,24 +666,45 @@ class Img2ImgTab(BaseTab):
             
             self.generated_image = image
             
+            # UI 요소 존재 여부 체크 및 강제 재생성
+            if not self._check_ui_elements():
+                print(f"⚠️ UI 요소가 삭제됨 - 강제 재생성 시작")
+                self._force_recreate_ui()
+                return
+            
             # 결과 영역만 업데이트 (원본 영역은 절대 건드리지 않음)
             if self.result_area:
                 print(f"🔄 결과 영역 업데이트 시작")
-                self.result_area.clear()
+                
+                # UI 요소 존재 여부 및 클라이언트 상태 확인
+                if hasattr(self.result_area, 'client') and self.result_area.client:
+                    try:
+                        self.result_area.clear()
+                    except RuntimeError as e:
+                        if "client has been deleted" in str(e):
+                            print(f"⚠️ 클라이언트가 삭제됨 - 강제 재생성")
+                            self._force_recreate_ui()
+                            return
+                        else:
+                            raise e
+                else:
+                    print(f"⚠️ 결과 영역 클라이언트가 없음 - 강제 재생성")
+                    self._force_recreate_ui()
+                    return
                 
                 with self.result_area:
-                    # 이미지 최적화
-                    optimized_image = self.optimize_image_for_display(image)
+                    # 원본 이미지 직접 표시 (최적화하지 않음)
+                    print(f"🔄 생성된 이미지 직접 표시: {image.size}")
                     
                     # 이미지 표시
                     buffer = io.BytesIO()
-                    optimized_image.save(buffer, format='PNG', optimize=True)
+                    image.save(buffer, format='PNG', optimize=True)
                     img_str = base64.b64encode(buffer.getvalue()).decode()
                     
                     with ui.column().classes('w-full h-full items-center justify-center'):
                         ui.image(f'data:image/png;base64,{img_str}').classes(
-                            'max-w-full max-h-full object-contain'
-                        )
+                            'max-w-full max-h-full object-contain rounded-lg shadow-lg'
+                        ).style('width: auto; height: auto; max-width: 100%; max-height: 100%;')
                         
                         # 이미지 정보
                         with ui.row().classes('mt-2 text-sm text-gray-400'):
@@ -470,26 +750,47 @@ class Img2ImgTab(BaseTab):
             print(f"❌ 업로드 초기화 중 오류: {e}")
     
     def activate(self):
-        """탭 활성화 (이벤트 구독 및 기존 이미지 복원)"""
+        """탭 활성화 (이벤트 구독 및 기존 이미지 복원) - 중복 구독 방지"""
         try:
             print(f"🔄 Img2Img 탭 활성화 시작")
             self.is_active = True
             self.state.set('current_mode', 'img2img')
             
-            # 이벤트 구독 (중복 구독 방지)
-            if not hasattr(self, '_subscribed'):
+            # 이벤트 구독 (중복 구독 방지 강화)
+            if not hasattr(self, '_subscribed') or not self._subscribed:
                 print(f"📡 이벤트 구독 시작")
+                
+                # 기존 구독 해제 (안전장치)
+                try:
+                    self.state.unsubscribe('generation_completed', self.on_generation_completed)
+                except:
+                    pass
+                try:
+                    self.state.unsubscribe('init_image_changed', self.on_init_image_changed)
+                except:
+                    pass
+                try:
+                    self.state.unsubscribe('generated_images_changed', self.on_generated_images_changed)
+                except:
+                    pass
+                
+                # 새로운 구독 등록
                 self.state.subscribe('generation_completed', self.on_generation_completed)
                 self.state.subscribe('init_image_changed', self.on_init_image_changed)
                 self.state.subscribe('generated_images_changed', self.on_generated_images_changed)
+                
                 self._subscribed = True
                 print(f"✅ 이벤트 구독 완료")
+            else:
+                print(f"ℹ️ 이미 구독됨 - 중복 구독 방지")
             
-            # 기존 이미지 상태 복원
+            # 기존 이미지 상태 복원 (UI 동기화 강화)
             self.restore_image_state()
             
         except Exception as e:
             print(f"❌ 탭 활성화 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
     
     def cleanup(self):
         """탭 정리 (안전한 이벤트 구독 해제)"""
@@ -502,16 +803,19 @@ class Img2ImgTab(BaseTab):
                 print(f"📡 이벤트 구독 해제 시작")
                 try:
                     self.state.unsubscribe('generation_completed', self.on_generation_completed)
+                    print(f"✅ generation_completed 구독 해제 완료")
                 except Exception as e:
                     print(f"⚠️ generation_completed 구독 해제 실패: {e}")
                 
                 try:
                     self.state.unsubscribe('init_image_changed', self.on_init_image_changed)
+                    print(f"✅ init_image_changed 구독 해제 완료")
                 except Exception as e:
                     print(f"⚠️ init_image_changed 구독 해제 실패: {e}")
                 
                 try:
                     self.state.unsubscribe('generated_images_changed', self.on_generated_images_changed)
+                    print(f"✅ generated_images_changed 구독 해제 완료")
                 except Exception as e:
                     print(f"⚠️ generated_images_changed 구독 해제 실패: {e}")
                 
@@ -520,9 +824,11 @@ class Img2ImgTab(BaseTab):
             
         except Exception as e:
             print(f"❌ 탭 정리 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
     
     def restore_image_state(self):
-        """기존 이미지 상태 복원"""
+        """기존 이미지 상태 복원 (UI 동기화 강화)"""
         try:
             print(f"🔄 이미지 상태 복원 시작")
             
@@ -544,9 +850,11 @@ class Img2ImgTab(BaseTab):
                 
         except Exception as e:
             print(f"❌ 이미지 상태 복원 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
     
     def on_generation_completed(self, event_data):
-        """생성 완료 이벤트 처리 (원본 이미지 보존 + 결과 이미지 추가)"""
+        """생성 완료 이벤트 처리 (원본 이미지 보존 + 결과 이미지 추가) - 원본 이미지 건드리지 않음"""
         print(f"🔍 Img2Img: generation_completed 이벤트 수신")
         print(f"   - 이벤트 데이터: {event_data}")
         print(f"   - 탭 활성 상태: {self.is_active}")
@@ -567,25 +875,22 @@ class Img2ImgTab(BaseTab):
             if images:
                 print(f"✅ 생성된 이미지 표시 시작")
                 
-                # 1단계: 원본 이미지 보존 확인
-                original_image = self.state.get_init_image()
-                if original_image:
-                    print(f"✅ 원본 이미지 보존 확인: {original_image.size}")
+                # 원본 이미지 보존 확인 (건드리지 않음)
+                if self.original_image:
+                    print(f"✅ 원본 이미지 보존 확인: {self.original_image.size}")
                 else:
                     print(f"⚠️ 원본 이미지가 없음")
                 
-                # 2단계: 결과 영역에만 생성된 이미지 추가 (원본 영역은 건드리지 않음)
+                # 결과 영역에만 생성된 이미지 추가 (원본 영역은 절대 건드리지 않음)
                 generated_image = images[0]
                 print(f"✅ 결과 영역에 이미지 추가: {generated_image.size}")
                 self.set_generated_image(generated_image)
                 
-                # 3단계: 원본 이미지가 여전히 표시되는지 확인
+                # 최종 상태 확인
                 if self.original_image:
                     print(f"✅ 원본 이미지 여전히 표시됨: {self.original_image.size}")
-                else:
-                    print(f"⚠️ 원본 이미지가 사라짐 - 복원 시도")
-                    if original_image:
-                        self.set_original_image(original_image)
+                if self.generated_image:
+                    print(f"✅ 생성된 이미지 표시됨: {self.generated_image.size}")
                 
                 print(f"✅ 생성된 이미지 표시 완료 (원본 + 결과 동시 표시)")
             else:
@@ -599,7 +904,7 @@ class Img2ImgTab(BaseTab):
             self._processing_generation = False
     
     def on_init_image_changed(self, event_data):
-        """원본 이미지 변경 이벤트 처리 (디버깅 강화)"""
+        """원본 이미지 변경 이벤트 처리 (중복 호출 방지 강화)"""
         print(f"🔍 Img2Img: init_image_changed 이벤트 수신")
         print(f"   - 이벤트 데이터: {event_data}")
         print(f"   - 탭 활성 상태: {self.is_active}")
@@ -608,8 +913,14 @@ class Img2ImgTab(BaseTab):
             print(f"⚠️ 탭이 비활성 상태 - 이벤트 무시")
             return
         
+        # 중복 호출 방지 (업로드 중에는 이벤트 무시)
         if hasattr(self, '_processing_init_change') and self._processing_init_change:
             print(f"⚠️ 이미 처리 중 - 중복 이벤트 무시")
+            return
+        
+        # 업로드 중 중복 호출 방지
+        if hasattr(self, '_uploading') and self._uploading:
+            print(f"⚠️ 업로드 중 - 이벤트 무시")
             return
         
         try:
@@ -621,8 +932,9 @@ class Img2ImgTab(BaseTab):
                 print(f"✅ 원본 이미지 업데이트 시작")
                 original_image = self.state.get_init_image()
                 if original_image:
-                    self.set_original_image(original_image)
-                    print(f"✅ 원본 이미지 업데이트 완료")
+                    # UI 업데이트만 수행 (StateManager 저장은 건너뛰기)
+                    self._update_ui_only(original_image)
+                    print(f"✅ 원본 이미지 UI 업데이트 완료")
                 else:
                     print(f"⚠️ StateManager에서 원본 이미지를 찾을 수 없음")
             else:
@@ -720,32 +1032,21 @@ class Img2ImgTab(BaseTab):
         self.js_bridge.register_callback('upload', self.handle_js_upload)
     
     def handle_upload(self, upload_event):
-        """일반 업로드 처리 - WebSocket 연결 중단 방지"""
+        """이미지 업로드 처리 - 원본 이미지 보존 강화"""
         try:
             print(f"🔍 업로드 시작: 이벤트 타입={type(upload_event)}")
             
-            # 파일 크기 사전 체크
-            if hasattr(upload_event, 'content'):
-                if hasattr(upload_event.content, 'read'):
-                    # 파일 객체인 경우
-                    file_data = upload_event.content.read()
-                    print(f"📁 파일 크기: {len(file_data)} 바이트")
-                    
-                    # 크기 제한 (10MB)
-                    if len(file_data) > 10 * 1024 * 1024:
-                        ui.notify('파일이 너무 큽니다 (최대 10MB)', type='negative')
-                        return
-                else:
-                    # 이미 바이트 데이터인 경우
-                    file_data = upload_event.content
-                    print(f"📁 바이트 데이터 크기: {len(file_data)} 바이트")
-            else:
-                # 구버전 호환성
-                file_data = upload_event
-                print(f"📁 구버전 데이터 크기: {len(file_data)} 바이트")
+            # 파일 크기 확인
+            file_size = len(upload_event.content)
+            print(f"📁 파일 크기: {file_size} 바이트")
             
-            # 이미지 로드 및 검증
-            image = Image.open(io.BytesIO(file_data))
+            # 크기 제한 (10MB)
+            if file_size > 10 * 1024 * 1024:
+                ui.notify('파일이 너무 큽니다 (최대 10MB)', type='negative')
+                return
+            
+            # 이미지 로드
+            image = Image.open(io.BytesIO(upload_event.content))
             print(f"🖼️ 이미지 로드됨: {image.size}, {image.mode}")
             
             # 이미지 유효성 검증
@@ -753,65 +1054,50 @@ class Img2ImgTab(BaseTab):
                 ui.notify('지원하지 않는 이미지 형식입니다', type='negative')
                 return
             
-            # 이미지 압축 (WebSocket 연결 중단 방지)
+            # 원본 이미지 최적화 (크기 보존)
             optimized_image = self.optimize_image_for_upload(image)
             print(f"🔄 이미지 최적화 완료: {optimized_image.size}")
             
-            # 원본 이미지 설정 (무한 재귀 방지)
-            if not hasattr(self, '_uploading'):
-                self._uploading = True
+            # 원본 이미지 설정 (업로드 중 플래그 설정)
+            print(f"🔄 원본 이미지 설정 시작: {optimized_image.size}")
+            self._uploading = True
+            try:
                 self.set_original_image(optimized_image)
+            finally:
                 self._uploading = False
-                
-                # 성공 알림 (UI 컨텍스트 안전하게)
-                try:
-                    ui.notify('이미지 업로드 완료', type='positive')
-                except Exception as notify_error:
-                    print(f"⚠️ 알림 표시 실패: {notify_error}")
-                
-                print(f"✅ 업로드 완료: {optimized_image.size}")
-            else:
-                print(f"⚠️ 업로드 중복 방지됨")
+            
+            # 성공 알림 (UI 컨텍스트 안전하게)
+            self.safe_notify('업로드 완료', 'positive')
+            
+            print(f"✅ 업로드 완료: {optimized_image.size}")
                 
         except Exception as e:
-            print(f"❌ 업로드 실패 상세: {e}")
-            try:
-                ui.notify(f'업로드 실패: {str(e)}', type='negative')
-            except Exception as notify_error:
-                print(f"⚠️ 오류 알림 표시 실패: {notify_error}")
+            print(f"❌ 업로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.safe_notify(f'업로드 실패: {str(e)}', 'negative')
     
     def optimize_image_for_upload(self, image: Image, max_size: int = 2048) -> Image:
-        """업로드용 이미지 최적화 (WebSocket 연결 중단 방지)"""
+        """업로드용 이미지 최적화 (원본 크기 보존)"""
         try:
             original_size = image.size
             print(f"🔄 이미지 최적화 시작: {original_size}")
             
-            # 크기가 큰 경우 리사이즈
-            if max(image.size) > max_size:
-                ratio = max_size / max(image.size)
-                new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
-                image = image.resize(new_size, Image.Resampling.LANCZOS)
-                print(f"📏 리사이즈: {original_size} → {new_size}")
-            
-            # RGB 변환
+            # 원본 크기 보존 (리사이즈하지 않음)
+            # RGB 변환만 수행
             if image.mode != 'RGB':
                 image = image.convert('RGB')
                 print(f"🎨 모드 변환: {image.mode}")
             
-            # 품질 최적화
-            buffer = io.BytesIO()
-            image.save(buffer, format='JPEG', quality=85, optimize=True)
-            optimized_image = Image.open(buffer)
-            
-            print(f"✅ 최적화 완료: {optimized_image.size}, {optimized_image.mode}")
-            return optimized_image
+            print(f"✅ 원본 크기 보존: {image.size}, {image.mode}")
+            return image
             
         except Exception as e:
             print(f"❌ 이미지 최적화 중 오류: {e}")
             return image
     
     def handle_js_upload(self, data):
-        """JavaScript 드래그 앤 드롭 처리 - WebSocket 연결 중단 방지"""
+        """JavaScript 드래그 앤 드롭 처리 - 이미지 프리뷰 강화"""
         try:
             print(f"🔍 JS 업로드 시작: 데이터 타입={type(data)}")
             
@@ -839,28 +1125,24 @@ class Img2ImgTab(BaseTab):
             optimized_image = self.optimize_image_for_upload(image)
             print(f"🔄 JS 이미지 최적화 완료: {optimized_image.size}")
             
-            # 원본 이미지 설정 (무한 재귀 방지)
-            if not hasattr(self, '_js_uploading'):
-                self._js_uploading = True
+            # 원본 이미지 설정 (업로드 중 플래그 설정)
+            print(f"🔄 JS 원본 이미지 설정 시작: {optimized_image.size}")
+            self._uploading = True
+            try:
                 self.set_original_image(optimized_image)
-                self._js_uploading = False
-                
-                # 성공 알림 (UI 컨텍스트 안전하게)
-                try:
-                    ui.notify('이미지 업로드 완료', type='positive')
-                except Exception as notify_error:
-                    print(f"⚠️ JS 알림 표시 실패: {notify_error}")
-                
-                print(f"✅ JS 업로드 완료: {optimized_image.size}")
-            else:
-                print(f"⚠️ JS 업로드 중복 방지됨")
+            finally:
+                self._uploading = False
+            
+            # 성공 알림 (UI 컨텍스트 안전하게)
+            self.safe_notify('이미지 업로드 완료', 'positive')
+            
+            print(f"✅ JS 업로드 완료: {optimized_image.size}")
                 
         except Exception as e:
             print(f"❌ JS 업로드 실패: {e}")
-            try:
-                ui.notify(f'업로드 실패: {str(e)}', type='negative')
-            except Exception as notify_error:
-                print(f"⚠️ JS 오류 알림 표시 실패: {notify_error}")
+            import traceback
+            traceback.print_exc()
+            self.safe_notify(f'업로드 실패: {str(e)}', 'negative')
 
 class InpaintTab(BaseTab):
     """인페인팅 탭"""
