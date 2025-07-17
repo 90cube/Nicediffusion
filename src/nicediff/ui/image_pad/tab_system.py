@@ -290,22 +290,29 @@ class Img2ImgTab(BaseTab):
             print(f"⚠️ 기존 이미지 확인 중 오류: {e}")
     
     def set_original_image(self, image: Image):
-        """원본 이미지 설정 (영구 보존) - WebSocket 연결 중단 방지"""
+        """원본 이미지 설정 (영구 보존) - 절대 사라지지 않도록 보장"""
         try:
+            print(f"🔄 원본 이미지 설정 시작: {image.size}")
+            
             # 이미지 크기 및 형식 검증
             if not self.validate_image(image):
+                print(f"❌ 이미지 검증 실패")
                 return
             
+            # 원본 이미지 영구 보존
             self.original_image = image
+            print(f"✅ 원본 이미지 메모리 보존: {image.size}")
             
             # StateManager에 영구 보존 (무한 재귀 방지)
             if not hasattr(self, '_setting_image'):
                 self._setting_image = True
                 self.state.set_init_image(image)
                 self._setting_image = False
+                print(f"✅ StateManager에 원본 이미지 보존 완료")
             
-            # 업로드 영역 업데이트
+            # 업로드 영역 업데이트 (결과 영역은 절대 건드리지 않음)
             if self.upload_area:
+                print(f"🔄 원본 영역 업데이트 시작")
                 self.upload_area.clear()
                 
                 with self.upload_area:
@@ -333,8 +340,21 @@ class Img2ImgTab(BaseTab):
                             icon='refresh',
                             on_click=self.reset_upload
                         ).props('outline size=sm')
+                
+                print(f"✅ 원본 영역 업데이트 완료")
+                
+                # 결과 영역이 여전히 보존되는지 확인
+                if self.generated_image:
+                    print(f"✅ 결과 이미지 여전히 보존됨: {self.generated_image.size}")
+                else:
+                    print(f"ℹ️ 결과 이미지 없음 (정상)")
+            else:
+                print(f"⚠️ 업로드 영역이 없음")
+                
         except Exception as e:
             print(f"❌ 원본 이미지 설정 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
     
     def validate_image(self, image: Image) -> bool:
         """이미지 유효성 검증"""
@@ -374,12 +394,21 @@ class Img2ImgTab(BaseTab):
             return image
     
     def set_generated_image(self, image: Image):
-        """생성 결과 이미지 설정 (독립 관리) - WebSocket 연결 중단 방지"""
+        """생성 결과 이미지 설정 (원본 이미지 보존 + 결과 영역만 업데이트)"""
         try:
+            print(f"🔄 생성 결과 이미지 설정 시작: {image.size}")
+            
+            # 원본 이미지 보존 확인
+            if self.original_image:
+                print(f"✅ 원본 이미지 보존됨: {self.original_image.size}")
+            else:
+                print(f"⚠️ 원본 이미지가 없음")
+            
             self.generated_image = image
             
-            # 결과 영역 업데이트
+            # 결과 영역만 업데이트 (원본 영역은 절대 건드리지 않음)
             if self.result_area:
+                print(f"🔄 결과 영역 업데이트 시작")
                 self.result_area.clear()
                 
                 with self.result_area:
@@ -406,8 +435,21 @@ class Img2ImgTab(BaseTab):
                             icon='send',
                             on_click=lambda: self.create_transfer_buttons(image)
                         ).props('outline size=sm')
+                
+                print(f"✅ 결과 영역 업데이트 완료")
+                
+                # 원본 이미지가 여전히 보존되는지 최종 확인
+                if self.original_image:
+                    print(f"✅ 원본 이미지 여전히 보존됨: {self.original_image.size}")
+                else:
+                    print(f"❌ 원본 이미지가 사라짐!")
+            else:
+                print(f"⚠️ 결과 영역이 없음")
+                
         except Exception as e:
             print(f"❌ 생성 결과 이미지 설정 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
     
     def reset_upload(self):
         """업로드 초기화 (무한 재귀 방지)"""
@@ -503,7 +545,7 @@ class Img2ImgTab(BaseTab):
             print(f"❌ 이미지 상태 복원 중 오류: {e}")
     
     def on_generation_completed(self, event_data):
-        """생성 완료 이벤트 처리 (디버깅 강화)"""
+        """생성 완료 이벤트 처리 (원본 이미지 보존 + 결과 이미지 추가)"""
         print(f"🔍 Img2Img: generation_completed 이벤트 수신")
         print(f"   - 이벤트 데이터: {event_data}")
         print(f"   - 탭 활성 상태: {self.is_active}")
@@ -523,8 +565,28 @@ class Img2ImgTab(BaseTab):
             
             if images:
                 print(f"✅ 생성된 이미지 표시 시작")
-                self.set_generated_image(images[0])
-                print(f"✅ 생성된 이미지 표시 완료")
+                
+                # 1단계: 원본 이미지 보존 확인
+                original_image = self.state.get_init_image()
+                if original_image:
+                    print(f"✅ 원본 이미지 보존 확인: {original_image.size}")
+                else:
+                    print(f"⚠️ 원본 이미지가 없음")
+                
+                # 2단계: 결과 영역에만 생성된 이미지 추가 (원본 영역은 건드리지 않음)
+                generated_image = images[0]
+                print(f"✅ 결과 영역에 이미지 추가: {generated_image.size}")
+                self.set_generated_image(generated_image)
+                
+                # 3단계: 원본 이미지가 여전히 표시되는지 확인
+                if self.original_image:
+                    print(f"✅ 원본 이미지 여전히 표시됨: {self.original_image.size}")
+                else:
+                    print(f"⚠️ 원본 이미지가 사라짐 - 복원 시도")
+                    if original_image:
+                        self.set_original_image(original_image)
+                
+                print(f"✅ 생성된 이미지 표시 완료 (원본 + 결과 동시 표시)")
             else:
                 print(f"⚠️ 생성된 이미지가 없음")
                 
