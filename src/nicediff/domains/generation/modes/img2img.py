@@ -409,10 +409,23 @@ class Img2ImgMode:
         init_array_norm = init_array.astype(np.float32) / 255.0
         result_array_norm = result_array.astype(np.float32) / 255.0
         
-        # SSIM 계산
+        # SSIM 계산 (이미지 크기 검증 후)
         try:
-            ssim_score = ssim(init_array_norm, result_array_norm, multichannel=True, data_range=1.0)
-            print(f"   - SSIM 유사도: {ssim_score:.4f}")
+            # 이미지 크기가 SSIM 계산에 충분한지 확인
+            min_size = 7  # SSIM의 최소 윈도우 크기
+            if init_array_norm.shape[0] < min_size or init_array_norm.shape[1] < min_size:
+                print(f"   - 이미지가 너무 작아 SSIM 계산 불가: {init_array_norm.shape}")
+                ssim_score = None
+            else:
+                # 윈도우 크기를 이미지 크기에 맞게 조정
+                win_size = min(7, min(init_array_norm.shape[0], init_array_norm.shape[1]))
+                if win_size % 2 == 0:  # 짝수인 경우 홀수로 조정
+                    win_size -= 1
+                
+                ssim_score = ssim(init_array_norm, result_array_norm, 
+                                 multichannel=True, data_range=1.0, 
+                                 win_size=win_size)
+                print(f"   - SSIM 유사도: {ssim_score:.4f} (win_size={win_size})")
         except Exception as e:
             print(f"   - SSIM 계산 실패: {e}")
             ssim_score = None

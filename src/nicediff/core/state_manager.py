@@ -915,9 +915,18 @@ class StateManager:
         self._observers[event].append(callback)
 
     def unsubscribe(self, event: str, callback: Callable):
-        """이벤트 구독 해제"""
+        """이벤트 구독 해제 (안전한 제거)"""
         if event in self._observers:
-            self._observers[event].remove(callback)
+            try:
+                if callback in self._observers[event]:
+                    self._observers[event].remove(callback)
+                    print(f"✅ 이벤트 '{event}' 구독 해제 완료")
+                else:
+                    print(f"⚠️ 이벤트 '{event}'에서 콜백을 찾을 수 없음 (이미 해제됨)")
+            except ValueError:
+                print(f"⚠️ 이벤트 '{event}' 구독 해제 중 오류 (콜백이 리스트에 없음)")
+            except Exception as e:
+                print(f"❌ 이벤트 '{event}' 구독 해제 중 예상치 못한 오류: {e}")
 
     def _notify(self, event: str, data: Any = None):
         """이벤트 발생"""
