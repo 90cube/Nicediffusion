@@ -9,6 +9,8 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from PIL import Image
 
+from ..services.advanced_encoder import AdvancedTextEncoder
+
 
 @dataclass
 class Img2ImgParams:
@@ -28,6 +30,8 @@ class Img2ImgParams:
     model_type: str = 'SD15'
     clip_skip: int = 1  # CLIP Skip 추가
     size_match_enabled: bool = False  # 크기 일치 모드 추가
+    use_custom_tokenizer: bool = True  # 고급 인코딩 설정
+    weight_interpretation: str = "A1111"  # 가중치 처리 방식
     
     # A1111 추가 파라미터들
     image_cfg_scale: float = 10  # 이미지 CFG 스케일 (A1111 image_cfg_scale)
@@ -212,6 +216,27 @@ class Img2ImgMode:
         # 스케줄러 적용 검증
         self._validate_scheduler_application(params.sampler, params.scheduler)
         
+        # 고급 텍스트 인코더 사용 (77토큰 제한 해제)
+        use_custom = getattr(params, 'use_custom_tokenizer', True)
+        weight_mode = getattr(params, 'weight_interpretation', 'A1111')
+        
+        encoder = AdvancedTextEncoder(
+            self.pipeline, 
+            weight_mode=weight_mode,
+            use_custom_tokenizer=use_custom
+        )
+        
+        # 프롬프트 인코딩 (77토큰 제한 없음)
+        print(f"📝 프롬프트 인코딩 - 모드: {weight_mode}, 커스텀: {use_custom}")
+        prompt_embeds, negative_prompt_embeds = encoder.encode_prompt(
+            params.prompt, 
+            params.negative_prompt
+        )
+        
+        print(f"✅ 임베딩 생성 완료:")
+        print(f"   - 긍정: {prompt_embeds.shape}")
+        print(f"   - 부정: {negative_prompt_embeds.shape}")
+        
         def _generate_with_strength_validation():
             """Strength 값 검증을 포함한 생성 로직"""
             print(f"\n🔍 2단계: 파이프라인 호출 시 전달되는 실제 strength 값")
@@ -253,11 +278,11 @@ class Img2ImgMode:
             print(f"   - 전달할 cfg_scale: {params.cfg_scale}")
             print(f"   - 전달할 이미지 크기: {init_image.size}")
             
-            # 파이프라인 호출
+            # 파이프라인 호출 (고급 인코더 사용)
             try:
                 result = self.pipeline(
-                    prompt=params.prompt,
-                    negative_prompt=params.negative_prompt,
+                    prompt_embeds=prompt_embeds,
+                    negative_prompt_embeds=negative_prompt_embeds,
                     image=init_image,
                     strength=strength,
                     width=params.width,

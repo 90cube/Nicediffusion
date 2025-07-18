@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl import StableDiffusionXLPipeline
 
 from ..services.scheduler_manager import SchedulerManager
+from ..services.advanced_encoder import AdvancedTextEncoder
 
 
 @dataclass
@@ -30,6 +31,8 @@ class Txt2ImgParams:
     batch_size: int
     model_type: str = 'SD15'
     clip_skip: int = 1  # CLIP Skip 추가
+    use_custom_tokenizer: bool = True  # 고급 인코딩 설정
+    weight_interpretation: str = "A1111"  # 가중치 처리 방식
     
     def __post_init__(self):
         """SD15 모델의 경우 기본값 최적화"""
@@ -191,33 +194,29 @@ class Txt2ImgMode:
         # 3. 스케줄러 적용 검증
         self._validate_scheduler_application(params.sampler, params.scheduler)
         
-        # 프롬프트 길이 제한 (SD15: 77 토큰, SDXL: 77 토큰)
-        max_tokens = 77
+        # 고급 텍스트 인코더 사용 (77토큰 제한 해제)
+        use_custom = getattr(params, 'use_custom_tokenizer', True)
+        weight_mode = getattr(params, 'weight_interpretation', 'A1111')
         
-        # 파이프라인의 토크나이저 사용
-        if hasattr(self.pipeline, 'tokenizer'):
-            prompt = self._truncate_prompt_with_tokenizer(params.prompt, max_tokens, self.pipeline.tokenizer)
-            negative_prompt = self._truncate_prompt_with_tokenizer(params.negative_prompt, max_tokens, self.pipeline.tokenizer)
-        else:
-            # 토크나이저가 없는 경우 기존 방식 사용
-            prompt = params.prompt
-            negative_prompt = params.negative_prompt
-            
-            prompt_tokens = len(prompt.split())
-            negative_tokens = len(negative_prompt.split())
-            
-            if prompt_tokens > max_tokens:
-                print(f"⚠️ 프롬프트가 너무 깁니다 ({prompt_tokens} > {max_tokens} 토큰). 자동으로 잘립니다.")
-                words = prompt.split()
-                prompt = ' '.join(words[:max_tokens])
-            
-            if negative_tokens > max_tokens:
-                print(f"⚠️ 부정 프롬프트가 너무 깁니다 ({negative_tokens} > {max_tokens} 토큰). 자동으로 잘립니다.")
-                words = negative_prompt.split()
-                negative_prompt = ' '.join(words[:max_tokens])
+        encoder = AdvancedTextEncoder(
+            self.pipeline, 
+            weight_mode=weight_mode,
+            use_custom_tokenizer=use_custom
+        )
         
-        print(f"📝 프롬프트: {prompt[:100]}...")
-        print(f"🚫 부정 프롬프트: {negative_prompt[:100]}...")
+        # 프롬프트 인코딩 (77토큰 제한 없음)
+        print(f"📝 프롬프트 인코딩 - 모드: {weight_mode}, 커스텀: {use_custom}")
+        prompt_embeds, negative_prompt_embeds = encoder.encode_prompt(
+            params.prompt, 
+            params.negative_prompt
+        )
+        
+        print(f"✅ 임베딩 생성 완료:")
+        print(f"   - 긍정: {prompt_embeds.shape}")
+        print(f"   - 부정: {negative_prompt_embeds.shape}")
+        
+        print(f"📝 프롬프트: {params.prompt[:100]}...")
+        print(f"🚫 부정 프롬프트: {params.negative_prompt[:100]}...")
         print(f"⚙️ Steps: {params.steps}, CFG: {params.cfg_scale}, Sampler: {params.sampler}, Scheduler: {params.scheduler}, CLIP Skip: {params.clip_skip}")
         
         # SD15 최적화 적용
@@ -248,10 +247,10 @@ class Txt2ImgMode:
                 if params.scheduler in ['karras', 'exponential']:
                     extra_params['guidance_rescale'] = 0.7
             
-            # 실제 파이프라인 호출 파라미터 로깅
+            # 실제 파이프라인 호출 파라미터 로깅 (고급 인코더 사용)
             pipeline_params = {
-                'prompt': prompt,
-                'negative_prompt': negative_prompt,
+                'prompt_embeds': prompt_embeds,
+                'negative_prompt_embeds': negative_prompt_embeds,
                 'height': params.height,
                 'width': params.width,
                 'num_inference_steps': params.steps,

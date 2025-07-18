@@ -5,18 +5,24 @@
 from typing import List
 from nicegui import ui
 from ..core.state_manager import StateManager
+from ..services.preset_manager import PresetManager
 
 class PromptPanel:
     """프롬프트 패널"""
     
     def __init__(self, state_manager: StateManager):
         self.state = state_manager
+        self.preset_manager = PresetManager()
         self.positive_textarea = None
         self.negative_textarea = None
         self.char_count_positive = None
         self.char_count_negative = None
         self.token_count_positive = None
         self.token_count_negative = None
+        
+        # 고급 인코딩 설정
+        self.use_custom_tokenizer = True
+        self.weight_interpretation = "A1111"  # "A1111" 또는 "comfy++"
         
         # 이벤트 구독 설정
         self.state.subscribe('metadata_prompts_apply', self._on_metadata_prompts_apply)
@@ -27,6 +33,24 @@ class PromptPanel:
         current_params = self.state.get('current_params')
         
         with ui.column().classes('w-full gap-1'):
+            # 고급 프롬프트 설정 (상단에 추가)
+            with ui.expansion('고급 프롬프트 설정', icon='settings').classes('w-full mb-2'):
+                with ui.row().classes('w-full gap-4 items-center'):
+                    # 커스텀 토크나이저 토글
+                    ui.label('커스텀 토크나이저:').classes('min-w-fit text-xs')
+                    self.custom_tokenizer_switch = ui.switch(
+                        value=self.use_custom_tokenizer,
+                        on_change=self._on_tokenizer_change
+                    ).props('color=blue size=sm')
+                    
+                    # 가중치 해석 방식 선택
+                    ui.label('가중치 처리:').classes('min-w-fit ml-4 text-xs')
+                    self.weight_mode_select = ui.select(
+                        options=['A1111', 'comfy++'],
+                        value=self.weight_interpretation,
+                        on_change=self._on_weight_mode_change
+                    ).classes('min-w-32').props('dense')
+            
             # 헤더: 제목과 리프레시 버튼
             with ui.row().classes('w-full items-center justify-between'):
                 ui.label('Prompt').classes('text-sm font-bold text-green-400')
@@ -67,11 +91,6 @@ class PromptPanel:
                             ).props('dense flat size=sm').tooltip('랜덤 프롬프트')
                             
                             ui.button(
-                                icon='auto_awesome',
-                                on_click=self._improve_prompt
-                            ).props('dense flat size=sm').tooltip('프롬프트 개선 (LLM)')
-                            
-                            ui.button(
                                 icon='clear',
                                 on_click=lambda: self._clear_positive_prompt()
                             ).props('dense flat size=sm').tooltip('지우기')
@@ -80,21 +99,15 @@ class PromptPanel:
                                 'BREAK',
                                 on_click=self._add_break_keyword
                             ).props('dense flat size=sm color=orange').tooltip('BREAK 키워드 추가')
-                            
-                            ui.button(
-                                icon='tune',
-                                on_click=self._show_weight_dialog
-                            ).props('dense flat size=sm color=blue').tooltip('가중치 적용')
-                            
-                            ui.button(
-                                icon='optimize',
-                                on_click=self._optimize_prompt
-                            ).props('dense flat size=sm color=green').tooltip('프롬프트 최적화')
-                            
-                            ui.button(
-                                icon='segment',
-                                on_click=self._show_long_prompt_dialog
-                            ).props('dense flat size=sm color=purple').tooltip('긴 프롬프트 처리')
+                        
+                        # 긍정 프롬프트 프리셋 버튼들
+                        with ui.row().classes('gap-1 flex-wrap mt-2'):
+                            ui.label('프리셋:').classes('text-xs text-gray-400 mr-2')
+                            for preset in self.preset_manager.get_positive_presets():
+                                ui.button(
+                                    preset['name'],
+                                    on_click=lambda p=preset: self._add_positive_preset(p)
+                                ).props('size=sm color=green outline').tooltip(preset['description'])
                         
                         # 프롬프트 분석 결과 표시 (제거됨 - 팝업으로 대체)
                 
@@ -115,17 +128,12 @@ class PromptPanel:
                         
                         # 부정 프롬프트 프리셋
                         with ui.row().classes('gap-1 flex-wrap'):
-                            presets = [
-                                ('일반', 'low quality, worst quality, bad anatomy, bad hands'),
-                                ('사실적', 'cartoon, anime, illustration, painting, drawing'),
-                                ('일러스트', 'photo, realistic, 3d render, photography'),
-                            ]
-                            
-                            for name, preset in presets:
+                            ui.label('프리셋:').classes('text-xs text-gray-400 mr-2')
+                            for preset in self.preset_manager.get_negative_presets():
                                 ui.button(
-                                    name,
-                                    on_click=lambda _, p=preset: self._apply_negative_preset(p)
-                                ).props('dense flat size=xs')
+                                    preset['name'],
+                                    on_click=lambda p=preset: self._add_negative_preset(p)
+                                ).props('size=sm color=red outline').tooltip(preset['description'])
         
         # 이벤트 바인딩
         self._setup_bindings()
@@ -199,21 +207,7 @@ class PromptPanel:
         
         ui.notify('랜덤 프롬프트가 적용되었습니다', type='info')
     
-    async def _improve_prompt(self):
-        """LLM으로 프롬프트 개선"""
-        current_text = self.positive_textarea.value if self.positive_textarea else ''
-        
-        if not current_text:
-            ui.notify('개선할 프롬프트를 입력해주세요', type='warning')
-            return
-        
-        # LLM 상태 확인
-        if not self.state.get('llm', {}).get('enabled'):
-            ui.notify('LLM이 비활성화되어 있습니다. 상단의 LLM 버튼을 활성화해주세요.', type='warning')
-            return
-        
-        # TODO: Phase 2에서 실제 LLM 통합
-        ui.notify('LLM 프롬프트 개선은 Phase 2에서 구현됩니다', type='info')
+
     
     def _apply_positive_preset(self, preset: str):
         """긍정 프롬프트 프리셋 적용"""
@@ -272,241 +266,13 @@ class PromptPanel:
         else:
             ui.notify('먼저 프롬프트를 입력해주세요', type='warning')
     
-    def _show_weight_dialog(self):
-        """가중치 적용 다이얼로그"""
-        current_text = self.positive_textarea.value if self.positive_textarea else ''
-        if not current_text:
-            ui.notify('먼저 프롬프트를 입력해주세요', type='warning')
-            return
-        
-        with ui.dialog() as dialog, ui.card():
-            ui.label('가중치 적용').classes('text-lg font-bold')
-            
-            with ui.row().classes('gap-2'):
-                keyword_input = ui.input(label='키워드', placeholder='가중치를 적용할 키워드')
-                weight_input = ui.number(label='가중치', value=1.1, min=0.1, max=2.0, step=0.1)
-            
-            with ui.row().classes('gap-2'):
-                ui.button('적용', on_click=lambda: self._apply_weight(
-                    keyword_input.value, weight_input.value, dialog
-                ))
-                ui.button('취소', on_click=dialog.close)
+
     
-    def _apply_weight(self, keyword: str, weight: float, dialog):
-        """가중치 적용"""
-        if not keyword:
-            ui.notify('키워드를 입력해주세요', type='warning')
-            return
-        
-        current_text = self.positive_textarea.value if self.positive_textarea else ''
-        weighted_keyword = self.state.apply_weight(keyword, weight)
-        
-        # 키워드를 가중치 구문으로 교체
-        import re
-        pattern = r'\b' + re.escape(keyword) + r'\b'
-        if re.search(pattern, current_text):
-            new_text = re.sub(pattern, weighted_keyword, current_text, count=1)
-        else:
-            # 키워드가 없으면 끝에 추가
-            new_text = f"{current_text}, {weighted_keyword}"
-        
-        if self.positive_textarea:
-            self.positive_textarea.set_value(new_text)
-        self._on_positive_change(type('', (), {'args': new_text})())
-        
-        dialog.close()
-        ui.notify(f'가중치가 적용되었습니다: {weighted_keyword}', type='positive')
+
     
-    def _optimize_prompt(self):
-        """프롬프트 최적화"""
-        current_text = self.positive_textarea.value if self.positive_textarea else ''
-        if not current_text:
-            ui.notify('먼저 프롬프트를 입력해주세요', type='warning')
-            return
-        
-        # 프롬프트 분석
-        analysis = self.state.analyze_prompt(current_text)
-        
-        # 분석 결과를 팝업 다이얼로그로 표시
-        with ui.dialog() as dialog, ui.card().classes('w-96 max-w-full'):
-            ui.label('프롬프트 분석 결과').classes('text-lg font-bold mb-4')
-            
-            # 토큰 수 표시
-            token_color = 'text-red-400' if analysis['token_count'] > 77 else 'text-green-400'
-            ui.label(f"토큰 수: {analysis['token_count']}/77").classes(token_color)
-            
-            # 세그먼트 정보
-            if analysis['segments']:
-                ui.label(f"세그먼트: {len(analysis['segments'])}개").classes('text-blue-400')
-            
-            # 가중치 정보
-            if analysis['weights']:
-                ui.label("가중치:").classes('text-yellow-400')
-                for keyword, weight in analysis['weights'].items():
-                    ui.label(f"  {keyword}: {weight}").classes('text-xs')
-            
-            # 제안사항
-            if analysis['suggestions']:
-                ui.label("제안사항:").classes('text-orange-400')
-                for suggestion in analysis['suggestions']:
-                    ui.label(f"  {suggestion}").classes('text-xs')
-            
-            # 최적화 제안
-            if not analysis['is_optimized']:
-                optimized_text = self.state.optimize_prompt(current_text)
-                if optimized_text != current_text:
-                    ui.separator().classes('my-4')
-                    ui.label('최적화 제안:').classes('font-bold text-green-400')
-                    ui.label('현재 프롬프트:').classes('font-bold text-sm')
-                    ui.label(current_text).classes('text-sm bg-gray-800 p-2 rounded')
-                    ui.label('최적화된 프롬프트:').classes('font-bold text-sm mt-2')
-                    ui.label(optimized_text).classes('text-sm bg-green-800 p-2 rounded')
-                    
-                    with ui.row().classes('gap-2 mt-4'):
-                        ui.button('적용', on_click=lambda: self._apply_optimized_prompt(optimized_text, dialog)).props('color=green')
-                        ui.button('취소', on_click=dialog.close).props('color=gray')
-            else:
-                ui.separator().classes('my-4')
-                ui.label('✅ 프롬프트가 이미 최적화되어 있습니다').classes('text-green-400 font-bold')
-                ui.button('확인', on_click=dialog.close).props('color=blue').classes('mt-2')
+
     
-    def _apply_optimized_prompt(self, optimized_text: str, dialog):
-        """최적화된 프롬프트 적용"""
-        if self.positive_textarea:
-            self.positive_textarea.set_value(optimized_text)
-        self._on_positive_change(type('', (), {'args': optimized_text})())
-        dialog.close()
-        ui.notify('최적화된 프롬프트가 적용되었습니다', type='positive')
-    
-    def _show_long_prompt_dialog(self):
-        """긴 프롬프트 처리 다이얼로그"""
-        current_text = self.positive_textarea.value if self.positive_textarea else ''
-        
-        if not current_text:
-            ui.notify('처리할 프롬프트를 입력해주세요', type='warning')
-            return
-        
-        # 프롬프트 통계 정보 가져오기
-        stats = self.state.get_prompt_stats(current_text)
-        
-        # 다이얼로그 표시
-        with ui.dialog() as dialog, ui.card().classes('w-full max-w-4xl'):
-            ui.label('긴 프롬프트 처리').classes('text-lg font-bold text-purple-400')
-            
-            with ui.column().classes('w-full gap-4'):
-                # 통계 정보
-                with ui.card().classes('w-full bg-gray-800 p-4'):
-                    ui.label('프롬프트 통계').classes('font-medium text-blue-400')
-                    with ui.row().classes('w-full justify-between text-sm'):
-                        ui.label(f'총 토큰: {stats["total_tokens"]}')
-                        ui.label(f'최대 토큰: {stats["max_tokens"]}')
-                        ui.label(f'청크 수: {stats["chunks_count"]}')
-                    
-                    # 경고 표시
-                    if stats['is_truncated']:
-                        ui.label('⚠️ 프롬프트가 잘릴 수 있습니다!').classes('text-orange-400 font-medium')
-                    else:
-                        ui.label('✅ 프롬프트가 토큰 제한 내에 있습니다.').classes('text-green-400 font-medium')
-                
-                # 청크별 상세 정보
-                if stats['chunks_count'] > 1:
-                    ui.label('분할된 청크들:').classes('font-medium text-green-400')
-                    
-                    for i, chunk in enumerate(stats['chunks']):
-                        with ui.card().classes('w-full bg-gray-700 p-3'):
-                            with ui.row().classes('w-full justify-between items-start'):
-                                ui.label(f'청크 {i+1}').classes('font-medium text-blue-400')
-                                with ui.column().classes('text-right text-xs'):
-                                    ui.label(f'{chunk["tokens"]} 토큰')
-                                    ui.label(f'중요도: {chunk["importance"]:.2f}')
-                            
-                            ui.textarea(value=chunk['text']).props('readonly outlined dense').classes('w-full mt-2')
-                
-                # 처리 옵션
-                ui.label('처리 옵션:').classes('font-medium text-yellow-400')
-                with ui.row().classes('w-full gap-2'):
-                    ui.button(
-                        '자동 BREAK 추가',
-                        on_click=lambda: self._add_auto_breaks(current_text, dialog)
-                    ).props('color=orange')
-                    
-                    ui.button(
-                        '프롬프트 최적화',
-                        on_click=lambda: self._optimize_long_prompt(current_text, dialog)
-                    ).props('color=green')
-                    
-                    ui.button(
-                        '수동 분할',
-                        on_click=lambda: self._manual_split(current_text, dialog)
-                    ).props('color=blue')
-                
-                with ui.row().classes('w-full justify-end gap-2'):
-                    ui.button('닫기', on_click=dialog.close).props('flat')
-        
-        dialog.open()
-    
-    def _add_auto_breaks(self, text: str, dialog):
-        """자동으로 BREAK 키워드 추가"""
-        optimized_text = self.state.add_break_keyword(text)
-        
-        if self.positive_textarea:
-            self.positive_textarea.set_value(optimized_text)
-        self._on_positive_change(type('', (), {'args': optimized_text})())
-        
-        ui.notify('자동 BREAK 키워드가 추가되었습니다', type='positive')
-        dialog.close()
-    
-    def _optimize_long_prompt(self, text: str, dialog):
-        """긴 프롬프트 최적화"""
-        optimized_text = self.state.optimize_long_prompt(text)
-        
-        if self.positive_textarea:
-            self.positive_textarea.set_value(optimized_text)
-        self._on_positive_change(type('', (), {'args': optimized_text})())
-        
-        ui.notify('프롬프트가 최적화되었습니다', type='positive')
-        dialog.close()
-    
-    def _manual_split(self, text: str, dialog):
-        """수동 분할 다이얼로그"""
-        chunks = self.state.split_long_prompt(text)
-        
-        with ui.dialog() as split_dialog, ui.card().classes('w-full max-w-4xl'):
-            ui.label('수동 분할 편집').classes('text-lg font-bold text-blue-400')
-            
-            with ui.column().classes('w-full gap-4'):
-                chunk_textareas = []
-                
-                for i, chunk in enumerate(chunks):
-                    ui.label(f'청크 {i+1} ({chunk["tokens"]} 토큰)').classes('font-medium')
-                    textarea = ui.textarea(value=chunk['text']).props('outlined').classes('w-full')
-                    chunk_textareas.append(textarea)
-                
-                with ui.row().classes('w-full justify-end gap-2'):
-                    ui.button('취소', on_click=split_dialog.close).props('flat')
-                    ui.button(
-                        '적용',
-                        on_click=lambda: self._apply_manual_split([ta.value for ta in chunk_textareas], split_dialog, dialog)
-                    ).props('color=primary')
-        
-        split_dialog.open()
-    
-    def _apply_manual_split(self, chunk_texts: List[str], split_dialog, main_dialog):
-        """수동 분할 결과 적용"""
-        # BREAK 키워드로 연결
-        break_keyword = "BREAK"
-        if hasattr(self.state, 'long_prompt_handler') and self.state.long_prompt_handler:
-            break_keyword = self.state.long_prompt_handler.break_keyword
-        
-        result_text = f" {break_keyword} ".join(chunk_texts)
-        
-        if self.positive_textarea:
-            self.positive_textarea.set_value(result_text)
-        self._on_positive_change(type('', (), {'args': result_text})())
-        
-        ui.notify('수동 분할이 적용되었습니다', type='positive')
-        split_dialog.close()
-        main_dialog.close()
+
     
     # _show_analysis 메서드 제거됨 (팝업으로 대체)
         
@@ -588,3 +354,45 @@ class PromptPanel:
         if self.negative_textarea:
             self.negative_textarea.set_value(data.get('negative_prompt', ''))
             self._on_negative_change(type('', (), {'args': data.get('negative_prompt', '')})())
+    
+    def _on_tokenizer_change(self, event):
+        """커스텀 토크나이저 설정 변경"""
+        self.use_custom_tokenizer = event.args[0]
+        self.state.set('use_custom_tokenizer', self.use_custom_tokenizer)
+        print(f"✅ 커스텀 토크나이저: {'활성화' if self.use_custom_tokenizer else '비활성화'}")
+    
+    def _on_weight_mode_change(self, event):
+        """가중치 해석 방식 변경"""
+        self.weight_interpretation = event.args[0]
+        self.state.set('weight_interpretation', self.weight_interpretation)
+        print(f"✅ 가중치 처리 방식: {self.weight_interpretation}")
+    
+    def _add_positive_preset(self, preset):
+        """긍정 프롬프트 프리셋 추가"""
+        if self.positive_textarea:
+            current_prompt = self.positive_textarea.value or ''
+            
+            if current_prompt and not current_prompt.endswith(', '):
+                new_prompt = current_prompt + ', ' + preset['prompt']
+            else:
+                new_prompt = current_prompt + preset['prompt']
+            
+            self.positive_textarea.set_value(new_prompt)
+            self.state.update_param('prompt', new_prompt)
+            
+            ui.notify(f"프리셋 '{preset['name']}' 추가됨", type='positive')
+    
+    def _add_negative_preset(self, preset):
+        """부정 프롬프트 프리셋 추가"""
+        if self.negative_textarea:
+            current_prompt = self.negative_textarea.value or ''
+            
+            if current_prompt and not current_prompt.endswith(', '):
+                new_prompt = current_prompt + ', ' + preset['prompt']
+            else:
+                new_prompt = current_prompt + preset['prompt']
+            
+            self.negative_textarea.set_value(new_prompt)
+            self.state.update_param('negative_prompt', new_prompt)
+            
+            ui.notify(f"부정 프리셋 '{preset['name']}' 추가됨", type='positive')
