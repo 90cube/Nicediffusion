@@ -226,9 +226,9 @@ class Img2ImgMode:
             use_custom_tokenizer=use_custom
         )
         
-        # 프롬프트 인코딩 (77토큰 제한 없음)
+        # 프롬프트 인코딩 (77토큰 제한 없음, SDXL 지원)
         print(f"📝 프롬프트 인코딩 - 모드: {weight_mode}, 커스텀: {use_custom}")
-        prompt_embeds, negative_prompt_embeds = encoder.encode_prompt(
+        prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, pooled_negative_prompt_embeds = encoder.encode_prompt_with_pooled(
             params.prompt, 
             params.negative_prompt
         )
@@ -236,6 +236,11 @@ class Img2ImgMode:
         print(f"✅ 임베딩 생성 완료:")
         print(f"   - 긍정: {prompt_embeds.shape}")
         print(f"   - 부정: {negative_prompt_embeds.shape}")
+        if pooled_prompt_embeds is not None:
+            print(f"   - 긍정 pooled: {pooled_prompt_embeds.shape}")
+            print(f"   - 부정 pooled: {pooled_negative_prompt_embeds.shape}")
+        else:
+            print(f"   - SD15 모델 (pooled 임베딩 없음)")
         
         def _generate_with_strength_validation():
             """Strength 값 검증을 포함한 생성 로직"""
@@ -278,20 +283,30 @@ class Img2ImgMode:
             print(f"   - 전달할 cfg_scale: {params.cfg_scale}")
             print(f"   - 전달할 이미지 크기: {init_image.size}")
             
-            # 파이프라인 호출 (고급 인코더 사용)
+            # 파이프라인 호출 (고급 인코더 사용, SDXL 지원)
             try:
-                result = self.pipeline(
-                    prompt_embeds=prompt_embeds,
-                    negative_prompt_embeds=negative_prompt_embeds,
-                    image=init_image,
-                    strength=strength,
-                    width=params.width,
-                    height=params.height,
-                    num_inference_steps=params.steps,
-                    guidance_scale=params.cfg_scale,
-                    generator=generator,
-                    num_images_per_prompt=params.batch_size
-                )
+                pipeline_params = {
+                    'prompt_embeds': prompt_embeds,
+                    'negative_prompt_embeds': negative_prompt_embeds,
+                    'image': init_image,
+                    'strength': strength,
+                    'width': params.width,
+                    'height': params.height,
+                    'num_inference_steps': params.steps,
+                    'guidance_scale': params.cfg_scale,
+                    'generator': generator,
+                    'num_images_per_prompt': params.batch_size
+                }
+                
+                # SDXL 모델인 경우 pooled 임베딩 추가
+                if pooled_prompt_embeds is not None:
+                    pipeline_params['pooled_prompt_embeds'] = pooled_prompt_embeds
+                    pipeline_params['negative_pooled_prompt_embeds'] = pooled_negative_prompt_embeds
+                    print(f"   - SDXL 모델: pooled 임베딩 추가됨")
+                else:
+                    print(f"   - SD15 모델: 기본 임베딩만 사용")
+                
+                result = self.pipeline(**pipeline_params)
                 
                 print(f"   ✅ 파이프라인 호출 성공")
                 

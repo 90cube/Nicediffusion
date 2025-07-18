@@ -158,6 +158,60 @@ class AdvancedTextEncoder:
         
         return pos_embeddings, neg_embeddings
     
+    def encode_prompt_with_pooled(self, prompt: str, negative_prompt: str = "") -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """SDXL용 프롬프트 인코딩 (pooled_prompt_embeds 포함)"""
+        
+        # SDXL 모델인지 확인
+        if not hasattr(self.pipeline, 'text_encoder_2'):
+            # SD15 모델인 경우 기본 인코딩 사용
+            pos_embeds, neg_embeds = self.encode_prompt(prompt, negative_prompt)
+            return pos_embeds, neg_embeds, None, None
+        
+        # SDXL 모델인 경우 두 개의 텍스트 인코더 사용
+        print(f"📝 SDXL 모델 감지 - 두 개의 텍스트 인코더 사용")
+        
+        # 첫 번째 텍스트 인코더 (OpenCLIP) - 기본 임베딩
+        pos_embeds, neg_embeds = self.encode_prompt(prompt, negative_prompt)
+        
+        # 두 번째 텍스트 인코더 (CLIP) - pooled_prompt_embeds 생성
+        text_encoder_2 = self.pipeline.text_encoder_2
+        tokenizer_2 = self.pipeline.tokenizer_2
+        
+        # 긍정 프롬프트 pooled 임베딩 (가중치 없이 단순 처리)
+        pos_tokens_2 = tokenizer_2(
+            prompt,
+            padding="max_length",
+            max_length=tokenizer_2.model_max_length,
+            truncation=True,
+            return_tensors="pt"
+        ).input_ids.to(text_encoder_2.device)
+        
+        with torch.no_grad():
+            pos_pooled = text_encoder_2(pos_tokens_2)[0]
+        
+        # 부정 프롬프트 pooled 임베딩 (가중치 없이 단순 처리)
+        if negative_prompt:
+            neg_tokens_2 = tokenizer_2(
+                negative_prompt,
+                padding="max_length",
+                max_length=tokenizer_2.model_max_length,
+                truncation=True,
+                return_tensors="pt"
+            ).input_ids.to(text_encoder_2.device)
+        else:
+            neg_tokens_2 = tokenizer_2(
+                "",
+                padding="max_length",
+                max_length=tokenizer_2.model_max_length,
+                truncation=True,
+                return_tensors="pt"
+            ).input_ids.to(text_encoder_2.device)
+        
+        with torch.no_grad():
+            neg_pooled = text_encoder_2(neg_tokens_2)[0]
+        
+        return pos_embeds, neg_embeds, pos_pooled, neg_pooled
+    
     def _encode_tokens(self, tokenized_data: Dict[str, List]) -> torch.Tensor:
         """토큰을 임베딩으로 변환"""
         
@@ -165,11 +219,16 @@ class AdvancedTextEncoder:
         weights = tokenized_data['weights'][0]
         word_ids = tokenized_data['word_ids'][0]
         
-        # 토큰 길이 조정 (77토큰 제한 해제)
-        max_length = 77  # 기본값, 필요시 확장
+        # SDXL 모델인지 확인하여 토큰 제한 결정
+        is_sdxl = hasattr(self.pipeline, 'text_encoder_2')
+        max_length = 77  # SDXL과 SD15 모두 첫 번째 인코더는 77토큰 제한
+        
+        # 토큰 길이를 정확히 77로 제한 (SDXL 모델에서 차원 불일치 방지)
         if len(tokens) > max_length:
-            # 청킹 처리
-            return self._encode_long_prompt(tokens, weights, word_ids, max_length)
+            tokens = tokens[:max_length]
+            weights = weights[:max_length]
+            word_ids = word_ids[:max_length]
+            print(f"⚠️ 토큰 길이를 {max_length}로 제한했습니다 (원본: {len(tokenized_data['tokens'][0])})")
         
         # 패딩
         while len(tokens) < max_length:

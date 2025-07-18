@@ -204,9 +204,9 @@ class Txt2ImgMode:
             use_custom_tokenizer=use_custom
         )
         
-        # 프롬프트 인코딩 (77토큰 제한 없음)
+        # 프롬프트 인코딩 (77토큰 제한 없음, SDXL 지원)
         print(f"📝 프롬프트 인코딩 - 모드: {weight_mode}, 커스텀: {use_custom}")
-        prompt_embeds, negative_prompt_embeds = encoder.encode_prompt(
+        prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, pooled_negative_prompt_embeds = encoder.encode_prompt_with_pooled(
             params.prompt, 
             params.negative_prompt
         )
@@ -214,6 +214,11 @@ class Txt2ImgMode:
         print(f"✅ 임베딩 생성 완료:")
         print(f"   - 긍정: {prompt_embeds.shape}")
         print(f"   - 부정: {negative_prompt_embeds.shape}")
+        if pooled_prompt_embeds is not None:
+            print(f"   - 긍정 pooled: {pooled_prompt_embeds.shape}")
+            print(f"   - 부정 pooled: {pooled_negative_prompt_embeds.shape}")
+        else:
+            print(f"   - SD15 모델 (pooled 임베딩 없음)")
         
         print(f"📝 프롬프트: {params.prompt[:100]}...")
         print(f"🚫 부정 프롬프트: {params.negative_prompt[:100]}...")
@@ -247,7 +252,7 @@ class Txt2ImgMode:
                 if params.scheduler in ['karras', 'exponential']:
                     extra_params['guidance_rescale'] = 0.7
             
-            # 실제 파이프라인 호출 파라미터 로깅 (고급 인코더 사용)
+            # 실제 파이프라인 호출 파라미터 로깅 (고급 인코더 사용, SDXL 지원)
             pipeline_params = {
                 'prompt_embeds': prompt_embeds,
                 'negative_prompt_embeds': negative_prompt_embeds,
@@ -259,6 +264,14 @@ class Txt2ImgMode:
                 'num_images_per_prompt': params.batch_size,
                 **extra_params
             }
+            
+            # SDXL 모델인 경우 pooled 임베딩 추가
+            if pooled_prompt_embeds is not None:
+                pipeline_params['pooled_prompt_embeds'] = pooled_prompt_embeds
+                pipeline_params['negative_pooled_prompt_embeds'] = pooled_negative_prompt_embeds
+                print(f"   - SDXL 모델: pooled 임베딩 추가됨")
+            else:
+                print(f"   - SD15 모델: 기본 임베딩만 사용")
             
             print(f"🚀 실제 파이프라인 호출 파라미터:")
             print(f"   - Steps: {pipeline_params['num_inference_steps']}")

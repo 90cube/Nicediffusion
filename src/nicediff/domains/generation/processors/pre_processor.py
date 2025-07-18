@@ -81,13 +81,12 @@ class PreProcessor:
         return len(errors) == 0, errors
     
     def validate_prompt(self, prompt: str) -> Tuple[bool, list[str]]:
-        """프롬프트 검증"""
+        """프롬프트 검증 (고급 프롬프트 시스템으로 1000자 제한 해제)"""
         errors = []
         
         if not prompt or not prompt.strip():
             errors.append("프롬프트는 비어있을 수 없습니다.")
-        elif len(prompt) > 1000:
-            errors.append("프롬프트는 1000자를 초과할 수 없습니다.")
+        # 1000자 제한 제거 - 고급 프롬프트 시스템에서 자동 처리
         
         return len(errors) == 0, errors
     
