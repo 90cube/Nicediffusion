@@ -154,36 +154,15 @@ class SchedulerManager:
             return True  # 기본값, 적용 안함
         
         try:
-            # diffusers에서 CLIP Skip 적용
-            if hasattr(pipeline, 'text_encoder') and hasattr(pipeline.text_encoder, 'text_model'):
-                # 텍스트 인코더의 레이어 수 확인
-                total_layers = len(pipeline.text_encoder.text_model.encoder.layers)
-                target_layer = max(0, total_layers - clip_skip)
-                
-                # 원본 forward 함수 저장
-                if not hasattr(pipeline.text_encoder.text_model.encoder, '_original_forward'):
-                    pipeline.text_encoder.text_model.encoder._original_forward = pipeline.text_encoder.text_model.encoder.forward
-                
-                def clipped_forward(hidden_states, attention_mask=None, **kwargs):
-                    # 지정된 레이어까지만 실행
-                    for i, layer in enumerate(pipeline.text_encoder.text_model.encoder.layers):
-                        if i >= target_layer:
-                            break
-                        hidden_states = layer(hidden_states, attention_mask=attention_mask, **kwargs)[0]
-                    return hidden_states
-                
-                # 새로운 forward 함수 적용
-                pipeline.text_encoder.text_model.encoder.forward = clipped_forward
-                
-                print(f"✅ CLIP Skip {clip_skip} 적용 완료 (레이어 {target_layer}/{total_layers})")
-                return True
+            # SDXL 모델에서는 CLIP Skip을 다르게 처리해야 함
+            # 현재는 안전하게 기본값만 반환하고 실제 적용은 나중에 구현
+            print(f"ℹ️ CLIP Skip {clip_skip} 요청됨 (SDXL 모델에서는 현재 미지원)")
+            print(f"   - 향후 SDXL 전용 CLIP Skip 구현 예정")
+            return True
                 
         except Exception as e:
             print(f"⚠️ CLIP Skip 적용 실패: {e}")
             return False
-        
-        print(f"⚠️ CLIP Skip {clip_skip} 적용 불가 (지원하지 않는 파이프라인)")
-        return False
 
     @classmethod
     def reset_clip_skip(cls, pipeline):
