@@ -7,7 +7,7 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass
 from PIL import Image, PngImagePlugin
 
@@ -16,7 +16,6 @@ from PIL import Image, PngImagePlugin
 class PostProcessResult:
     """후처리 결과"""
     image_path: str
-    thumbnail_path: str
     metadata: Dict[str, Any]
     success: bool
     error: Optional[str] = None
@@ -29,7 +28,7 @@ class PostProcessor:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
     
-    def _generate_filename(self, seed: int, timestamp: datetime = None) -> str:
+    def _generate_filename(self, seed: Union[int, str], timestamp: Optional[datetime] = None) -> str:
         """파일명 생성"""
         if timestamp is None:
             timestamp = datetime.now()
@@ -37,17 +36,7 @@ class PostProcessor:
         timestamp_str = timestamp.strftime("%Y%m%d_%H%M%S")
         return f"generated_{timestamp_str}_{seed}.png"
     
-    def _create_thumbnail(self, image: Image.Image, max_size: int = 256) -> Image.Image:
-        """썸네일 생성"""
-        # 원본 비율 유지하면서 리사이즈
-        ratio = min(max_size / image.width, max_size / image.height)
-        new_width = int(image.width * ratio)
-        new_height = int(image.height * ratio)
-        
-        thumbnail = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        return thumbnail
-    
-    def _add_metadata(self, image: Image.Image, params: Dict[str, Any], model_info: Dict[str, Any]) -> Image.Image:
+    def _add_metadata(self, image: Image.Image, params: Dict[str, Any], model_info: Dict[str, Any]) -> tuple[Image.Image, PngImagePlugin.PngInfo]:
         """PNG 메타데이터 추가"""
         # 메타데이터 준비
         metadata = {
@@ -83,7 +72,7 @@ class PostProcessor:
         
         return image, meta
     
-    def _save_image(self, image: Image.Image, filename: str, metadata: PngImagePlugin.PngInfo = None) -> str:
+    def _save_image(self, image: Image.Image, filename: str, metadata: Optional[PngImagePlugin.PngInfo] = None) -> str:
         """이미지 저장"""
         filepath = self.output_dir / filename
         
@@ -94,20 +83,6 @@ class PostProcessor:
             image.save(filepath, 'PNG')
         
         return str(filepath)
-    
-    def _save_thumbnail(self, thumbnail: Image.Image, filename: str) -> str:
-        """썸네일 저장"""
-        # 썸네일용 디렉토리
-        thumb_dir = self.output_dir / "thumbnails"
-        thumb_dir.mkdir(exist_ok=True)
-        
-        # 파일명에 _thumb 접미사 추가
-        name, ext = os.path.splitext(filename)
-        thumb_filename = f"{name}_thumb{ext}"
-        thumb_path = thumb_dir / thumb_filename
-        
-        thumbnail.save(thumb_path, 'PNG')
-        return str(thumb_path)
     
     def postprocess(self, images: List[Image.Image], params: Dict[str, Any], 
                    model_info: Dict[str, Any], seed: int) -> List[PostProcessResult]:
@@ -123,24 +98,17 @@ class PostProcessor:
                 # 파일명 생성
                 filename = self._generate_filename(image_seed, timestamp)
                 
-                # 썸네일 생성
-                thumbnail = self._create_thumbnail(image)
-                
                 # 메타데이터 추가
                 image_with_meta, metadata = self._add_metadata(image, params, model_info)
                 
                 # 이미지 저장
                 image_path = self._save_image(image_with_meta, filename, metadata)
                 
-                # 썸네일 저장
-                thumbnail_path = self._save_thumbnail(thumbnail, filename)
-                
                 print(f"✅ 이미지 저장 완료: {image_path}")
                 
                 # 결과 생성
                 result = PostProcessResult(
                     image_path=image_path,
-                    thumbnail_path=thumbnail_path,
                     metadata=params,
                     success=True
                 )
@@ -150,7 +118,6 @@ class PostProcessor:
                 print(f"❌ 이미지 저장 실패: {e}")
                 result = PostProcessResult(
                     image_path="",
-                    thumbnail_path="",
                     metadata=params,
                     success=False,
                     error=str(e)
@@ -176,10 +143,9 @@ class PostProcessor:
             for file_path in files_to_delete:
                 file_path.unlink()
                 
-                # 해당 썸네일도 삭제
-                thumb_dir = self.output_dir / "thumbnails"
+                # 해당 썸네일도 삭제 (ImageSaver에서 생성된 썸네일)
                 name, ext = os.path.splitext(file_path.name)
-                thumb_path = thumb_dir / f"{name}_thumb{ext}"
+                thumb_path = self.output_dir / f"thumb_{name}{ext}"
                 if thumb_path.exists():
                     thumb_path.unlink()
             
@@ -193,8 +159,8 @@ class PostProcessor:
         history = []
         
         try:
-            # PNG 파일들 수집
-            png_files = list(self.output_dir.glob("*.png"))
+            # PNG 파일들 수집 (썸네일 제외)
+            png_files = [f for f in self.output_dir.glob("*.png") if not f.name.startswith("thumb_")]
             
             # 생성 시간순으로 정렬 (최신순)
             png_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
@@ -211,9 +177,9 @@ class PostProcessor:
                         if 'model_name' in img.info:
                             metadata['model_name'] = img.info['model_name']
                         
-                        # 썸네일 경로 확인
+                        # 썸네일 경로 확인 (ImageSaver에서 생성된 썸네일)
                         name, ext = os.path.splitext(file_path.name)
-                        thumb_path = self.output_dir / "thumbnails" / f"{name}_thumb{ext}"
+                        thumb_path = self.output_dir / f"thumb_{name}{ext}"
                         
                         history.append({
                             'image_path': str(file_path),
