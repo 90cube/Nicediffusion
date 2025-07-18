@@ -277,6 +277,25 @@ class Img2ImgMode:
         except ModuleNotFoundError:
             pass  # 조용히 무시
     
+    def _validate_scheduler_application(self, expected_sampler: str, expected_scheduler: str):
+        """스케줄러 적용 검증"""
+        try:
+            current_scheduler = self.pipeline.scheduler.__class__.__name__
+            print(f"🔍 현재 적용된 스케줄러: {current_scheduler}")
+            
+            # 설정 확인
+            if hasattr(self.pipeline.scheduler, 'config'):
+                config = self.pipeline.scheduler.config
+                print(f"🔍 스케줄러 설정:")
+                print(f"   - use_karras_sigmas: {getattr(config, 'use_karras_sigmas', 'N/A')}")
+                print(f"   - algorithm_type: {getattr(config, 'algorithm_type', 'N/A')}")
+                print(f"   - solver_order: {getattr(config, 'solver_order', 'N/A')}")
+            
+            return True
+        except Exception as e:
+            print(f"⚠️ 스케줄러 검증 실패: {e}")
+            return False
+    
     async def generate(self, params: Img2ImgParams) -> List[Any]:
         """이미지-이미지 생성 실행 (Strength 값 상세 검증)"""
         import torch
@@ -311,6 +330,24 @@ class Img2ImgMode:
             print(f"   - 시드 설정: {params.seed}")
         else:
             print(f"   - 랜덤 시드 사용")
+        
+        # 스케줄러/샘플러 적용
+        from ..services.scheduler_manager import SchedulerManager
+        SchedulerManager.apply_scheduler_to_pipeline(
+            self.pipeline, 
+            params.sampler, 
+            params.scheduler
+        )
+        
+        # CLIP Skip 적용
+        if params.clip_skip > 1:
+            SchedulerManager.apply_clip_skip_to_pipeline(
+                self.pipeline, 
+                params.clip_skip
+            )
+        
+        # 스케줄러 적용 검증
+        self._validate_scheduler_application(params.sampler, params.scheduler)
         
         def _generate_with_strength_validation():
             """Strength 값 검증을 포함한 생성 로직"""

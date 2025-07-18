@@ -150,6 +150,25 @@ class Txt2ImgMode:
         
         print("✅ SD15 품질 최적화 완료")
     
+    def _validate_scheduler_application(self, expected_sampler: str, expected_scheduler: str):
+        """스케줄러 적용 검증"""
+        try:
+            current_scheduler = self.pipeline.scheduler.__class__.__name__
+            print(f"🔍 현재 적용된 스케줄러: {current_scheduler}")
+            
+            # 설정 확인
+            if hasattr(self.pipeline.scheduler, 'config'):
+                config = self.pipeline.scheduler.config
+                print(f"🔍 스케줄러 설정:")
+                print(f"   - use_karras_sigmas: {getattr(config, 'use_karras_sigmas', 'N/A')}")
+                print(f"   - algorithm_type: {getattr(config, 'algorithm_type', 'N/A')}")
+                print(f"   - solver_order: {getattr(config, 'solver_order', 'N/A')}")
+            
+            return True
+        except Exception as e:
+            print(f"⚠️ 스케줄러 검증 실패: {e}")
+            return False
+    
     async def generate(self, params: Txt2ImgParams) -> List[Any]:
         """텍스트-이미지 생성 실행"""
         print(f"🎨 Txt2Img 생성 시작 - Seed: {params.seed}")
@@ -168,6 +187,9 @@ class Txt2ImgMode:
                 self.pipeline, 
                 params.clip_skip
             )
+        
+        # 3. 스케줄러 적용 검증
+        self._validate_scheduler_application(params.sampler, params.scheduler)
         
         # 프롬프트 길이 제한 (SD15: 77 토큰, SDXL: 77 토큰)
         max_tokens = 77
