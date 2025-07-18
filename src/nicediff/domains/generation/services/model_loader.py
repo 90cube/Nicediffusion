@@ -99,19 +99,14 @@ class ModelLoader:
         print("🔧 SD15 최적화 설정 적용 완료")
     
     async def load_vae(self, vae_path: str) -> bool:
-        """VAE 로드"""
-        if not self.current_pipeline:
-            return False
-        
-        def _load_vae():
-            vae = AutoencoderKL.from_single_file(
-                vae_path,
-                torch_dtype=torch.float16
-            )
-            self.current_pipeline.vae = vae.to(self.device)
+        """VAE 로드 (단순화)"""
+        try:
+            vae_model = AutoencoderKL.from_pretrained(vae_path, torch_dtype=torch.float16)
+            self.current_pipeline.vae = vae_model.to(self.device)
             return True
-        
-        return await asyncio.to_thread(_load_vae)
+        except Exception as e:
+            print(f"VAE 로드 실패: {e}")
+            return False
     
     async def load_lora(self, lora_info: Dict[str, Any], weight: float = 1.0) -> bool:
         """LoRA 로드"""

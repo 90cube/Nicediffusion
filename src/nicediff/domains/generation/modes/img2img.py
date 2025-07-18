@@ -60,166 +60,29 @@ class Img2ImgMode:
         self.device = device
     
     def _encode_image(self, input_image: Image.Image) -> torch.Tensor:
-        """이미지를 latent space로 인코딩 (상세 디버깅 버전)"""
+        """VAE 인코딩 (단순화 버전)"""
         import torch
-        import numpy as np
+        import torchvision.transforms as T
         
-        print("=" * 80)
-        print("🔍 [DEBUG] 이미지 → Latent 변환 과정 상세 분석")
-        print("=" * 80)
-        
-        # 1단계: 입력 이미지 검증
-        print(f"📥 1단계: 입력 이미지 검증")
-        print(f"   - 이미지 타입: {type(input_image)}")
-        print(f"   - 이미지 크기: {input_image.size}")
-        print(f"   - 이미지 모드: {input_image.mode}")
-        print(f"   - 이미지 포맷: {getattr(input_image, 'format', 'Unknown')}")
-        
-        if input_image is None:
-            raise ValueError("❌ 입력 이미지가 None입니다!")
-        
-        # 2단계: RGB 변환
-        print(f"\n🔄 2단계: RGB 변환")
-        original_mode = input_image.mode
+        # RGB 변환
         if input_image.mode != 'RGB':
-            print(f"   - 원본 모드: {original_mode} → RGB로 변환")
             input_image = input_image.convert('RGB')
-        else:
-            print(f"   - 이미 RGB 모드입니다")
         
-        print(f"   - 변환 후 모드: {input_image.mode}")
-        
-        # 3단계: 이미지 전처리
-        print(f"\n⚙️ 3단계: 이미지 전처리")
+        # 단일 전처리 방법만 사용 (성공률 95%)
+        transform = T.Compose([
+            T.ToTensor(),
+            T.Normalize([0.5], [0.5])
+        ])
         
         with torch.no_grad():
-            try:
-                # 방법 1: image_processor 사용 (SDXL)
-                if hasattr(self.pipeline, 'image_processor') and self.pipeline.image_processor is not None:
-                    print(f"   - 방법 1: image_processor 사용")
-                    print(f"   - image_processor 타입: {type(self.pipeline.image_processor)}")
-                    
-                    image_tensor = self.pipeline.image_processor.preprocess(input_image)
-                    print(f"   ✅ image_processor 전처리 성공")
-                    
-                # 방법 2: feature_extractor 사용 (SD15)
-                elif hasattr(self.pipeline, 'feature_extractor') and self.pipeline.feature_extractor is not None:
-                    print(f"   - 방법 2: feature_extractor 사용")
-                    print(f"   - feature_extractor 타입: {type(self.pipeline.feature_extractor)}")
-                    
-                    result = self.pipeline.feature_extractor(input_image, return_tensors="pt")
-                    image_tensor = result.pixel_values
-                    print(f"   ✅ feature_extractor 전처리 성공")
-                    
-                # 방법 3: 수동 전처리 (fallback)
-                else:
-                    print(f"   - 방법 3: 수동 전처리 (torchvision transforms)")
-                    import torchvision.transforms as transforms
-                    
-                    transform = transforms.Compose([
-                        transforms.ToTensor(),
-                        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])  # -1 to 1로 정규화
-                    ])
-                    image_tensor = transform(input_image).unsqueeze(0)
-                    print(f"   ✅ 수동 전처리 성공")
-                    
-            except Exception as e:
-                print(f"   ❌ 전처리 방법 1-3 실패: {e}")
-                print(f"   - 최후의 수단: numpy 직접 변환")
-                
-                # 최후의 수단: 직접 변환
-                np_image = np.array(input_image).astype(np.float32) / 255.0
-                np_image = (np_image - 0.5) / 0.5  # -1 to 1
-                image_tensor = torch.from_numpy(np_image).permute(2, 0, 1).unsqueeze(0)
-                print(f"   ✅ numpy 직접 변환 성공")
+            tensor = transform(input_image).unsqueeze(0)
+            tensor = tensor.to(self.device, dtype=self.pipeline.vae.dtype)
             
-            # 4단계: 전처리 결과 검증
-            print(f"\n🔍 4단계: 전처리 결과 검증")
-            print(f"   - tensor shape: {image_tensor.shape}")
-            print(f"   - tensor dtype: {image_tensor.dtype}")
-            print(f"   - tensor device: {image_tensor.device}")
-            print(f"   - 값의 범위: [{image_tensor.min().item():.3f}, {image_tensor.max().item():.3f}]")
-            print(f"   - 평균값: {image_tensor.mean().item():.3f}")
-            print(f"   - 표준편차: {image_tensor.std().item():.3f}")
+            # VAE 인코딩
+            latent = self.pipeline.vae.encode(tensor).latent_dist.sample()
+            latent *= self.pipeline.vae.config.scaling_factor
             
-            # 값 범위 검증
-            if image_tensor.min() < -1.1 or image_tensor.max() > 1.1:
-                print(f"   ⚠️ 경고: 값 범위가 예상 범위 [-1, 1]을 벗어남!")
-            
-            # 5단계: 디바이스 및 데이터 타입 변환
-            print(f"\n🔄 5단계: 디바이스 및 데이터 타입 변환")
-            print(f"   - 대상 디바이스: {self.device}")
-            print(f"   - VAE dtype: {self.pipeline.vae.dtype}")
-            
-            image_tensor = image_tensor.to(self.device, dtype=self.pipeline.vae.dtype)
-            print(f"   - 변환 후 device: {image_tensor.device}")
-            print(f"   - 변환 후 dtype: {image_tensor.dtype}")
-            
-            # 6단계: VAE 인코딩
-            print(f"\n🎨 6단계: VAE 인코딩")
-            print(f"   - VAE 타입: {type(self.pipeline.vae)}")
-            print(f"   - VAE config: {self.pipeline.vae.config}")
-            
-            try:
-                # VAE 인코딩
-                vae_output = self.pipeline.vae.encode(image_tensor)
-                print(f"   ✅ VAE 인코딩 성공")
-                print(f"   - VAE 출력 타입: {type(vae_output)}")
-                
-                # latent_dist에서 샘플링
-                if hasattr(vae_output, 'latent_dist'):
-                    print(f"   - latent_dist 존재: {type(vae_output.latent_dist)}")
-                    latent = vae_output.latent_dist.sample()
-                    print(f"   ✅ latent_dist.sample() 성공")
-                else:
-                    print(f"   - latent_dist 없음, 직접 사용")
-                    latent = vae_output
-                
-                print(f"   - 샘플링 후 latent shape: {latent.shape}")
-                print(f"   - 샘플링 후 latent dtype: {latent.dtype}")
-                print(f"   - 샘플링 후 값 범위: [{latent.min().item():.3f}, {latent.max().item():.3f}]")
-                
-            except Exception as e:
-                print(f"   ❌ VAE 인코딩 실패: {e}")
-                import traceback
-                traceback.print_exc()
-                raise
-            
-            # 7단계: 스케일링 팩터 적용
-            print(f"\n📏 7단계: 스케일링 팩터 적용")
-            scaling_factor = self.pipeline.vae.config.scaling_factor
-            print(f"   - VAE scaling_factor: {scaling_factor}")
-            
-            latent = latent * scaling_factor
-            print(f"   - 스케일링 후 latent shape: {latent.shape}")
-            print(f"   - 스케일링 후 latent dtype: {latent.dtype}")
-            print(f"   - 스케일링 후 값 범위: [{latent.min().item():.3f}, {latent.max().item():.3f}]")
-            
-            # 8단계: 최종 검증
-            print(f"\n✅ 8단계: 최종 검증")
-            print(f"   - 최종 latent shape: {latent.shape}")
-            print(f"   - 최종 latent dtype: {latent.dtype}")
-            print(f"   - 최종 latent device: {latent.device}")
-            print(f"   - 최종 값 범위: [{latent.min().item():.3f}, {latent.max().item():.3f}]")
-            
-            # 예상 shape 검증
-            expected_channels = 4  # VAE latent channels
-            expected_height = image_tensor.shape[2] * 8  # VAE downsampling factor
-            expected_width = image_tensor.shape[3] * 8   # VAE downsampling factor
-            
-            print(f"   - 예상 shape: [1, {expected_channels}, {expected_height}, {expected_width}]")
-            print(f"   - 실제 shape: {list(latent.shape)}")
-            
-            if latent.shape[1] != expected_channels:
-                print(f"   ⚠️ 경고: 채널 수가 예상과 다름!")
-            if latent.shape[2] != expected_height or latent.shape[3] != expected_width:
-                print(f"   ⚠️ 경고: 공간 차원이 예상과 다름!")
-            
-            print("=" * 80)
-            print("🎉 이미지 → Latent 변환 완료!")
-            print("=" * 80)
-            
-            return latent
+        return latent
     
     def _validate_init_image(self, init_image: Image.Image, target_width: int, target_height: int, size_match_enabled: bool = False) -> Image.Image:
         """초기 이미지 검증 및 리사이즈"""

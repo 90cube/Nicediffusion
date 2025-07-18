@@ -1032,49 +1032,19 @@ class Img2ImgTab(BaseTab):
         self.js_bridge.register_callback('upload', self.handle_js_upload)
     
     def handle_upload(self, upload_event):
-        """이미지 업로드 처리 - 원본 이미지 보존 강화"""
+        """업로드 이미지 처리 (리사이즈 금지)"""
         try:
-            print(f"🔍 업로드 시작: 이벤트 타입={type(upload_event)}")
-            
-            # 파일 크기 확인
-            file_size = len(upload_event.content)
-            print(f"📁 파일 크기: {file_size} 바이트")
-            
-            # 크기 제한 (10MB)
-            if file_size > 10 * 1024 * 1024:
-                ui.notify('파일이 너무 큽니다 (최대 10MB)', type='negative')
-                return
-            
-            # 이미지 로드
+            # PIL 이미지 변환만
             image = Image.open(io.BytesIO(upload_event.content))
-            print(f"🖼️ 이미지 로드됨: {image.size}, {image.mode}")
             
-            # 이미지 유효성 검증
-            if not self.validate_image(image):
-                ui.notify('지원하지 않는 이미지 형식입니다', type='negative')
-                return
+            # 상태 저장 (원본 그대로)
+            self.state.set('init_image', image)
             
-            # 원본 이미지 최적화 (크기 보존)
-            optimized_image = self.optimize_image_for_upload(image)
-            print(f"🔄 이미지 최적화 완료: {optimized_image.size}")
+            # 프리뷰 표시 (CSS 반응형)
+            self.update_preview_display(image)
             
-            # 원본 이미지 설정 (업로드 중 플래그 설정)
-            print(f"🔄 원본 이미지 설정 시작: {optimized_image.size}")
-            self._uploading = True
-            try:
-                self.set_original_image(optimized_image)
-            finally:
-                self._uploading = False
-            
-            # 성공 알림 (UI 컨텍스트 안전하게)
-            self.safe_notify('업로드 완료', 'positive')
-            
-            print(f"✅ 업로드 완료: {optimized_image.size}")
-                
         except Exception as e:
             print(f"❌ 업로드 실패: {e}")
-            import traceback
-            traceback.print_exc()
             self.safe_notify(f'업로드 실패: {str(e)}', 'negative')
     
     def optimize_image_for_upload(self, image: Image, max_size: int = 2048) -> Image:
