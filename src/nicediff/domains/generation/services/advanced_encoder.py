@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 고급 텍스트 인코더 서비스
 ComfyUI 스타일 고급 인코딩으로 77토큰 제한 완전 해제
@@ -168,16 +172,16 @@ class AdvancedTextEncoder:
             return pos_embeds, neg_embeds, None, None
         
         # SDXL 모델인 경우 두 개의 텍스트 인코더 사용
-        print(f"📝 SDXL 모델 감지 - 두 개의 텍스트 인코더 사용")
+        info(r"📝 SDXL 모델 감지 - 두 개의 텍스트 인코더 사용")
         
         # 첫 번째 텍스트 인코더 (OpenCLIP) - 기본 임베딩
-        pos_embeds, neg_embeds = self.encode_prompt(prompt, negative_prompt)
+        pos_embeds_1, neg_embeds_1 = self.encode_prompt(prompt, negative_prompt)
         
         # 두 번째 텍스트 인코더 (CLIP) - pooled_prompt_embeds 생성
         text_encoder_2 = self.pipeline.text_encoder_2
         tokenizer_2 = self.pipeline.tokenizer_2
         
-        # 긍정 프롬프트 pooled 임베딩 (가중치 없이 단순 처리)
+        # 긍정 프롬프트 두 번째 인코더 임베딩
         pos_tokens_2 = tokenizer_2(
             prompt,
             padding="max_length",
@@ -187,9 +191,11 @@ class AdvancedTextEncoder:
         ).input_ids.to(text_encoder_2.device)
         
         with torch.no_grad():
-            pos_pooled = text_encoder_2(pos_tokens_2)[0]
+            pos_output_2 = text_encoder_2(pos_tokens_2, output_hidden_states=True)
+            pos_embeds_2 = pos_output_2.hidden_states[-2]  # 마지막에서 두 번째 레이어
+            pos_pooled = pos_output_2[0]  # pooled output
         
-        # 부정 프롬프트 pooled 임베딩 (가중치 없이 단순 처리)
+        # 부정 프롬프트 두 번째 인코더 임베딩
         if negative_prompt:
             neg_tokens_2 = tokenizer_2(
                 negative_prompt,
@@ -208,7 +214,20 @@ class AdvancedTextEncoder:
             ).input_ids.to(text_encoder_2.device)
         
         with torch.no_grad():
-            neg_pooled = text_encoder_2(neg_tokens_2)[0]
+            neg_output_2 = text_encoder_2(neg_tokens_2, output_hidden_states=True)
+            neg_embeds_2 = neg_output_2.hidden_states[-2]  # 마지막에서 두 번째 레이어
+            neg_pooled = neg_output_2[0]  # pooled output
+        
+        # SDXL에서는 두 인코더의 임베딩을 연결해야 함
+        # 첫 번째 인코더: 768 차원, 두 번째 인코더: 1280 차원
+        # 연결하면 2048 차원이 됨
+        pos_embeds = torch.cat([pos_embeds_1, pos_embeds_2], dim=-1)
+        neg_embeds = torch.cat([neg_embeds_1, neg_embeds_2], dim=-1)
+        
+        success(r"SDXL 임베딩 연결 완료:")
+        info(f"   - 첫 번째 인코더: {pos_embeds_1.shape}")
+        info(f"   - 두 번째 인코더: {pos_embeds_2.shape}")
+        info(f"   - 연결 결과: {pos_embeds.shape}")
         
         return pos_embeds, neg_embeds, pos_pooled, neg_pooled
     
@@ -228,7 +247,7 @@ class AdvancedTextEncoder:
             tokens = tokens[:max_length]
             weights = weights[:max_length]
             word_ids = word_ids[:max_length]
-            print(f"⚠️ 토큰 길이를 {max_length}로 제한했습니다 (원본: {len(tokenized_data['tokens'][0])})")
+            warning_emoji(f"토큰 길이를 {max_length}로 제한했습니다 (원본: {len(tokenized_data['tokens'][0])})")
         
         # 패딩
         while len(tokens) < max_length:

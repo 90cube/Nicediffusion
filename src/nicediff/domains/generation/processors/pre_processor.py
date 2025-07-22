@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 전처리기 도메인 로직
 프롬프트 처리, 토큰화, 파라미터 검증 등을 담당
@@ -126,7 +130,7 @@ class PreProcessor:
                 if len(input_ids) > self.max_tokens:
                     truncated_ids = input_ids[:self.max_tokens]
                     processed_prompt = tokenizer.decode(truncated_ids, skip_special_tokens=True)
-                    print(f"⚠️ 긍정 프롬프트가 잘렸습니다 ({len(input_ids)} > {self.max_tokens} 토큰)")
+                    warning_emoji(f"긍정 프롬프트가 잘렸습니다 ({len(input_ids)} > {self.max_tokens} 토큰)")
                 
                 # 부정 프롬프트 처리
                 text_inputs = tokenizer(negative_prompt, padding="longest", return_tensors="pt")
@@ -134,10 +138,10 @@ class PreProcessor:
                 if len(input_ids) > self.max_tokens:
                     truncated_ids = input_ids[:self.max_tokens]
                     processed_negative = tokenizer.decode(truncated_ids, skip_special_tokens=True)
-                    print(f"⚠️ 부정 프롬프트가 잘렸습니다 ({len(input_ids)} > {self.max_tokens} 토큰)")
+                    warning_emoji(f"부정 프롬프트가 잘렸습니다 ({len(input_ids)} > {self.max_tokens} 토큰)")
                     
             except Exception as e:
-                print(f"⚠️ 토크나이저 처리 중 오류: {e}")
+                warning_emoji(f"토크나이저 처리 중 오류: {e}")
                 # 오류 시 간단한 방식 사용
                 processed_prompt = self.truncate_prompt_simple(prompt, self.max_tokens)
                 processed_negative = self.truncate_prompt_simple(negative_prompt, self.max_tokens)

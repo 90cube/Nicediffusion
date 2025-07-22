@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji, canvas_emoji
+)
 """
 Hires Fix 전략
 저해상도 생성 후 고해상도로 업스케일하는 고급 전략
@@ -101,8 +105,8 @@ class HiresFixStrategy:
                 upscaler=params.get('upscaler', 'latent')
             )
             
-            print(f"🎯 Hires Fix 전략 시작")
-            print(f"📐 목표 해상도: {hires_params.hires_width}x{hires_params.hires_height}")
+            info(r"🎯 Hires Fix 전략 시작")
+            info(f"📐 목표 해상도: {hires_params.hires_width}x{hires_params.hires_height}")
             
             # 1단계: 저해상도 크기 계산
             low_width, low_height = self._calculate_low_res_dimensions(
@@ -110,10 +114,10 @@ class HiresFixStrategy:
                 hires_params.hires_height, 
                 hires_params.model_type
             )
-            print(f"📐 저해상도 생성: {low_width}x{low_height}")
+            info(f"📐 저해상도 생성: {low_width}x{low_height}")
             
             # 2단계: 전처리
-            print("🔧 전처리 시작...")
+            info(r"🔧 전처리 시작...")
             pre_result = self.pre_processor.preprocess(
                 {
                     'prompt': hires_params.prompt,
@@ -130,13 +134,13 @@ class HiresFixStrategy:
             
             if not pre_result.is_valid:
                 result.errors = pre_result.errors
-                print(f"❌ 전처리 실패: {pre_result.errors}")
+                failure(f"전처리 실패: {pre_result.errors}")
                 return result
             
-            print("✅ 전처리 완료")
+            success(r"전처리 완료")
             
             # 3단계: 저해상도 생성
-            print("🎨 1단계: 저해상도 생성 시작...")
+            canvas_emoji(r"1단계: 저해상도 생성 시작...")
             
             txt2img_params = Txt2ImgParams(
                 prompt=pre_result.prompt,
@@ -156,17 +160,17 @@ class HiresFixStrategy:
             
             if not low_res_images:
                 result.errors = ["저해상도 이미지 생성에 실패했습니다."]
-                print("❌ 저해상도 이미지 생성 실패")
+                failure(r"저해상도 이미지 생성 실패")
                 return result
             
-            print(f"✅ 저해상도 생성 완료: {len(low_res_images)}개 이미지")
+            success(f"저해상도 생성 완료: {len(low_res_images)}개 이미지")
             
             # 4단계: 고해상도 업스케일
-            print("🔄 2단계: 고해상도 업스케일 시작...")
+            process_emoji(r"2단계: 고해상도 업스케일 시작...")
             
             high_res_images = []
             for i, low_res_image in enumerate(low_res_images):
-                print(f"🔄 이미지 {i+1} 업스케일 중...")
+                process_emoji(f"이미지 {i+1} 업스케일 중...")
                 
                 # 이미지 크기 조정
                 if low_res_image.size != (hires_params.hires_width, hires_params.hires_height):
@@ -198,14 +202,14 @@ class HiresFixStrategy:
             
             if not high_res_images:
                 result.errors = ["고해상도 업스케일 실패"]
-                print("❌ 고해상도 업스케일 실패")
+                failure(r"고해상도 업스케일 실패")
                 return result
             
             result.images = high_res_images
-            print(f"✅ 고해상도 업스케일 완료: {len(high_res_images)}개 이미지")
+            success(f"고해상도 업스케일 완료: {len(high_res_images)}개 이미지")
             
             # 5단계: 후처리
-            print("💾 후처리 시작...")
+            info(r"💾 후처리 시작...")
             
             # 후처리용 파라미터 준비
             post_params = {
@@ -239,15 +243,15 @@ class HiresFixStrategy:
             success_count = sum(1 for r in post_results if r.success)
             if success_count == len(post_results):
                 result.success = True
-                print(f"✅ Hires Fix 완료: {success_count}개 이미지 저장")
+                success(f"Hires Fix 완료: {success_count}개 이미지 저장")
             else:
                 failed_count = len(post_results) - success_count
                 result.errors = [f"{failed_count}개 이미지 저장에 실패했습니다."]
-                print(f"⚠️ 후처리 부분 실패: {success_count}개 성공, {failed_count}개 실패")
+                warning_emoji(f"후처리 부분 실패: {success_count}개 성공, {failed_count}개 실패")
             
         except Exception as e:
             result.errors = [f"Hires Fix 전략 실행 중 오류: {str(e)}"]
-            print(f"❌ Hires Fix 전략 실행 중 오류: {e}")
+            failure(f"Hires Fix 전략 실행 중 오류: {e}")
         
         return result
     
@@ -256,7 +260,7 @@ class HiresFixStrategy:
         try:
             self.post_processor.cleanup_old_files()
         except Exception as e:
-            print(f"⚠️ 정리 작업 중 오류: {e}")
+            warning_emoji(f"정리 작업 중 오류: {e}")
     
     def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         """생성 히스토리 조회"""

@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 후처리기 도메인 로직
 이미지 저장, 메타데이터 추가, 품질 개선 등을 담당
@@ -104,7 +108,7 @@ class PostProcessor:
                 # 이미지 저장
                 image_path = self._save_image(image_with_meta, filename, metadata)
                 
-                print(f"✅ 이미지 저장 완료: {image_path}")
+                success(f"이미지 저장 완료: {image_path}")
                 
                 # 결과 생성
                 result = PostProcessResult(
@@ -115,7 +119,7 @@ class PostProcessor:
                 results.append(result)
                 
             except Exception as e:
-                print(f"❌ 이미지 저장 실패: {e}")
+                failure(f"이미지 저장 실패: {e}")
                 result = PostProcessResult(
                     image_path="",
                     metadata=params,
@@ -149,10 +153,10 @@ class PostProcessor:
                 if thumb_path.exists():
                     thumb_path.unlink()
             
-            print(f"🧹 {len(files_to_delete)}개의 오래된 파일을 정리했습니다.")
+            info(f"🧹 {len(files_to_delete)}개의 오래된 파일을 정리했습니다.")
             
         except Exception as e:
-            print(f"⚠️ 파일 정리 중 오류: {e}")
+            warning_emoji(f"파일 정리 중 오류: {e}")
     
     def get_generation_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         """생성 히스토리 조회"""
@@ -189,10 +193,10 @@ class PostProcessor:
                         })
                         
                 except Exception as e:
-                    print(f"⚠️ 메타데이터 읽기 실패 {file_path}: {e}")
+                    warning_emoji(f"메타데이터 읽기 실패 {file_path}: {e}")
                     continue
             
         except Exception as e:
-            print(f"⚠️ 히스토리 조회 중 오류: {e}")
+            warning_emoji(f"히스토리 조회 중 오류: {e}")
         
         return history

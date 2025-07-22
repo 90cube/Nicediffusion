@@ -9,6 +9,10 @@ from ..ui.image_pad import ImagePadTabSystem
 from ..ui.parameter_panel import ParameterPanel
 from ..ui.prompt_panel import PromptPanel
 from ..ui.lora_panel import LoraPanel
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 
 class InferencePage:
     """추론 페이지 (UI 컴포넌트 조립 및 이벤트 중앙 관리)"""
@@ -26,7 +30,7 @@ class InferencePage:
 
     def _on_destroy(self):
         """페이지 소멸 시 모든 콜백 구독을 안전하게 해지합니다."""
-        print("InferencePage 소멸: 모든 구독을 해지합니다.")
+        info(r"InferencePage 소멸: 모든 구독을 해지합니다.")
         
         # render에서 구독했던 모든 이벤트를 여기서 해지합니다.
         self.state.unsubscribe('is_generating_changed', self.param_panel._on_generate_status_change)
@@ -65,7 +69,7 @@ class InferencePage:
 
         # --- [핵심] ---
         # 모든 UI가 화면에 완전히 그려진 후, 필요한 모든 이벤트를 여기서 한번만 연결(구독)합니다.
-        print("InferencePage: 모든 UI 렌더링 완료. 이벤트 구독을 시작합니다.")
+        info(r"InferencePage: 모든 UI 렌더링 완료. 이벤트 구독을 시작합니다.")
         
         # UI 컴포넌트들을 StateManager에 등록 (다른 컴포넌트에서 접근 가능하도록)
         self.state.set('image_pad', self.image_pad)

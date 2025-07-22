@@ -5,6 +5,10 @@ import math
 import asyncio
 from ..core.state_manager import StateManager, GenerationParams
 from ..utils.image_filters import get_available_filters, apply_filter
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 
 class ParameterPanel:
     """파라미터 패널 (UI 렌더링에만 집중)"""
@@ -95,7 +99,7 @@ class ParameterPanel:
             # 사용자에게 오류를 표시하는 대신, 콘솔에만 조용히 기록하고 무시합니다.
             # 이렇게 하면 프로그램이 멈추거나 보기 싫은 오류 메시지를 출력하지 않습니다.
             # 디버깅이 필요할때만 주석 해제하고 pass 지우기.
-            #print(f"UI 업데이트 중 안전하게 처리된 오류 (무시 가능): {e}")
+            #info(f"UI 업데이트 중 안전하게 처리된 오류 (무시 가능): {e}")
             pass
 
     def _calculate_dimensions(self):
@@ -184,60 +188,60 @@ class ParameterPanel:
 
     async def _on_generate_click(self):
         """생성 버튼 클릭 (중복 클릭 방지 강화)"""
-        print(f"🔄 생성 버튼 클릭됨")
+        process_emoji(r"생성 버튼 클릭됨")
         
         # 중복 클릭 방지 (생성 중이면 즉시 리턴)
         if self.state.get('is_generating', False):
-            print(f"⚠️ 이미 생성 중입니다 - 중복 클릭 무시")
+            warning_emoji(r"이미 생성 중입니다 - 중복 클릭 무시")
             ui.notify('이미 생성 중입니다. 잠시 기다려주세요.', type='warning')
             return
         
         current_mode = self.state.get('current_mode', 'txt2img')
-        print(f"🔍 현재 모드: {current_mode}")
+        debug_emoji(f"현재 모드: {current_mode}")
         
         # txt2img 모드에서 시드 고정이 해제되어 있으면 시드 랜덤화
         if current_mode == 'txt2img' and not self.seed_pinned:
-            print(f"🎲 시드 고정이 해제되어 있음 - 시드 랜덤화 실행")
+            info(r"🎲 시드 고정이 해제되어 있음 - 시드 랜덤화 실행")
             self._randomize_seed()
         
         # 규칙 5: img2img 모드에서 이미지가 업로드되지 않았을 때 생성 시도하지 않음
         if current_mode in ['img2img', 'inpaint', 'upscale']:
-            print(f"🔄 img2img 모드 감지: 이미지 업로드 확인 중...")
+            process_emoji(r"img2img 모드 감지: 이미지 업로드 확인 중...")
             
             # StateManager에서 이미지 확인
             init_image = self.state.get('init_image')
-            print(f"🔍 StateManager.get('init_image') 결과: {init_image}")
+            debug_emoji(f"StateManager.get('init_image') 결과: {init_image}")
             
             if init_image is None:
-                print(f"❌ img2img 모드에서 init_image가 None - 생성 중단")
+                failure(r"img2img 모드에서 init_image가 None - 생성 중단")
                 ui.notify('img2img 모드에서는 이미지를 먼저 업로드해주세요', type='warning')
                 return
             else:
                 # numpy 배열인 경우 shape 정보 출력, PIL Image인 경우 size와 mode 정보 출력
                 if hasattr(init_image, 'shape'):
-                    print(f"✅ img2img 모드에서 이미지 확인됨: 크기={init_image.shape[1]}×{init_image.shape[0]}, 타입={type(init_image)}")
+                    success(f"img2img 모드에서 이미지 확인됨: 크기={init_image.shape[1]}×{init_image.shape[0]}, 타입={type(init_image)}")
                 elif hasattr(init_image, 'size'):
-                    print(f"✅ img2img 모드에서 이미지 확인됨: 크기={init_image.size}, 모드={init_image.mode}, 타입={type(init_image)}")
+                    success(f"img2img 모드에서 이미지 확인됨: 크기={init_image.size}, 모드={init_image.mode}, 타입={type(init_image)}")
                 else:
-                    print(f"✅ img2img 모드에서 이미지 확인됨: 타입={type(init_image)}")
+                    success(f"img2img 모드에서 이미지 확인됨: 타입={type(init_image)}")
                 
                 # 추가 디버그: 이미지 경로도 확인
                 init_image_path = self.state.get('init_image_path')
                 init_image_name = self.state.get('init_image_name')
-                print(f"🔍 추가 이미지 정보: 경로={init_image_path}, 이름={init_image_name}")
+                debug_emoji(f"추가 이미지 정보: 경로={init_image_path}, 이름={init_image_name}")
                 
                 # i2i 모드에서 strength 값 확인 및 고정
                 if hasattr(self, 'strength_slider') and self.strength_slider:
                     final_strength = self.strength_slider.value
-                    print(f"🔧 i2i Strength 값: {final_strength}")
+                    info(f"🔧 i2i Strength 값: {final_strength}")
                     # 최종 strength 값을 StateManager에 고정
                     self.state.update_param('strength', final_strength)
         else:
-            print(f"✅ txt2img 모드: 이미지 업로드 불필요")
+            success(r"txt2img 모드: 이미지 업로드 불필요")
         
-        print(f"🔄 이미지 생성 시작...")
+        process_emoji(r"이미지 생성 시작...")
         await self.state.generate_image()
-        print(f"✅ 이미지 생성 요청 완료")
+        success(r"이미지 생성 요청 완료")
 
     def _on_param_change(self, param_name: str, param_type: type):
         """파라미터 변경 핸들러 팩토리 (StateManager 메서드 호출)"""
@@ -249,7 +253,7 @@ class ParameterPanel:
                 elif hasattr(e, 'args') and e.args:
                     value = e.args[0] if isinstance(e.args, (list, tuple)) else e.args
                 else:
-                    print(f"경고: '{param_name}' 이벤트에서 값을 찾을 수 없습니다.")
+                    info(f"경고: '{param_name}' 이벤트에서 값을 찾을 수 없습니다.")
                     return
                 
                 if value is not None:
@@ -257,7 +261,7 @@ class ParameterPanel:
                     # StateManager 메서드 호출로 변경
                     self.state.update_param(param_name, converted_value)
             except (ValueError, TypeError, AttributeError) as ex:
-                print(f"경고: '{param_name}' 값을 {param_type}으로 변환할 수 없습니다. 오류: {ex}")
+                info(f"경고: '{param_name}' 값을 {param_type}으로 변환할 수 없습니다. 오류: {ex}")
         return handler
     
     def _on_sampler_change(self, e):
@@ -265,17 +269,17 @@ class ParameterPanel:
         try:
             # NiceGUI select 컴포넌트는 e.args[0]에 값을 전달
             selected_text = e.args[0] if e.args else None
-            print(f"🔍 샘플러 선택 이벤트: {selected_text}, 타입: {type(selected_text)}")
+            debug_emoji(f"샘플러 선택 이벤트: {selected_text}, 타입: {type(selected_text)}")
             
             if selected_text and selected_text != 0 and isinstance(selected_text, str):  # 문자열인지 확인
                 # 공식 영문명을 그대로 사용
                 sampler_value = selected_text.lower().replace(' ', '_').replace('++', 'pp')
                 self.state.update_param('sampler', sampler_value)
-                print(f"✅ sampler 적용: {sampler_value}")
+                success(f"sampler 적용: {sampler_value}")
             else:
-                print(f"⚠️ 샘플러 선택 값이 유효하지 않음: {selected_text}")
+                warning_emoji(f"샘플러 선택 값이 유효하지 않음: {selected_text}")
         except Exception as e:
-            print(f"❌ 샘플러 변환 실패: {e}")
+            failure(f"샘플러 변환 실패: {e}")
             import traceback
             traceback.print_exc()
 
@@ -291,10 +295,10 @@ class ParameterPanel:
         """랜덤 시드 모드로 설정"""
         # 이미 랜덤 모드가 활성화되어 있으면 아무것도 하지 않음
         if not self.seed_pinned:
-            print(f"🔍 랜덤 시드 모드 이미 활성화됨 - 중복 클릭 무시")
+            debug_emoji(r"랜덤 시드 모드 이미 활성화됨 - 중복 클릭 무시")
             return
             
-        print(f"🔄 랜덤 시드 모드로 전환 시작")
+        process_emoji(r"랜덤 시드 모드로 전환 시작")
         self.seed_pinned = False
         
         # StateManager의 current_params에 시드 고정 상태 업데이트
@@ -310,36 +314,36 @@ class ParameterPanel:
         if hasattr(self, 'random_seed_button'):
             # 랜덤 시드 버튼 활성화 (초록색 배경, 흰색 글자)
             self.random_seed_button.props('color=green text-color=white')
-            print(f"✅ 랜덤 시드 버튼 활성화 (초록색 배경, 흰색 글자)")
+            success(r"랜덤 시드 버튼 활성화 (초록색 배경, 흰색 글자)")
         else:
-            print(f"❌ 랜덤 시드 버튼을 찾을 수 없음")
+            failure(r"랜덤 시드 버튼을 찾을 수 없음")
             
         if hasattr(self, 'fixed_seed_button'):
             # 시드 고정 버튼 비활성화 (파란색 배경, 초록색 글자)
             self.fixed_seed_button.props('color=blue text-color=green')
-            print(f"✅ 시드 고정 버튼 비활성화 (파란색 배경, 초록색 글자)")
+            success(r"시드 고정 버튼 비활성화 (파란색 배경, 초록색 글자)")
         else:
-            print(f"❌ 시드 고정 버튼을 찾을 수 없음")
+            failure(r"시드 고정 버튼을 찾을 수 없음")
         
         # 시드 입력란 비활성화 및 랜덤 값 표시
         if hasattr(self, 'seed_input') and self.seed_input:
             self.seed_input.props('disable')
             self.seed_input.classes('w-full min-w-0 opacity-50')
             self.seed_input.set_value(random_seed)
-            print(f"✅ 시드 입력란 비활성화 (회색 처리, 값: {random_seed})")
+            success(f"시드 입력란 비활성화 (회색 처리, 값: {random_seed})")
         else:
-            print(f"❌ 시드 입력란을 찾을 수 없음")
+            failure(r"시드 입력란을 찾을 수 없음")
         
-        print(f"🎲 랜덤 시드 모드 활성화 완료: {random_seed}")
+        info(f"🎲 랜덤 시드 모드 활성화 완료: {random_seed}")
 
     def _set_fixed_seed_mode(self):
         """시드 고정 모드로 설정"""
         # 이미 고정 모드가 활성화되어 있으면 아무것도 하지 않음
         if self.seed_pinned:
-            print(f"🔍 시드 고정 모드 이미 활성화됨 - 중복 클릭 무시")
+            debug_emoji(r"시드 고정 모드 이미 활성화됨 - 중복 클릭 무시")
             return
             
-        print(f"🔄 시드 고정 모드로 전환 시작")
+        process_emoji(r"시드 고정 모드로 전환 시작")
         self.seed_pinned = True
         
         # StateManager의 current_params에 시드 고정 상태 업데이트
@@ -350,26 +354,26 @@ class ParameterPanel:
         if hasattr(self, 'random_seed_button'):
             # 랜덤 시드 버튼 비활성화 (초록색 배경, 초록색 글자)
             self.random_seed_button.props('color=green text-color=green')
-            print(f"✅ 랜덤 시드 버튼 비활성화 (초록색 배경, 초록색 글자)")
+            success(r"랜덤 시드 버튼 비활성화 (초록색 배경, 초록색 글자)")
         else:
-            print(f"❌ 랜덤 시드 버튼을 찾을 수 없음")
+            failure(r"랜덤 시드 버튼을 찾을 수 없음")
             
         if hasattr(self, 'fixed_seed_button'):
             # 시드 고정 버튼 활성화 (파란색 배경, 흰색 글자)
             self.fixed_seed_button.props('color=blue text-color=white')
-            print(f"✅ 시드 고정 버튼 활성화 (파란색 배경, 흰색 글자)")
+            success(r"시드 고정 버튼 활성화 (파란색 배경, 흰색 글자)")
         else:
-            print(f"❌ 시드 고정 버튼을 찾을 수 없음")
+            failure(r"시드 고정 버튼을 찾을 수 없음")
         
         # 시드 입력란 활성화
         if hasattr(self, 'seed_input') and self.seed_input:
             self.seed_input.props('')
             self.seed_input.classes('w-full min-w-0 opacity-100')
-            print(f"✅ 시드 입력란 활성화 (정상 색상)")
+            success(r"시드 입력란 활성화 (정상 색상)")
         else:
-            print(f"❌ 시드 입력란을 찾을 수 없음")
+            failure(r"시드 입력란을 찾을 수 없음")
         
-        print(f"🎲 시드 고정 모드 활성화 완료")
+        info(r"🎲 시드 고정 모드 활성화 완료")
 
     def _handle_model_change(self):
         """모델 타입 변경 처리"""
@@ -394,7 +398,7 @@ class ParameterPanel:
                     
                     self.state.update_param('width', width)
                     self.state.update_param('height', height)
-                    print(f"✅ img2img 모드: 기존 이미지 크기 유지 {width}×{height}")
+                    success(f"img2img 모드: 기존 이미지 크기 유지 {width}×{height}")
                 else:
                     # 이미지가 없으면 기본 크기 적용
                     self._calculate_dimensions()
@@ -407,14 +411,14 @@ class ParameterPanel:
         if self.infinite_generation_switch:
             is_enabled = self.infinite_generation_switch.value
             self.state.set('infinite_generation', is_enabled)
-            print(f"🔄 무한 반복 생성: {'활성화' if is_enabled else '비활성화'}")
+            process_emoji(f"무한 반복 생성: {'활성화' if is_enabled else '비활성화'}")
     
     def _handle_size_match_toggle(self):
         """크기 일치 토글 처리"""
         if self.size_match_toggle:
             is_enabled = self.size_match_toggle.value
             self.state.update_param('size_match_enabled', is_enabled)
-            print(f"🔄 크기 일치 토글: {'활성화' if is_enabled else '비활성화'}")
+            process_emoji(f"크기 일치 토글: {'활성화' if is_enabled else '비활성화'}")
             
             # 크기 일치가 활성화되면 업로드된 이미지 크기로 파라미터 업데이트
             if is_enabled:
@@ -431,7 +435,7 @@ class ParameterPanel:
                     
                     self.state.update_param('width', width)
                     self.state.update_param('height', height)
-                    print(f"✅ 업로드된 이미지 크기로 파라미터 업데이트: {width}×{height}")
+                    success(f"업로드된 이미지 크기로 파라미터 업데이트: {width}×{height}")
                     ui.notify(f'파라미터가 업로드된 이미지 크기로 설정되었습니다: {width}×{height}', type='positive')
 
     def _update_ui_from_state(self, params):
@@ -489,7 +493,7 @@ class ParameterPanel:
     def _on_generation_failed(self, data):
         """생성 실패 이벤트 핸들러"""
         error_msg = data.get('error', '알 수 없는 오류')
-        print(f"❌ 생성 실패: {error_msg}")
+        failure(f"생성 실패: {error_msg}")
         # UI에서 에러 상태 표시 (예: 버튼 색상 변경 등)
         if self.generate_button:
             self.generate_button.props('color=red').set_text('생성 실패')
@@ -636,11 +640,11 @@ class ParameterPanel:
                 if not self.seed_pinned:
                     self.seed_input.props('disable')
                     self.seed_input.classes('w-full min-w-0 opacity-50')
-                    print(f"🔍 초기 렌더링: 시드 입력란 비활성화 (랜덤 모드)")
+                    debug_emoji(r"초기 렌더링: 시드 입력란 비활성화 (랜덤 모드)")
                 else:
                     self.seed_input.props('')
                     self.seed_input.classes('w-full min-w-0 opacity-100')
-                    print(f"🔍 초기 렌더링: 시드 입력란 활성화 (고정 모드)")
+                    debug_emoji(r"초기 렌더링: 시드 입력란 활성화 (고정 모드)")
                 
                 # 초기 버튼 색상 설정
                 if not self.seed_pinned:
@@ -649,20 +653,20 @@ class ParameterPanel:
                         self.random_seed_button.props('color=green text-color=white')
                     if hasattr(self, 'fixed_seed_button'):
                         self.fixed_seed_button.props('color=blue text-color=green')
-                    print(f"🔍 초기 렌더링: 랜덤 시드 버튼 활성화 (초록색 배경, 흰색 글자)")
+                    debug_emoji(r"초기 렌더링: 랜덤 시드 버튼 활성화 (초록색 배경, 흰색 글자)")
                 else:
                     # 고정 모드: 고정 버튼 활성화 (파란색 배경, 흰색 글자), 랜덤 버튼 비활성화 (초록색 배경, 초록색 글자)
                     if hasattr(self, 'random_seed_button'):
                         self.random_seed_button.props('color=green text-color=green')
                     if hasattr(self, 'fixed_seed_button'):
                         self.fixed_seed_button.props('color=blue text-color=white')
-                    print(f"🔍 초기 렌더링: 시드 고정 버튼 활성화 (파란색 배경, 흰색 글자)")
+                    debug_emoji(r"초기 렌더링: 시드 고정 버튼 활성화 (파란색 배경, 흰색 글자)")
                 
                 # 초기 버튼 상태 검증
-                print(f"🔍 초기 시드 모드 상태: {'랜덤' if not self.seed_pinned else '고정'}")
-                print(f"🔍 랜덤 시드 버튼 생성됨: {hasattr(self, 'random_seed_button')}")
-                print(f"🔍 시드 고정 버튼 생성됨: {hasattr(self, 'fixed_seed_button')}")
-                print(f"🔍 시드 입력란 생성됨: {hasattr(self, 'seed_input')}")
+                debug_emoji(f"초기 시드 모드 상태: {'랜덤' if not self.seed_pinned else '고정'}")
+                debug_emoji(f"랜덤 시드 버튼 생성됨: {hasattr(self, 'random_seed_button')}")
+                debug_emoji(f"시드 고정 버튼 생성됨: {hasattr(self, 'fixed_seed_button')}")
+                debug_emoji(f"시드 입력란 생성됨: {hasattr(self, 'seed_input')}")
             
             # CLIP SKIP (모든 모드에서 사용)
             clip_skip_value = getattr(current_params, 'clip_skip', 1)
@@ -710,6 +714,59 @@ class ParameterPanel:
                 ui.label('크기 일치').classes('text-sm text-green-400')
                 ui.label('(업로드된 이미지 크기로 생성)').classes('text-xs text-gray-500')
             
+            # Upscale 모드 전용 UI
+            current_mode = self.state.get('current_mode', 'txt2img')
+            if current_mode == 'upscale':
+                with ui.column().classes('w-full gap-2 mt-4 p-3 bg-blue-900 rounded-lg'):
+                    ui.label('🔍 Upscale 설정').classes('text-sm font-medium text-blue-400')
+                    
+                    # 업스케일 방법 선택
+                    with ui.row().classes('w-full gap-2'):
+                        self.upscale_method = ui.select(
+                            options=['AI Upscale', 'Simple Upscale'],
+                            label='업스케일 방법',
+                            value='AI Upscale'
+                        ).classes('flex-1')
+                        
+                        self.upscale_factor = ui.number(
+                            label='배율',
+                            value=2.0,
+                            min=1.5,
+                            max=4.0,
+                            step=0.5
+                        ).classes('flex-1')
+                    
+                    # AI 업스케일 전용 설정
+                    with ui.column().classes('w-full gap-2').bind_visibility_from(self.upscale_method, 'value', value='AI Upscale'):
+                        ui.label('AI 업스케일 설정').classes('text-xs text-gray-400')
+                        
+                        with ui.row().classes('w-full gap-2'):
+                            self.upscale_strength = ui.slider(
+                                min=0.1,
+                                max=1.0,
+                                step=0.1,
+                                value=0.8,
+                                label='AI 강도'
+                            ).classes('flex-1')
+                            
+                            self.upscale_steps = ui.number(
+                                label='AI 스텝',
+                                value=20,
+                                min=10,
+                                max=50,
+                                step=5
+                            ).classes('flex-1')
+                    
+                    # 간단한 업스케일 전용 설정
+                    with ui.column().classes('w-full gap-2').bind_visibility_from(self.upscale_method, 'value', value='Simple Upscale'):
+                        ui.label('간단한 업스케일 설정').classes('text-xs text-gray-400')
+                        
+                        self.simple_method = ui.select(
+                            options=['Bicubic', 'Bilinear', 'Nearest'],
+                            label='보간 방법',
+                            value='Bicubic'
+                        ).classes('w-full')
+            
             # 생성 버튼
             self.generate_button = ui.button('생성', on_click=self._on_generate_click) \
                 .props('size=lg color=blue').classes('w-full mt-4')
@@ -719,67 +776,67 @@ class ParameterPanel:
         """StateManager에서 파라미터가 업데이트될 때 UI를 업데이트합니다."""
         current_params = self.state.get('current_params')
         
-        print(f"🔄 파라미터 UI 업데이트 시작: {list(data.keys())}")
+        process_emoji(f"파라미터 UI 업데이트 시작: {list(data.keys())}")
         
         # 각 파라미터별로 UI 업데이트 (더 강력한 방법 사용)
         if 'width' in data and self.width_input:
             try:
                 self.width_input.set_value(current_params.width)
-                print(f"✅ width UI 업데이트: {current_params.width}")
+                success(f"width UI 업데이트: {current_params.width}")
             except Exception as e:
-                print(f"❌ width UI 업데이트 실패: {e}")
+                failure(f"width UI 업데이트 실패: {e}")
                 
         if 'height' in data and self.height_input:
             try:
                 self.height_input.set_value(current_params.height)
-                print(f"✅ height UI 업데이트: {current_params.height}")
+                success(f"height UI 업데이트: {current_params.height}")
             except Exception as e:
-                print(f"❌ height UI 업데이트 실패: {e}")
+                failure(f"height UI 업데이트 실패: {e}")
                 
         if 'steps' in data and self.steps_input:
             try:
                 self.steps_input.set_value(current_params.steps)
-                print(f"✅ steps UI 업데이트: {current_params.steps}")
+                success(f"steps UI 업데이트: {current_params.steps}")
             except Exception as e:
-                print(f"❌ steps UI 업데이트 실패: {e}")
+                failure(f"steps UI 업데이트 실패: {e}")
                 
         if 'cfg_scale' in data and self.cfg_input:
             try:
                 self.cfg_input.set_value(current_params.cfg_scale)
-                print(f"✅ cfg_scale UI 업데이트: {current_params.cfg_scale}")
+                success(f"cfg_scale UI 업데이트: {current_params.cfg_scale}")
             except Exception as e:
-                print(f"❌ cfg_scale UI 업데이트 실패: {e}")
+                failure(f"cfg_scale UI 업데이트 실패: {e}")
                 
         if 'seed' in data and self.seed_input:
             try:
                 self.seed_input.set_value(current_params.seed)
-                print(f"✅ seed UI 업데이트: {current_params.seed}")
+                success(f"seed UI 업데이트: {current_params.seed}")
             except Exception as e:
-                print(f"❌ seed UI 업데이트 실패: {e}")
+                failure(f"seed UI 업데이트 실패: {e}")
                 
         if 'sampler' in data and self.sampler_select:
             try:
                 self.sampler_select.set_value(current_params.sampler)
-                print(f"✅ sampler UI 업데이트: {current_params.sampler}")
+                success(f"sampler UI 업데이트: {current_params.sampler}")
             except Exception as e:
-                print(f"❌ sampler UI 업데이트 실패: {e}")
+                failure(f"sampler UI 업데이트 실패: {e}")
                 
         if 'scheduler' in data and self.scheduler_select:
             try:
                 self.scheduler_select.set_value(current_params.scheduler)
-                print(f"✅ scheduler UI 업데이트: {current_params.scheduler}")
+                success(f"scheduler UI 업데이트: {current_params.scheduler}")
             except Exception as e:
-                print(f"❌ scheduler UI 업데이트 실패: {e}")
+                failure(f"scheduler UI 업데이트 실패: {e}")
                 
         if 'clip_skip' in data and self.clip_skip_input:
             try:
                 clip_skip_value = getattr(current_params, 'clip_skip', 1)
                 self.clip_skip_input.set_value(clip_skip_value)
-                print(f"✅ clip_skip UI 업데이트: {clip_skip_value}")
+                success(f"clip_skip UI 업데이트: {clip_skip_value}")
             except Exception as e:
-                print(f"❌ clip_skip UI 업데이트 실패: {e}")
+                failure(f"clip_skip UI 업데이트 실패: {e}")
         
-        print(f"✅ 파라미터 UI 업데이트 완료: {list(data.keys())}")
+        success(f"파라미터 UI 업데이트 완료: {list(data.keys())}")
 
 
 
@@ -788,7 +845,7 @@ class ParameterPanel:
         if not params: 
             return
 
-        print(f"🔧 메타데이터 파라미터 적용 시작: {list(params.keys())}")
+        info(f"🔧 메타데이터 파라미터 적용 시작: {list(params.keys())}")
 
         # 이미지 상태 보존 (img2img 모드에서 중요)
         current_mode = self.state.get('current_mode', 'txt2img')
@@ -799,7 +856,7 @@ class ParameterPanel:
             # 현재 이미지 상태 보존
             preserved_init_image = self.state.get_init_image()
             preserved_generated_images = self.state.get_generated_images()
-            print(f"🔒 이미지 상태 보존: init_image={preserved_init_image is not None}, generated_images={len(preserved_generated_images) if preserved_generated_images else 0}")
+            info(f"🔒 이미지 상태 보존: init_image={preserved_init_image is not None}, generated_images={len(preserved_generated_images) if preserved_generated_images else 0}")
 
         # 실제 상태에 파라미터 적용 (모든 모드에서 허용)
         for key, value in params.items():
@@ -821,21 +878,21 @@ class ParameterPanel:
                 elif key == 'clip_skip':
                     self.state.update_param('clip_skip', int(value))
             except (ValueError, TypeError) as e:
-                print(f"경고: 메타데이터 값 '{value}'를 '{key}' 상태에 적용 실패: {e}")
+                info(f"경고: 메타데이터 값 '{value}'를 '{key}' 상태에 적용 실패: {e}")
 
         # 이미지 상태 복원 (필요한 경우)
         if current_mode in ['img2img', 'inpaint', 'upscale']:
             if preserved_init_image is not None:
                 # 원본 이미지 복원
                 self.state.set_init_image(preserved_init_image)
-                print(f"✅ 원본 이미지 상태 복원 완료")
+                success(r"원본 이미지 상태 복원 완료")
             
             if preserved_generated_images:
                 # 생성된 이미지들 복원
                 self.state.set_generated_images(preserved_generated_images)
-                print(f"✅ 생성된 이미지 상태 복원 완료")
+                success(r"생성된 이미지 상태 복원 완료")
 
-        print(f"✅ 메타데이터 파라미터 적용 완료: {list(params.keys())}")
+        success(f"메타데이터 파라미터 적용 완료: {list(params.keys())}")
         ui.notify('메타데이터 파라미터가 파라미터 패널에 적용되었습니다!', type='positive')
 
 
@@ -843,7 +900,7 @@ class ParameterPanel:
     async def _on_mode_changed(self, data):
         """모드 변경 이벤트 핸들러 (Denoise 슬라이더 표시/숨김용)"""
         new_mode = data.get('mode', 'txt2img')
-        print(f"🔄 모드 변경 감지: {new_mode} - 파라미터 패널 새로고침")
+        process_emoji(f"모드 변경 감지: {new_mode} - 파라미터 패널 새로고침")
         
         # 무한 루프 방지를 위해 디바운싱 적용
         if hasattr(self, '_refresh_task') and not self._refresh_task.done():
@@ -853,7 +910,7 @@ class ParameterPanel:
 
     async def _refresh_parameter_panel(self):
         """파라미터 패널 새로고침"""
-        print("🔄 파라미터 패널 새로고침 중...")
+        process_emoji(r"파라미터 패널 새로고침 중...")
         
         try:
             # 생성 버튼 가시성 확인 및 복구
@@ -861,21 +918,21 @@ class ParameterPanel:
                 # 생성 버튼이 숨겨져 있다면 다시 표시
                 if not self.generate_button.visible:
                     self.generate_button.visible = True
-                    print("✅ 생성 버튼 가시성 복구")
+                    success(r"생성 버튼 가시성 복구")
                 
                 # 생성 버튼 텍스트 확인
                 if self.generate_button.text != '생성':
                     self.generate_button.text = '생성'
-                    print("✅ 생성 버튼 텍스트 복구")
+                    success(r"생성 버튼 텍스트 복구")
             
             # @ui.refreshable로 만든 render 함수를 새로고침 (선택적)
             if hasattr(self, 'render') and hasattr(self.render, 'refresh'):
                 self.render.refresh()
-                print("✅ render 함수 새로고침 완료")
+                success(r"render 함수 새로고침 완료")
             
-            print(f"✅ 파라미터 패널 새로고침 완료")
+            success(r"파라미터 패널 새로고침 완료")
         except Exception as e:
-            print(f"❌ 파라미터 패널 새로고침 실패: {e}")
+            failure(f"파라미터 패널 새로고침 실패: {e}")
             # 실패 시 알림만 표시
             ui.notify('파라미터 패널 새로고침 중 오류가 발생했습니다', type='warning')
     
@@ -897,9 +954,9 @@ class ParameterPanel:
             
             # 성공 알림
             ui.notify(f'이미지 크기가 파라미터에 적용되었습니다: {width}×{height}', type='positive')
-            print(f"✅ 이미지 크기 파라미터 적용: {width}×{height}")
+            success(f"이미지 크기 파라미터 적용: {width}×{height}")
             
         except Exception as e:
-            print(f"❌ 이미지 크기 파라미터 적용 실패: {e}")
+            failure(f"이미지 크기 파라미터 적용 실패: {e}")
             ui.notify(f'이미지 크기 적용 실패: {e}', type='negative')
 

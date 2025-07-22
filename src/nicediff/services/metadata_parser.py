@@ -6,6 +6,10 @@ from PIL import Image
 import json
 import re
 import struct # struct는 내장 모듈이므로 pip 설치 불필요 (오류가 났던 부분)
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 
 class MetadataParser:
     @staticmethod
@@ -115,7 +119,7 @@ class MetadataParser:
                 if raw_metadata:
                     return MetadataParser._parse_automatic1111_format(raw_metadata)
         except Exception as e:
-            print(f"PNG 메타데이터 추출 오류: {e}")
+            info(f"PNG 메타데이터 추출 오류: {e}")
         return {}
 
     @staticmethod
@@ -209,7 +213,7 @@ class MetadataParser:
                         else:
                             result['parameters'][key] = value_str
                     except (ValueError, IndexError):
-                            print(f"경고: 파라미터 '{key}'의 값 '{value_str}'을 변환할 수 없습니다.")
+                            info(f"경고: 파라미터 '{key}'의 값 '{value_str}'을 변환할 수 없습니다.")
                             result['parameters'][key] = value_str
         return result
     
@@ -229,9 +233,9 @@ class MetadataParser:
                         metadata = header_dict['__metadata__']
                         
                         # 상세 디버깅
-                        #print("📋 Safetensors 메타데이터 발견:")
+                        #info(r"📋 Safetensors 메타데이터 발견:")
                         #for key, value in list(metadata.items())[:10]:
-                        #    print(f"   - {key}: {str(value)[:100]}...")
+                        #    info(f"   - {key}: {str(value)[:100]}...")
                         
                         # 'prompt' 키가 ComfyUI 워크플로우 JSON인지 확인하고 파싱
                         if 'prompt' in metadata and isinstance(metadata['prompt'], str):
@@ -252,15 +256,15 @@ class MetadataParser:
                                 # JSON이 아니면 일반 문자열 프롬프트로 간주
                                 pass
                             except Exception as e:
-                                print(f"경고: ComfyUI 워크플로우 프롬프트 파싱 오류: {e}")
+                                info(f"경고: ComfyUI 워크플로우 프롬프트 파싱 오류: {e}")
                                 pass # 파싱 실패해도 원래 메타데이터 사용
 
                         return metadata
                     else:
-                        print("없음")
+                        info(r"없음")
                         
         except Exception as e:
-            print(f"Safetensors 메타데이터 추출 오류 ({model_path.name}): {e}")
+            info(f"Safetensors 메타데이터 추출 오류 ({model_path.name}): {e}")
         return {}
     
     @staticmethod
@@ -281,7 +285,7 @@ class MetadataParser:
                     # 긍정 프롬프트 (대부분의 경우 CLIPTextEncode 노드는 긍정 프롬프트에 사용됨)
                     if not extracted['prompt']: # 첫 번째 긍정 프롬프트만 가져옴
                         extracted['prompt'] = node['inputs']['text']
-                        #print(f"🔎 ComfyUI 워크플로우에서 긍정 프롬프트 추출됨 (Node {node_id}): {extracted['prompt'][:50]}...")
+                        #info(f"🔎 ComfyUI 워크플로우에서 긍정 프롬프트 추출됨 (Node {node_id}): {extracted['prompt'][:50]}...")
                 
                 # 부정 프롬프트는 보통 별도의 CLIPTextEncode 노드나 다른 특정 노드에 연결될 수 있음
                 # 명시적인 'negative' 키가 없으므로 heuristic이 필요함
@@ -330,7 +334,7 @@ class MetadataParser:
         모델 타입을 자동으로 감지합니다.
         Returns: (model_type, base_model) - 예: ('SDXL', 'sdxl_1_0')
         """
-        print(f"🔍 모델 타입 감지 중: {model_path.name}")
+        debug_emoji(f"모델 타입 감지 중: {model_path.name}")
         
         # 1. Safetensors 메타데이터에서 확인
         if model_path.suffix == '.safetensors':
@@ -339,7 +343,7 @@ class MetadataParser:
             # Civitai 형식 메타데이터
             if 'ss_base_model_version' in metadata:
                 base_version = metadata['ss_base_model_version']
-                #print(f"✅ ss_base_model_version 발견: {base_version}")
+                #success(f"ss_base_model_version 발견: {base_version}")
                 
                 if 'xl' in base_version.lower() or 'sdxl' in base_version.lower():
                     return 'SDXL', base_version
@@ -351,7 +355,7 @@ class MetadataParser:
             # ComfyUI/A1111 형식
             if 'modelspec.architecture' in metadata:
                 arch = metadata['modelspec.architecture']
-                #print(f"✅ modelspec.architecture 발견: {arch}")
+                #success(f"modelspec.architecture 발견: {arch}")
                 
                 if 'xl' in arch.lower():
                     return 'SDXL', arch
@@ -365,10 +369,10 @@ class MetadataParser:
                 if isinstance(value, str):
                     value_lower = value.lower()
                     if 'sdxl' in value_lower or 'xl' in value_lower:
-                        #print(f"✅ SDXL 힌트 발견: {key}={value[:50]}...")
+                        #success(f"SDXL 힌트 발견: {key}={value[:50]}...")
                         return 'SDXL', value
                     elif 'sd3' in value_lower:
-                        #print(f"✅ SD3 힌트 발견: {key}={value[:50]}...")
+                        #success(f"SD3 힌트 발견: {key}={value[:50]}...")
                         return 'SD3', value
         
         # 2. 파일 경로에서 추측 (폴더명 기반)
@@ -376,7 +380,7 @@ class MetadataParser:
         
         # SDXL 폴더에 있으면 SDXL로 간주
         if 'sdxl' in path_parts or 'xl' in path_parts:
-            print(f"📁 경로에서 SDXL 폴더 발견: {model_path}")
+            info(f"📁 경로에서 SDXL 폴더 발견: {model_path}")
             return 'SDXL', None
         
         # 3. 파일명에서 추측
@@ -386,18 +390,18 @@ class MetadataParser:
         sdxl_keywords = ['sdxl', 'xl', 'illustrious', 'pony', 'animagine', 'juggernaut']
         for keyword in sdxl_keywords:
             if keyword in filename_lower:
-                #print(f"📝 파일명에서 SDXL 키워드 발견: {keyword}")
+                #info(f"📝 파일명에서 SDXL 키워드 발견: {keyword}")
                 return 'SDXL', None
         
         # SD3 키워드
         sd3_keywords = ['sd3', 'stable-diffusion-3']
         for keyword in sd3_keywords:
             if keyword in filename_lower:
-                #print(f"📝 파일명에서 SD3 키워드 발견: {keyword}")
+                #info(f"📝 파일명에서 SD3 키워드 발견: {keyword}")
                 return 'SD3', None
         
         # 기본값은 SD1.5
-        #print("ℹ️ 특별한 표시가 없어 SD1.5로 간주합니다.")
+        #info_emoji(r"특별한 표시가 없어 SD1.5로 간주합니다.")
         return 'SD15', None
     
     @staticmethod
@@ -426,7 +430,7 @@ class MetadataParser:
                     model_info['base_model'] = 'SD1.5'
                     
         except Exception as e:
-            print(f"모델 정보 추출 실패 ({model_path.name}): {e}")
+            info(f"모델 정보 추출 실패 ({model_path.name}): {e}")
         
         return model_info
     
@@ -460,6 +464,6 @@ class MetadataParser:
                         lora_info['base_model'] = 'SD1.5'
                         
         except Exception as e:
-            print(f"LoRA 정보 추출 실패 ({lora_path.name}): {e}")
+            info(f"LoRA 정보 추출 실패 ({lora_path.name}): {e}")
         
         return lora_info

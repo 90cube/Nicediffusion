@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 생성 파라미터 도메인 모델
 UI나 Services에 의존하지 않는 순수한 비즈니스 로직
@@ -45,7 +49,7 @@ class GenerationParams:
         """시드를 랜덤으로 설정"""
         if self.seed == -1:
             self.seed = random.randint(0, 2**32 - 1)
-        print(f"🌱 New random seed set: {self.seed}")
+        info(f"🌱 New random seed set: {self.seed}")
 
     def to_dict(self) -> Dict[str, Any]:
         """딕셔너리로 변환"""

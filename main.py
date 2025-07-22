@@ -51,12 +51,18 @@ state_manager = StateManager()
 @ui.page('/')
 async def main_page():
     """메인 페이지 라우터 (뷰포트 개선)"""
+    print("🎨 메인 페이지 렌더링 시작")
+    
     # 반응형 디자인을 위한 색상 설정
     ui.colors(primary='#3b82f6', dark='#1e293b')
     
     # 반응형 메타 태그 및 뷰포트 설정 (개선)
     ui.add_head_html("""
         <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+        
+        <!-- Fabric.js 라이브러리 로드 -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+        
         <style>
             /* 전체 페이지 레이아웃 최적화 */
             html, body {
@@ -335,10 +341,11 @@ async def upload_image(file: UploadFile = File(...)):
 if __name__ == '__main__':
     ui.run(
         title="Nicediff - AI Image Generation Studio",
+        host="127.0.0.1",  # 단일 주소로 제한
         port=8081,  # 포트 충돌 방지를 위해 8081로 변경
         dark=True,
         reload=False,
-        show=True,
+        show=False,  # 자동 브라우저 열기 비활성화
         favicon='🎨',
         storage_secret='nicediff-secret-key-2024'
     )

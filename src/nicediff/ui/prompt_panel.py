@@ -1,3 +1,7 @@
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 프롬프트 입력 패널
 """
@@ -338,7 +342,7 @@ class PromptPanel:
 
     def _refresh_prompt_panel(self):
         """프롬프트 패널 새로고침"""
-        print("🔄 프롬프트 패널 새로고침 중...")
+        process_emoji(r"프롬프트 패널 새로고침 중...")
         
         # 현재 파라미터로 UI 업데이트
         current_params = self.state.get('current_params')
@@ -359,13 +363,13 @@ class PromptPanel:
         """커스텀 토크나이저 설정 변경"""
         self.use_custom_tokenizer = event.args[0]
         self.state.set('use_custom_tokenizer', self.use_custom_tokenizer)
-        print(f"✅ 커스텀 토크나이저: {'활성화' if self.use_custom_tokenizer else '비활성화'}")
+        success(f"커스텀 토크나이저: {'활성화' if self.use_custom_tokenizer else '비활성화'}")
     
     def _on_weight_mode_change(self, event):
         """가중치 해석 방식 변경"""
         self.weight_interpretation = event.args[0]
         self.state.set('weight_interpretation', self.weight_interpretation)
-        print(f"✅ 가중치 처리 방식: {self.weight_interpretation}")
+        success(f"가중치 처리 방식: {self.weight_interpretation}")
     
     def _add_positive_preset(self, preset):
         """긍정 프롬프트 프리셋 추가"""

@@ -59,22 +59,6 @@ class StateManager:
             'current_display_image': None,  # 현재 표시 중인 이미지
         }
         
-        # 워크플로우 기반 모드별 독립 이미지 상태
-        self.mode_images = {
-            'txt2img': None,
-            'img2img': None,
-            'inpaint': None,
-            'upscale': None
-        }
-        
-        # 워크플로우 규칙 정의
-        self.workflow_rules = {
-            'txt2img': ['img2img', 'inpaint', 'upscale'],
-            'img2img': ['inpaint', 'upscale'],
-            'inpaint': ['img2img', 'upscale'],
-            'upscale': ['img2img', 'inpaint']
-        }
-        
         # 크기 일치 토글 기본값 설정
         self._state['current_params'].size_match_enabled = False
         self._observers: Dict[str, List[Callable]] = {}
@@ -469,7 +453,7 @@ class StateManager:
             # 생성 상태 해제
             self.set('is_generating', False)
             self._generation_in_progress = False
-            info(r"이미지 생성 프로세스 종료")
+            success(r"이미지 생성 완료")
 
     async def _execute_generation(self, pipeline, params: GenerationParams, current_mode: str):
         """실제 생성 로직을 수행하는 내부 메서드"""
@@ -864,10 +848,6 @@ class StateManager:
         self._state[key] = value
         self._notify(f'{key}_changed', value)
     
-    def set_silent(self, key: str, value: Any):
-        """상태 값 설정 (이벤트 발생 없음 - 무한 루프 방지)"""
-        self._state[key] = value
-    
     def set_init_image(self, image):
         """img2img용 원본 이미지 설정 (영구 보존) - 이미지 프리뷰 강화"""
         debug_emoji(f"set_init_image 호출: 이미지 타입={type(image)}")
@@ -947,12 +927,6 @@ class StateManager:
                 
                 self._state['generated_images'] = images
                 success(f"generated_images 독립 저장 완료: {len(images)}개")
-                
-                # 워크플로우: 현재 모드에 이미지 저장
-                current_mode = self.get('current_mode', 'txt2img')
-                if images:
-                    self.set_mode_image(current_mode, images[0])
-                    success(f"✅ {current_mode} 모드에 이미지 저장 완료")
                 
                 # 이벤트 발생 (UI 동기화 강화) - 중복 제거
                 self._notify('generated_images_changed', {'count': len(images)})
@@ -1307,34 +1281,3 @@ class StateManager:
     def get_loaded_loras(self) -> List[Dict[str, Any]]:
         """로드된 LoRA 목록 반환"""
         return self.model_loader.get_loaded_loras()
-    
-    # 워크플로우 기반 이미지 관리 메서드들
-    def set_mode_image(self, mode: str, image):
-        """특정 모드의 이미지 설정"""
-        if mode in self.mode_images:
-            self.mode_images[mode] = image
-            self._notify(f'{mode}_image_changed', {'image': image, 'mode': mode})
-            info_emoji(f"{mode} 모드 이미지 설정: {image.size if image else 'None'}")
-
-    def get_mode_image(self, mode: str):
-        """특정 모드의 이미지 가져오기"""
-        return self.mode_images.get(mode)
-
-    def get_allowed_transfers(self, from_mode: str):
-        """허용된 전송 모드 목록 반환"""
-        return self.workflow_rules.get(from_mode, [])
-    
-    def transfer_image_to_mode(self, from_mode: str, to_mode: str):
-        """이미지를 다른 모드로 전송"""
-        if to_mode in self.get_allowed_transfers(from_mode):
-            source_image = self.get_mode_image(from_mode)
-            if source_image:
-                self.set_mode_image(to_mode, source_image)
-                success(f"이미지 전송 완료: {from_mode} → {to_mode}")
-                return True
-            else:
-                warning_emoji(f"{from_mode} 모드에 전송할 이미지가 없습니다")
-                return False
-        else:
-            warning_emoji(f"{from_mode}에서 {to_mode}로의 전송이 허용되지 않습니다")
-            return False

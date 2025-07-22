@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 이미지 저장 도메인 서비스
 UI나 StateManager에 의존하지 않는 순수한 비즈니스 로직

@@ -1,3 +1,7 @@
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 토크나이저 관리 서비스
 커스텀 토크나이저 파일들을 스캔하고 로드하는 기능
@@ -21,7 +25,7 @@ class TokenizerManager:
     def scan_tokenizers(self) -> Dict[str, Dict[str, Any]]:
         """토크나이저 디렉토리 스캔"""
         if not self.tokenizers_path.exists():
-            print(f"⚠️ 토크나이저 경로가 존재하지 않습니다: {self.tokenizers_path}")
+            warning_emoji(f"토크나이저 경로가 존재하지 않습니다: {self.tokenizers_path}")
             return {}
         
         self.available_tokenizers.clear()
@@ -35,11 +39,11 @@ class TokenizerManager:
             
             if tokenizer_info:
                 self.available_tokenizers[tokenizer_name] = tokenizer_info
-                print(f"✅ 토크나이저 발견: {tokenizer_name}")
+                success(f"토크나이저 발견: {tokenizer_name}")
             else:
-                print(f"⚠️ 유효하지 않은 토크나이저: {tokenizer_name}")
+                warning_emoji(f"유효하지 않은 토크나이저: {tokenizer_name}")
         
-        print(f"📋 총 {len(self.available_tokenizers)}개의 토크나이저 발견")
+        info(f"📋 총 {len(self.available_tokenizers)}개의 토크나이저 발견")
         return self.available_tokenizers
     
     def _validate_tokenizer_directory(self, tokenizer_dir: Path) -> Optional[Dict[str, Any]]:
@@ -80,18 +84,18 @@ class TokenizerManager:
     def load_tokenizer(self, tokenizer_name: str) -> Optional[CLIPTokenizer]:
         """토크나이저 로드"""
         if tokenizer_name in self.loaded_tokenizers:
-            print(f"✅ 이미 로드된 토크나이저 사용: {tokenizer_name}")
+            success(f"이미 로드된 토크나이저 사용: {tokenizer_name}")
             return self.loaded_tokenizers[tokenizer_name]
         
         if tokenizer_name not in self.available_tokenizers:
-            print(f"❌ 토크나이저를 찾을 수 없습니다: {tokenizer_name}")
+            failure(f"토크나이저를 찾을 수 없습니다: {tokenizer_name}")
             return None
         
         tokenizer_info = self.available_tokenizers[tokenizer_name]
         tokenizer_path = Path(tokenizer_info['path'])
         
         try:
-            print(f"🔄 토크나이저 로드 중: {tokenizer_name}")
+            process_emoji(f"토크나이저 로드 중: {tokenizer_name}")
             
             # CLIPTokenizer 로드
             tokenizer = CLIPTokenizer.from_pretrained(
@@ -106,15 +110,15 @@ class TokenizerManager:
             self.loaded_tokenizers[tokenizer_name] = tokenizer
             self.current_tokenizer = tokenizer
             
-            print(f"✅ 토크나이저 로드 완료: {tokenizer_name}")
-            print(f"   - 모델 최대 길이: {tokenizer.model_max_length}")
-            print(f"   - 어휘 크기: {tokenizer.vocab_size}")
+            success(f"토크나이저 로드 완료: {tokenizer_name}")
+            info(f"   - 모델 최대 길이: {tokenizer.model_max_length}")
+            info(f"   - 어휘 크기: {tokenizer.vocab_size}")
             
             return tokenizer
             
         except Exception as e:
-            print(f"❌ 토크나이저 로드 실패: {tokenizer_name}")
-            print(f"   오류: {e}")
+            failure(f"토크나이저 로드 실패: {tokenizer_name}")
+            info(f"   오류: {e}")
             return None
     
     def get_current_tokenizer(self) -> Optional[CLIPTokenizer]:
@@ -135,13 +139,13 @@ class TokenizerManager:
             del self.loaded_tokenizers[tokenizer_name]
             if self.current_tokenizer and tokenizer_name in str(self.current_tokenizer):
                 self.current_tokenizer = None
-            print(f"✅ 토크나이저 언로드: {tokenizer_name}")
+            success(f"토크나이저 언로드: {tokenizer_name}")
     
     def unload_all_tokenizers(self):
         """모든 토크나이저 언로드"""
         self.loaded_tokenizers.clear()
         self.current_tokenizer = None
-        print("✅ 모든 토크나이저 언로드 완료")
+        success(r"모든 토크나이저 언로드 완료")
     
     def get_tokenizer_stats(self, tokenizer_name: str) -> Optional[Dict[str, Any]]:
         """토크나이저 통계 정보"""

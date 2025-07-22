@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 히스토리 아이템 도메인 모델
 UI나 Services에 의존하지 않는 순수한 비즈니스 로직

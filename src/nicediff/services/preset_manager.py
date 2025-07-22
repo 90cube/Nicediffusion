@@ -1,3 +1,7 @@
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 프롬프트 프리셋 관리 시스템
 JSON 기반 프리셋 시스템으로 편리한 프롬프트 관리
@@ -113,14 +117,14 @@ class PresetManager:
             if not preset_file.exists():
                 with open(preset_file, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
-                print(f"✅ 긍정 프리셋 생성: {name}")
+                success(f"긍정 프리셋 생성: {name}")
         
         for name, data in negative_presets.items():
             preset_file = self.neg_dir / f"{name}.json"
             if not preset_file.exists():
                 with open(preset_file, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
-                print(f"✅ 부정 프리셋 생성: {name}")
+                success(f"부정 프리셋 생성: {name}")
     
     def get_positive_presets(self) -> List[Dict[str, str]]:
         """긍정 프롬프트 프리셋 목록 반환"""
@@ -136,7 +140,7 @@ class PresetManager:
                         'description': data.get('description', '')
                     })
             except Exception as e:
-                print(f"프리셋 로드 실패 {preset_file}: {e}")
+                info(f"프리셋 로드 실패 {preset_file}: {e}")
         
         return sorted(presets, key=lambda x: x['name'])
     
@@ -154,7 +158,7 @@ class PresetManager:
                         'description': data.get('description', '')
                     })
             except Exception as e:
-                print(f"프리셋 로드 실패 {preset_file}: {e}")
+                info(f"프리셋 로드 실패 {preset_file}: {e}")
         
         return sorted(presets, key=lambda x: x['name'])
     
@@ -171,7 +175,7 @@ class PresetManager:
         with open(preset_file, 'w', encoding='utf-8') as f:
             json.dump(preset_data, f, ensure_ascii=False, indent=2)
         
-        print(f"✅ 프리셋 추가: {name} ({'부정' if is_negative else '긍정'})")
+        success(f"프리셋 추가: {name} ({'부정' if is_negative else '긍정'})")
     
     def delete_preset(self, name: str, is_negative: bool = False):
         """프리셋 삭제"""
@@ -180,9 +184,9 @@ class PresetManager:
         
         if preset_file.exists():
             preset_file.unlink()
-            print(f"✅ 프리셋 삭제: {name} ({'부정' if is_negative else '긍정'})")
+            success(f"프리셋 삭제: {name} ({'부정' if is_negative else '긍정'})")
         else:
-            print(f"⚠️ 프리셋을 찾을 수 없음: {name}")
+            warning_emoji(f"프리셋을 찾을 수 없음: {name}")
     
     def get_preset(self, name: str, is_negative: bool = False) -> Dict[str, str]:
         """특정 프리셋 조회"""
@@ -199,7 +203,7 @@ class PresetManager:
                         'description': data.get('description', '')
                     }
             except Exception as e:
-                print(f"프리셋 로드 실패 {preset_file}: {e}")
+                info(f"프리셋 로드 실패 {preset_file}: {e}")
         
         return {'name': name, 'prompt': '', 'description': ''}
     

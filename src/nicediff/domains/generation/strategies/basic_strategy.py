@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji, canvas_emoji
+)
 """
 기본 생성 전략
 전처리, 생성, 후처리를 조율하는 전략 패턴
@@ -51,7 +55,7 @@ class BasicGenerationStrategy:
         
         try:
             # 1. 전처리 단계
-            print("🔧 전처리 시작...")
+            info(r"🔧 전처리 시작...")
             pre_result = self.pre_processor.preprocess(
                 params, 
                 model_info.get('model_type', 'SD15'),
@@ -60,13 +64,13 @@ class BasicGenerationStrategy:
             
             if not pre_result.is_valid:
                 result.errors = pre_result.errors
-                print(f"❌ 전처리 실패: {pre_result.errors}")
+                failure(f"전처리 실패: {pre_result.errors}")
                 return result
             
-            print("✅ 전처리 완료")
+            success(r"전처리 완료")
             
             # 2. 생성 단계
-            print("🎨 생성 시작...")
+            canvas_emoji(r"생성 시작...")
             
             # i2i 모드인지 확인
             is_img2img = params.get('img2img_mode', False)
@@ -74,32 +78,32 @@ class BasicGenerationStrategy:
             if is_img2img:
                 # i2i 모드: Img2Img 파라미터 변환
                 init_image = params.get('init_image')
-                print(f"🔍 생성 전략에서 init_image 확인: {init_image}")
+                debug_emoji(f"생성 전략에서 init_image 확인: {init_image}")
                 if init_image is None:
-                    print("❌ img2img 모드인데 init_image가 없습니다!")
+                    failure(r"img2img 모드인데 init_image가 없습니다!")
                     # StateManager에서 다시 가져오기
                     if self.state and hasattr(self.state, 'get'):
                         init_image = self.state.get('init_image')
                         params['init_image'] = init_image
                         if init_image is not None:
                             if hasattr(init_image, 'shape'):
-                                print(f"🔄 StateManager에서 init_image 복구: 크기={init_image.shape[1]}×{init_image.shape[0]}")
+                                process_emoji(f"StateManager에서 init_image 복구: 크기={init_image.shape[1]}×{init_image.shape[0]}")
                             elif hasattr(init_image, 'size'):
-                                print(f"🔄 StateManager에서 init_image 복구: {init_image.size}")
+                                process_emoji(f"StateManager에서 init_image 복구: {init_image.size}")
                             else:
-                                print(f"🔄 StateManager에서 init_image 복구: {type(init_image)}")
+                                process_emoji(f"StateManager에서 init_image 복구: {type(init_image)}")
                         else:
-                            print(f"🔄 StateManager에서 init_image 복구: None")
+                            process_emoji(r"StateManager에서 init_image 복구: None")
                 
                 if init_image is not None:
                     if hasattr(init_image, 'shape'):
-                        print(f"🔍 생성 전략에서 이미지 크기: {init_image.shape[1]}×{init_image.shape[0]}")
+                        debug_emoji(f"생성 전략에서 이미지 크기: {init_image.shape[1]}×{init_image.shape[0]}")
                     elif hasattr(init_image, 'size'):
-                        print(f"🔍 생성 전략에서 이미지 크기: {init_image.size}, 모드: {init_image.mode}")
+                        debug_emoji(f"생성 전략에서 이미지 크기: {init_image.size}, 모드: {init_image.mode}")
                     else:
-                        print(f"🔍 생성 전략에서 이미지: {type(init_image)}")
+                        debug_emoji(f"생성 전략에서 이미지: {type(init_image)}")
                 else:
-                    print(f"❌ 생성 전략에서 init_image가 None!")
+                    failure(r"생성 전략에서 init_image가 None!")
                     result.errors = ["img2img 모드에서 초기 이미지를 찾을 수 없습니다."]
                     return result
                 
@@ -145,14 +149,14 @@ class BasicGenerationStrategy:
             
             if generated_images is None or len(generated_images) == 0:
                 result.errors = ["이미지 생성에 실패했습니다."]
-                print("❌ 이미지 생성 실패")
+                failure(r"이미지 생성 실패")
                 return result
             
             result.images = generated_images
-            print(f"✅ 생성 완료: {len(generated_images)}개 이미지")
+            success(f"생성 완료: {len(generated_images)}개 이미지")
             
             # 3. 후처리 단계
-            print("💾 후처리 시작...")
+            info(r"💾 후처리 시작...")
             
             # 후처리용 파라미터 준비
             post_params = {
@@ -183,15 +187,15 @@ class BasicGenerationStrategy:
             success_count = sum(1 for r in post_results if r.success)
             if success_count == len(post_results):
                 result.success = True
-                print(f"✅ 후처리 완료: {success_count}개 이미지 저장")
+                success(f"후처리 완료: {success_count}개 이미지 저장")
             else:
                 failed_count = len(post_results) - success_count
                 result.errors = [f"{failed_count}개 이미지 저장에 실패했습니다."]
-                print(f"⚠️ 후처리 부분 실패: {success_count}개 성공, {failed_count}개 실패")
+                warning_emoji(f"후처리 부분 실패: {success_count}개 성공, {failed_count}개 실패")
             
         except Exception as e:
             result.errors = [f"생성 전략 실행 중 오류: {str(e)}"]
-            print(f"❌ 생성 전략 실행 중 오류: {e}")
+            failure(f"생성 전략 실행 중 오류: {e}")
         
         return result
     
@@ -200,7 +204,7 @@ class BasicGenerationStrategy:
         try:
             self.post_processor.cleanup_old_files()
         except Exception as e:
-            print(f"⚠️ 정리 작업 중 오류: {e}")
+            warning_emoji(f"정리 작업 중 오류: {e}")
     
     def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         """생성 히스토리 조회"""

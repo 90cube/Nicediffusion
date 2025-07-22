@@ -1,3 +1,7 @@
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 LoRA 선택 패널 - Load LoRA (체크포인트와 동일한 카드 스타일)
 """
@@ -102,7 +106,7 @@ class LoraPanel:
             asyncio.create_task(self._load_lora_async(lora_info))
         except Exception as e:
             ui.notify(f'LoRA 로드 실패: {str(e)}', type='negative')
-            print(f"❌ LoRA 로드 오류: {e}")
+            failure(f"LoRA 로드 오류: {e}")
     
     async def _load_lora_async(self, lora_info):
         """LoRA 비동기 로드"""
@@ -110,13 +114,13 @@ class LoraPanel:
             success = await self.state.load_lora(lora_info, weight=1.0)
             if success:
                 ui.notify(f'LoRA 로드됨: {lora_info["name"]}', type='positive')
-                print(f"✅ LoRA 로드: {lora_info['name']}")
+                success(f"LoRA 로드: {lora_info['name']}")
             else:
                 ui.notify(f'LoRA 로드 실패: {lora_info["name"]}', type='negative')
-                print(f"❌ LoRA 로드 실패: {lora_info['name']}")
+                failure(f"LoRA 로드 실패: {lora_info['name']}")
         except Exception as e:
             ui.notify(f'LoRA 로드 오류: {str(e)}', type='negative')
-            print(f"❌ LoRA 로드 오류: {e}")
+            failure(f"LoRA 로드 오류: {e}")
     
     def _on_lora_double_click(self, lora_info):
         """LoRA 더블클릭 - 프롬프트에 양식 추가"""
@@ -150,12 +154,12 @@ class LoraPanel:
             self.state.update_prompt(new_prompt, current_negative_prompt)
             
             ui.notify(f'프롬프트에 추가됨: {lora_syntax}', type='positive')
-            print(f"✅ LoRA 양식 추가: {lora_syntax}")
-            print(f"📝 새 프롬프트: {new_prompt}")
+            success(f"LoRA 양식 추가: {lora_syntax}")
+            info(f"📝 새 프롬프트: {new_prompt}")
             
         except Exception as e:
             ui.notify(f'LoRA 양식 추가 실패: {str(e)}', type='negative')
-            print(f"❌ LoRA 양식 추가 오류: {e}")
+            failure(f"LoRA 양식 추가 오류: {e}")
     
     async def _update_lora_list(self, loras):
         """LoRA 목록 업데이트 (체크포인트와 동일한 카드 스타일)"""
@@ -255,13 +259,13 @@ class LoraPanel:
             success = await self.state.unload_lora(lora_name)
             if success:
                 ui.notify(f'LoRA 언로드됨: {lora_name}', type='positive')
-                print(f"✅ LoRA 언로드: {lora_name}")
+                success(f"LoRA 언로드: {lora_name}")
             else:
                 ui.notify(f'LoRA 언로드 실패: {lora_name}', type='negative')
-                print(f"❌ LoRA 언로드 실패: {lora_name}")
+                failure(f"LoRA 언로드 실패: {lora_name}")
         except Exception as e:
             ui.notify(f'LoRA 언로드 오류: {str(e)}', type='negative')
-            print(f"❌ LoRA 언로드 오류: {e}")
+            failure(f"LoRA 언로드 오류: {e}")
     
     async def _refresh_lora_panel(self):
         """LoRA 패널 새로고침"""

@@ -1,3 +1,7 @@
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 긴 프롬프트 처리 서비스
 CLIP 토크나이저 제한을 우회하기 위한 프롬프트 분할 및 병합 기능

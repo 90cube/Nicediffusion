@@ -4,6 +4,10 @@ from nicegui import ui
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 import asyncio, json, base64
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 
 class TopBar:
     """최종 개편된 상단 바 (오류 수정 완료)"""
@@ -135,7 +139,7 @@ class TopBar:
         
         if self.vae_select:
             self.vae_select.options = vae_options
-            print(f"✅ VAE 옵션 업데이트 완료: {len(vae_options)-2}개 VAE 발견")
+            success(f"VAE 옵션 업데이트 완료: {len(vae_options)-2}개 VAE 발견")
 
     # 3. UI 헬퍼 메서드 (UI를 그리거나 업데이트하는 구체적인 로직)
     def _create_model_card(self, model_info: Dict[str, Any]):
@@ -255,7 +259,7 @@ class TopBar:
                     b64_str = base64.b64encode(f.read()).decode('utf-8')
                 return f"data:image/png;base64,{b64_str}"
             except Exception as e:
-                print(f"미리보기 이미지 로드 실패: {e}")
+                info(f"미리보기 이미지 로드 실패: {e}")
         return 'https://placehold.co/256x256/2d3748/e2e8f0?text=No+Preview'
 
     # 4. 사용자 행동 핸들러 (사용자 입력을 받아 StateManager에 전달)
@@ -270,7 +274,7 @@ class TopBar:
 
     async def _on_vae_change(self, vae_value: str):
         """VAE 선택 변경 처리"""
-        print(f"VAE 선택됨: {vae_value}")
+        info(f"VAE 선택됨: {vae_value}")
         
         if vae_value == 'Automatic':
             # 자동 VAE 선택 - 현재 모델 정보 기준으로 재선택
@@ -314,17 +318,17 @@ class TopBar:
         """생성 시작 시 중단 버튼을 표시합니다."""
         if hasattr(self, 'stop_button') and self.stop_button:
             self.stop_button.classes('visible')
-            print("🔄 생성 시작: 중단 버튼 표시")
+            process_emoji(r"생성 시작: 중단 버튼 표시")
     
     async def _on_generation_finished(self, data: Dict[str, Any]):
         """생성 완료 시 중단 버튼을 숨깁니다."""
         if hasattr(self, 'stop_button') and self.stop_button:
             self.stop_button.classes('invisible')
-            print("✅ 생성 완료: 중단 버튼 숨김")
+            success(r"생성 완료: 중단 버튼 숨김")
     
     def _stop_generation(self):
         """생성 중단"""
-        print("🛑 생성 중단 요청")
+        info(r"🛑 생성 중단 요청")
         self.state.stop_generation_flag.set()
         ui.notify('생성이 중단되었습니다', type='warning')
         
@@ -353,7 +357,7 @@ class TopBar:
         
         # StateManager의 클립보드 복사 메서드 호출 (긍정만)
         self.state.copy_prompt_to_clipboard(positive_prompt, "")
-        print(f"✅ 긍정 프롬프트 복사됨: {positive_prompt[:50]}...")
+        success(f"긍정 프롬프트 복사됨: {positive_prompt[:50]}...")
 
     def _copy_negative_prompt(self):
         """'부정 복사' 버튼 클릭 시 부정 프롬프트만 클립보드에 복사합니다."""
@@ -376,7 +380,7 @@ class TopBar:
         
         # StateManager의 클립보드 복사 메서드 호출 (부정만)
         self.state.copy_prompt_to_clipboard("", negative_prompt)
-        print(f"✅ 부정 프롬프트 복사됨: {negative_prompt[:50]}...")
+        success(f"부정 프롬프트 복사됨: {negative_prompt[:50]}...")
 
     def _apply_metadata_to_params(self):
         """'파라미터 적용' 버튼 클릭 시 메타데이터 파라미터를 파라미터 패널로 전송합니다."""
@@ -443,7 +447,7 @@ class TopBar:
             self.toggle_button.props('icon=expand_more')
             self.toggle_button.tooltip('라이브러리 펼치기')
         
-        # print(f"🔽 모델 라이브러리 {'펼침' if self.is_expanded else '접음'}")
+        # info(f"🔽 모델 라이브러리 {'펼침' if self.is_expanded else '접음'}")
         # ui.notify(f'모델 라이브러리가 {"펼쳐졌습니다" if self.is_expanded else "접혔습니다"}', type='info')
     
     async def _refresh_checkpoints(self):
@@ -454,7 +458,7 @@ class TopBar:
             await self.state._scan_models()
             ui.notify('체크포인트 새로고침 완료', type='positive')
         except Exception as e:
-            print(f"❌ 체크포인트 새로고침 실패: {e}")
+            failure(f"체크포인트 새로고침 실패: {e}")
             ui.notify(f'체크포인트 새로고침 실패: {str(e)}', type='negative')
 
     async def _on_model_selected(self, model_info: Optional[Dict[str, Any]]):
@@ -465,7 +469,7 @@ class TopBar:
     def _on_vae_changed(self, data):
         """VAE 변경 이벤트 핸들러"""
         vae_name = data.get('vae_name', '')
-        print(f"✅ VAE 변경됨: {vae_name}")
+        success(f"VAE 변경됨: {vae_name}")
         # VAE 선택 UI 업데이트 (필요한 경우)
         if self.vae_select and self.vae_select.value != vae_name:
             self.vae_select.set_value(vae_name)

@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 프롬프트 처리 도메인 로직
 BREAK 키워드, 가중치 구문, 토큰 최적화, 청킹 등을 담당
@@ -143,8 +147,8 @@ class PromptProcessor:
         # 5. 선택된 키워드로 프롬프트 재구성
         optimized_prompt = ', '.join(selected_keywords)
         
-        print(f"🔧 지능적 최적화: {len(keywords)}개 키워드 → {len(selected_keywords)}개 키워드")
-        print(f"   제거된 키워드: {[kw for kw, _ in keyword_scores if kw not in selected_keywords]}")
+        info(f"🔧 지능적 최적화: {len(keywords)}개 키워드 → {len(selected_keywords)}개 키워드")
+        info(f"   제거된 키워드: {[kw for kw, _ in keyword_scores if kw not in selected_keywords]}")
         
         return optimized_prompt
     
@@ -322,7 +326,7 @@ class PromptProcessor:
                 input_ids = text_inputs.input_ids[0]
                 return len(input_ids)
             except Exception as e:
-                print(f"⚠️ 토크나이저 계산 중 오류: {e}")
+                warning_emoji(f"토크나이저 계산 중 오류: {e}")
                 # 오류 시 간단한 추정으로 폴백
         
         # 간단한 추정 (공백으로 분할)
@@ -374,7 +378,7 @@ class PromptProcessor:
             return prompt_embeds
             
         except Exception as e:
-            print(f"⚠️ 프롬프트 임베딩 생성 실패: {e}")
+            warning_emoji(f"프롬프트 임베딩 생성 실패: {e}")
             return None
     
     def optimize_prompt(self, prompt: str, target_tokens: int = 70) -> str:
@@ -392,7 +396,7 @@ class PromptProcessor:
             return optimized
         
         # 3. 토큰 제한 초과 시 지능적 최적화
-        print(f"🔧 프롬프트 최적화: {token_count} → {target_tokens} 토큰")
+        info(f"🔧 프롬프트 최적화: {token_count} → {target_tokens} 토큰")
         
         # 3-1. 불필요한 쉼표와 공백 제거
         optimized = self._remove_redundant_commas(optimized)
@@ -411,7 +415,7 @@ class PromptProcessor:
         
         # 3-5. 최종 토큰 수 확인
         final_token_count = self._calculate_token_count(optimized)
-        print(f"✅ 최적화 완료: {final_token_count} 토큰")
+        success(f"최적화 완료: {final_token_count} 토큰")
         
         return optimized
     

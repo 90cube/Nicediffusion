@@ -1,3 +1,7 @@
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 좌측 접이식 사이드바 컴포넌트 (반응형 수정)
 """
@@ -314,7 +318,7 @@ class UtilitySidebar:
             self.state.set('image_filter_applied', True)
             ui.notify(f'{filter_name} 필터가 적용되었습니다', type='positive')
         except Exception as e:
-            print(f"❌ 필터 적용 실패: {e}")
+            failure(f"필터 적용 실패: {e}")
             ui.notify(f'필터 적용 실패: {str(e)}', type='negative')
 
     async def _reset_image_filter(self):
@@ -330,7 +334,7 @@ class UtilitySidebar:
             else:
                 ui.notify('원본 이미지를 찾을 수 없습니다', type='warning')
         except Exception as e:
-            print(f"❌ 필터 초기화 실패: {e}")
+            failure(f"필터 초기화 실패: {e}")
             ui.notify(f'필터 초기화 실패: {str(e)}', type='negative')
     
     def _on_tool_click(self, tool_name: str):
@@ -348,26 +352,26 @@ class UtilitySidebar:
             current_params = self.state.get('current_params')
             if not hasattr(current_params, 'strength') or current_params.strength is None:
                 self.state.update_param('strength', 0.8)  # 기본값 0.8
-                print(f"✅ {method} 모드 기본 Strength 값 설정: 0.8")
+                success(f"{method} 모드 기본 Strength 값 설정: 0.8")
             
             # img2img 모드일 때 이미지 패드 자동 새로고침 (먼저 실행)
             if method == 'img2img':
                 image_pad = self.state.get('image_pad')
-                print(f"🔍 이미지 패드 참조 확인: {image_pad}")
+                debug_emoji(f"이미지 패드 참조 확인: {image_pad}")
                 if image_pad:
-                    print(f"🔄 {method} 모드 선택: 이미지 패드 자동 새로고침 시작")
+                    process_emoji(f"{method} 모드 선택: 이미지 패드 자동 새로고침 시작")
                     await image_pad._refresh_image_pad()
-                    print(f"✅ {method} 모드 선택: 이미지 패드 자동 새로고침 완료")
+                    success(f"{method} 모드 선택: 이미지 패드 자동 새로고침 완료")
                 else:
-                    print(f"❌ {method} 모드 선택: 이미지 패드 참조를 찾을 수 없음")
+                    failure(f"{method} 모드 선택: 이미지 패드 참조를 찾을 수 없음")
         
         # 이미지 패드 새로고침 완료 후 파라미터 패널 새로고침
-        print(f"🔄 {method} 모드: 파라미터 패널 새로고침 시작")
+        process_emoji(f"{method} 모드: 파라미터 패널 새로고침 시작")
         self.state._notify('mode_changed', {'mode': method})
-        print(f"✅ {method} 모드: 파라미터 패널 새로고침 완료")
+        success(f"{method} 모드: 파라미터 패널 새로고침 완료")
         
         # 슬롯 오류 방지를 위해 notify 제거
-        print(f"🔄 생성 모드 변경: {method}")
+        process_emoji(f"생성 모드 변경: {method}")
     
     def _show_empty_history(self):
         """빈 히스토리 상태 표시"""
@@ -383,7 +387,7 @@ class UtilitySidebar:
         try:
             # 컨테이너가 존재하는지 확인
             if not self.history_container:
-                print("⚠️ 히스토리 컨테이너가 없습니다.")
+                warning_emoji(r"히스토리 컨테이너가 없습니다.")
                 return
                 
             # Client가 유효한지 확인 (더 안전한 검사)
@@ -391,29 +395,29 @@ class UtilitySidebar:
                 if hasattr(self.history_container, 'client'):
                     client = self.history_container.client
                     if client is None:
-                        print("⚠️ Client가 삭제되었습니다. 히스토리 업데이트를 건너뜁니다.")
+                        warning_emoji(r"Client가 삭제되었습니다. 히스토리 업데이트를 건너뜁니다.")
                         return
             except RuntimeError as e:
                 if "deleted" in str(e).lower():
-                    print("⚠️ Client가 삭제되었습니다. 히스토리 업데이트를 건너뜁니다.")
+                    warning_emoji(r"Client가 삭제되었습니다. 히스토리 업데이트를 건너뜁니다.")
                     return
                 else:
                     raise e
             
-            print(f"📋 히스토리 업데이트 시작: {len(history_items)}개 항목")
+            info(f"📋 히스토리 업데이트 시작: {len(history_items)}개 항목")
             
             # 기존 내용 클리어 (안전하게)
             try:
                 self.history_container.clear()
-                print("✅ 히스토리 컨테이너 초기화")
+                success(r"히스토리 컨테이너 초기화")
             except Exception as e:
-                print(f"⚠️ 히스토리 컨테이너 클리어 실패: {e}")
+                warning_emoji(f"히스토리 컨테이너 클리어 실패: {e}")
                 return
             
             # 히스토리 항목들 추가
             for i, item in enumerate(history_items):
                 try:
-                    print(f"📝 히스토리 항목 {i+1} 처리: {item.get('model', 'Unknown')}")
+                    info(f"📝 히스토리 항목 {i+1} 처리: {item.get('model', 'Unknown')}")
                     
                     with self.history_container:
                         # 히스토리 아이템 카드
@@ -451,13 +455,13 @@ class UtilitySidebar:
                                     ).props('flat round').classes('text-red-400 hover:text-red-300 text-xs').tooltip('삭제')
                 
                 except Exception as e:
-                    print(f"⚠️ 히스토리 항목 {i+1} 처리 실패: {e}")
+                    warning_emoji(f"히스토리 항목 {i+1} 처리 실패: {e}")
                     continue
             
-            print(f"✅ 히스토리 업데이트 완료: {len(history_items)}개 항목 표시")
+            success(f"히스토리 업데이트 완료: {len(history_items)}개 항목 표시")
             
         except Exception as e:
-            print(f"❌ 히스토리 업데이트 실패: {e}")
+            failure(f"히스토리 업데이트 실패: {e}")
             import traceback
             traceback.print_exc()
     
@@ -515,5 +519,5 @@ class UtilitySidebar:
 
     def _refresh_sidebar(self):
         """사이드바 새로고침"""
-        print("🔄 유틸리티 사이드바 새로고침 중...")
+        process_emoji(r"유틸리티 사이드바 새로고침 중...")
         ui.notify('사이드바가 새로고침되었습니다', type='info')

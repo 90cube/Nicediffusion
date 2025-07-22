@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 스케줄러/샘플러 관리 도메인 서비스
 UI나 StateManager에 의존하지 않는 순수한 비즈니스 로직
@@ -18,8 +22,8 @@ try:
     from diffusers.schedulers.scheduling_dpmsolver_sde import DPMSolverSDEScheduler
     DPMSOLVER_SDE_AVAILABLE = True
 except ImportError:
-    print("⚠️ torchsde가 설치되지 않아 DPMSolverSDEScheduler를 사용할 수 없습니다.")
-    print("   pip install torchsde로 설치 후 재실행하세요.")
+    warning_emoji(r"torchsde가 설치되지 않아 DPMSolverSDEScheduler를 사용할 수 없습니다.")
+    info(r"   pip install torchsde로 설치 후 재실행하세요.")
     DPMSOLVER_SDE_AVAILABLE = False
     DPMSolverSDEScheduler = None
 
@@ -63,9 +67,9 @@ class SchedulerManager:
     # torchsde 체크 강화
     if DPMSOLVER_SDE_AVAILABLE:
         SAMPLER_MAP['dpmpp_sde'] = DPMSolverSDEScheduler
-        print("✅ DPMSolverSDE 사용 가능")
+        success(r"DPMSolverSDE 사용 가능")
     else:
-        print("⚠️ torchsde 미설치, DPMSolverSDE 대신 DPMSolverMultistep 사용")
+        warning_emoji(r"torchsde 미설치, DPMSolverSDE 대신 DPMSolverMultistep 사용")
     
     # 스케줄러 설정
     SCHEDULER_CONFIG = {
@@ -94,7 +98,7 @@ class SchedulerManager:
         
         # 1. 입력 검증
         if not sampler_name or not scheduler_type:
-            print("⚠️ 스케줄러 이름이 비어있음, 기본값 사용")
+            warning_emoji(r"스케줄러 이름이 비어있음, 기본값 사용")
             return False
         
         # 2. 샘플러 클래스 결정
@@ -102,7 +106,7 @@ class SchedulerManager:
         scheduler_class = cls.SAMPLER_MAP.get(sampler_lower)
         
         if scheduler_class is None:
-            print(f"⚠️ 알 수 없는 샘플러: {sampler_name}, 기본값 사용")
+            warning_emoji(f"알 수 없는 샘플러: {sampler_name}, 기본값 사용")
             scheduler_class = DPMSolverMultistepScheduler
         
         # 3. 스케줄러 설정
@@ -130,20 +134,20 @@ class SchedulerManager:
                 new_scheduler_name = pipeline.scheduler.__class__.__name__
                 
                 if new_scheduler_name == scheduler_class.__name__:
-                    print(f"✅ 스케줄러 적용 성공: {old_scheduler_name} → {new_scheduler_name}")
-                    print(f"   - 샘플러: {sampler_name}")
-                    print(f"   - 타입: {scheduler_type}")
-                    print(f"   - 설정: {config_overrides}")
+                    success(f"스케줄러 적용 성공: {old_scheduler_name} → {new_scheduler_name}")
+                    info(f"   - 샘플러: {sampler_name}")
+                    info(f"   - 타입: {scheduler_type}")
+                    info(f"   - 설정: {config_overrides}")
                     return True
                 else:
-                    print(f"❌ 스케줄러 적용 실패: {new_scheduler_name} != {scheduler_class.__name__}")
+                    failure(f"스케줄러 적용 실패: {new_scheduler_name} != {scheduler_class.__name__}")
                     return False
             else:
-                print("❌ 파이프라인에 스케줄러가 없음")
+                failure(r"파이프라인에 스케줄러가 없음")
                 return False
                 
         except Exception as e:
-            print(f"❌ 스케줄러 적용 중 오류: {e}")
+            failure(f"스케줄러 적용 중 오류: {e}")
             return False
     
     @classmethod
@@ -156,12 +160,12 @@ class SchedulerManager:
         try:
             # SDXL 모델에서는 CLIP Skip을 다르게 처리해야 함
             # 현재는 안전하게 기본값만 반환하고 실제 적용은 나중에 구현
-            print(f"ℹ️ CLIP Skip {clip_skip} 요청됨 (SDXL 모델에서는 현재 미지원)")
-            print(f"   - 향후 SDXL 전용 CLIP Skip 구현 예정")
+            info_emoji(f"CLIP Skip {clip_skip} 요청됨 (SDXL 모델에서는 현재 미지원)")
+            info(r"   - 향후 SDXL 전용 CLIP Skip 구현 예정")
             return True
                 
         except Exception as e:
-            print(f"⚠️ CLIP Skip 적용 실패: {e}")
+            warning_emoji(f"CLIP Skip 적용 실패: {e}")
             return False
 
     @classmethod
@@ -170,6 +174,6 @@ class SchedulerManager:
         try:
             if hasattr(pipeline, 'text_encoder') and hasattr(pipeline.text_encoder.text_model.encoder, '_original_forward'):
                 pipeline.text_encoder.text_model.encoder.forward = pipeline.text_encoder.text_model.encoder._original_forward
-                print("✅ CLIP Skip 초기화 완료")
+                success(r"CLIP Skip 초기화 완료")
         except Exception as e:
-            print(f"⚠️ CLIP Skip 초기화 실패: {e}") 
+            warning_emoji(f"CLIP Skip 초기화 실패: {e}") 

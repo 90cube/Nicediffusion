@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji, canvas_emoji
+)
 """
 텍스트-이미지 생성 모드 도메인 로직
 UI나 Services에 의존하지 않는 순수한 비즈니스 로직
@@ -75,12 +79,12 @@ class Txt2ImgMode:
             
             # 잘린 부분 표시
             if len(input_ids) > max_tokens:
-                print(f"⚠️ 프롬프트가 너무 깁니다 ({len(input_ids)} > {max_tokens} 토큰). 자동으로 잘립니다.")
-                print(f"   잘린 부분: {text[len(truncated_text):].strip()}")
+                warning_emoji(f"프롬프트가 너무 깁니다 ({len(input_ids)} > {max_tokens} 토큰). 자동으로 잘립니다.")
+                info(f"   잘린 부분: {text[len(truncated_text):].strip()}")
             
             return truncated_text
         except Exception as e:
-            print(f"⚠️ 토큰 계산 중 오류: {e}")
+            warning_emoji(f"토큰 계산 중 오류: {e}")
             # 오류 시 간단한 추정
             words = text.split()
             if len(words) > max_tokens:
@@ -92,7 +96,7 @@ class Txt2ImgMode:
         if params.model_type != 'SD15':
             return
             
-        print("🔧 SD15 품질 최적화 적용 중...")
+        info(r"🔧 SD15 품질 최적화 적용 중...")
         
         # 1. 스케줄러 최적화
         if hasattr(self.pipeline.scheduler, 'config'):
@@ -124,10 +128,10 @@ class Txt2ImgMode:
         try:
             if hasattr(self.pipeline, 'enable_xformers_memory_efficient_attention'):
                 self.pipeline.enable_xformers_memory_efficient_attention()
-                print("✅ xformers 메모리 효율적 어텐션 활성화")
+                success(r"xformers 메모리 효율적 어텐션 활성화")
         except (ModuleNotFoundError, AttributeError) as e:
-            print(f"⚠️ xformers 미사용: {e}")
-            print("✅ PyTorch 2.0+ SDPA 사용 중")
+            warning_emoji(f"xformers 미사용: {e}")
+            success(r"PyTorch 2.0+ SDPA 사용 중")
         
         # 6. 모델 정밀도 최적화
         if hasattr(self.pipeline, 'text_encoder'):
@@ -151,31 +155,31 @@ class Txt2ImgMode:
             if hasattr(self.pipeline.scheduler.config, 'algorithm_type'):
                 self.pipeline.scheduler.config.algorithm_type = 'dpmsolver++'
         
-        print("✅ SD15 품질 최적화 완료")
+        success(r"SD15 품질 최적화 완료")
     
     def _validate_scheduler_application(self, expected_sampler: str, expected_scheduler: str):
         """스케줄러 적용 검증"""
         try:
             current_scheduler = self.pipeline.scheduler.__class__.__name__
-            print(f"🔍 현재 적용된 스케줄러: {current_scheduler}")
+            debug_emoji(f"현재 적용된 스케줄러: {current_scheduler}")
             
             # 설정 확인
             if hasattr(self.pipeline.scheduler, 'config'):
                 config = self.pipeline.scheduler.config
-                print(f"🔍 스케줄러 설정:")
-                print(f"   - use_karras_sigmas: {getattr(config, 'use_karras_sigmas', 'N/A')}")
-                print(f"   - algorithm_type: {getattr(config, 'algorithm_type', 'N/A')}")
-                print(f"   - solver_order: {getattr(config, 'solver_order', 'N/A')}")
+                debug_emoji(r"스케줄러 설정:")
+                info(f"   - use_karras_sigmas: {getattr(config, 'use_karras_sigmas', 'N/A')}")
+                info(f"   - algorithm_type: {getattr(config, 'algorithm_type', 'N/A')}")
+                info(f"   - solver_order: {getattr(config, 'solver_order', 'N/A')}")
             
             return True
         except Exception as e:
-            print(f"⚠️ 스케줄러 검증 실패: {e}")
+            warning_emoji(f"스케줄러 검증 실패: {e}")
             return False
     
     async def generate(self, params: Txt2ImgParams) -> List[Any]:
         """텍스트-이미지 생성 실행"""
-        print(f"🎨 Txt2Img 생성 시작 - Seed: {params.seed}")
-        print(f"🔧 파이프라인 호출 - Size: {params.width}x{params.height}, Batch: {params.batch_size}")
+        canvas_emoji(r"Txt2Img 생성 시작 - Seed: {params.seed}")
+        info(f"🔧 파이프라인 호출 - Size: {params.width}x{params.height}, Batch: {params.batch_size}")
         
         # 1. 스케줄러/샘플러 실제 적용
         SchedulerManager.apply_scheduler_to_pipeline(
@@ -205,39 +209,85 @@ class Txt2ImgMode:
         )
         
         # 프롬프트 인코딩 (77토큰 제한 없음, SDXL 지원)
-        print(f"📝 프롬프트 인코딩 - 모드: {weight_mode}, 커스텀: {use_custom}")
+        info(f"📝 프롬프트 인코딩 - 모드: {weight_mode}, 커스텀: {use_custom}")
         prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, pooled_negative_prompt_embeds = encoder.encode_prompt_with_pooled(
             params.prompt, 
             params.negative_prompt
         )
         
-        print(f"✅ 임베딩 생성 완료:")
-        print(f"   - 긍정: {prompt_embeds.shape}")
-        print(f"   - 부정: {negative_prompt_embeds.shape}")
-        if pooled_prompt_embeds is not None:
-            print(f"   - 긍정 pooled: {pooled_prompt_embeds.shape}")
-            print(f"   - 부정 pooled: {pooled_negative_prompt_embeds.shape}")
+        success(r"임베딩 생성 완료:")
+        if prompt_embeds is not None and hasattr(prompt_embeds, 'shape'):
+            info(f"   - 긍정: {prompt_embeds.shape}")
+        if negative_prompt_embeds is not None and hasattr(negative_prompt_embeds, 'shape'):
+            info(f"   - 부정: {negative_prompt_embeds.shape}")
+        if pooled_prompt_embeds is not None and hasattr(pooled_prompt_embeds, 'shape'):
+            info(f"   - 긍정 pooled: {pooled_prompt_embeds.shape}")
+        if pooled_negative_prompt_embeds is not None and hasattr(pooled_negative_prompt_embeds, 'shape'):
+            info(f"   - 부정 pooled: {pooled_negative_prompt_embeds.shape}")
         else:
-            print(f"   - SD15 모델 (pooled 임베딩 없음)")
+            info(r"   - SD15 모델 (pooled 임베딩 없음)")
         
-        print(f"📝 프롬프트: {params.prompt[:100]}...")
-        print(f"🚫 부정 프롬프트: {params.negative_prompt[:100]}...")
-        print(f"⚙️ Steps: {params.steps}, CFG: {params.cfg_scale}, Sampler: {params.sampler}, Scheduler: {params.scheduler}, CLIP Skip: {params.clip_skip}")
+        info(f"📝 프롬프트: {params.prompt[:100]}...")
+        info(f"🚫 부정 프롬프트: {params.negative_prompt[:100]}...")
+        info(f"⚙️ Steps: {params.steps}, CFG: {params.cfg_scale}, Sampler: {params.sampler}, Scheduler: {params.scheduler}, CLIP Skip: {params.clip_skip}")
         
         # SD15 최적화 적용
         self._apply_sd15_optimizations(params)
         
         if params.model_type == 'SD15':
-            print(f"🔧 SD15 생성 최적화 적용: Steps={params.steps}, CFG={params.cfg_scale}")
+            info(f"🔧 SD15 생성 최적화 적용: Steps={params.steps}, CFG={params.cfg_scale}")
         
         def _generate():
             """실제 생성 로직"""
             import torch  # 함수 내부에서 torch import
             
-            # 생성기 설정
-            generator = torch.Generator(device=self.device)
+            # 생성기 설정 - 파이프라인과 같은 디바이스 사용 (SDXL 호환)
+            try:
+                # 파이프라인 디바이스 상태 상세 확인
+                debug_emoji(r"파이프라인 디바이스 상태 확인:")
+                info(f"   - CUDA 사용 가능: {torch.cuda.is_available()}")
+                if torch.cuda.is_available():
+                    info(f"   - CUDA 디바이스 수: {torch.cuda.device_count()}")
+                    info(f"   - 현재 CUDA 디바이스: {torch.cuda.current_device()}")
+                
+                # 파이프라인 컴포넌트별 디바이스 확인
+                if hasattr(self.pipeline, 'unet'):
+                    unet_device = next(self.pipeline.unet.parameters()).device
+                    info(f"   - UNet 디바이스: {unet_device}")
+                if hasattr(self.pipeline, 'text_encoder'):
+                    text_encoder_device = next(self.pipeline.text_encoder.parameters()).device
+                    info(f"   - Text Encoder 디바이스: {text_encoder_device}")
+                if hasattr(self.pipeline, 'vae'):
+                    vae_device = next(self.pipeline.vae.parameters()).device
+                    info(f"   - VAE 디바이스: {vae_device}")
+                
+                # SDXL 파이프라인에서는 parameters()가 없을 수 있음
+                if hasattr(self.pipeline, 'parameters'):
+                    pipeline_device = next(self.pipeline.parameters()).device
+                else:
+                    # SDXL 파이프라인의 경우 text_encoder에서 디바이스 가져오기
+                    if hasattr(self.pipeline, 'text_encoder'):
+                        pipeline_device = next(self.pipeline.text_encoder.parameters()).device
+                    else:
+                        # GPU 강제 사용 (RTX 4090 활용)
+                        if torch.cuda.is_available():
+                            pipeline_device = torch.device('cuda')
+                            info(f"   - GPU 강제 사용: {pipeline_device}")
+                        else:
+                            pipeline_device = torch.device('cpu')
+                            info(f"   - GPU 사용 불가능, CPU 사용: {pipeline_device}")
+                
+                info(f"   - 최종 파이프라인 디바이스: {pipeline_device}")
+                
+            except Exception as e:
+                warning_emoji(f"파이프라인 디바이스 감지 실패: {e}")
+                pipeline_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            
+            generator = torch.Generator(device=pipeline_device)
             if params.seed > 0:
                 generator.manual_seed(params.seed)
+            
+            info(f"🔧 Generator 설정: device={pipeline_device}, seed={params.seed}")
             
             # 기본 파라미터
             extra_params: dict = {
@@ -269,16 +319,17 @@ class Txt2ImgMode:
             if pooled_prompt_embeds is not None:
                 pipeline_params['pooled_prompt_embeds'] = pooled_prompt_embeds
                 pipeline_params['negative_pooled_prompt_embeds'] = pooled_negative_prompt_embeds
-                print(f"   - SDXL 모델: pooled 임베딩 추가됨")
+                info(r"   - SDXL 모델: pooled 임베딩 추가됨")
             else:
-                print(f"   - SD15 모델: 기본 임베딩만 사용")
+                info(r"   - SD15 모델: 기본 임베딩만 사용")
             
-            print(f"🚀 실제 파이프라인 호출 파라미터:")
-            print(f"   - Steps: {pipeline_params['num_inference_steps']}")
-            print(f"   - CFG: {pipeline_params['guidance_scale']}")
-            print(f"   - Size: {pipeline_params['width']}x{pipeline_params['height']}")
-            print(f"   - Batch: {pipeline_params['num_images_per_prompt']}")
-            print(f"   - Extra: {extra_params}")
+            info(r"🚀 실제 파이프라인 호출 파라미터:")
+            info(f"   - Steps: {pipeline_params['num_inference_steps']}")
+            info(f"   - CFG: {pipeline_params['guidance_scale']}")
+            info(f"   - Size: {pipeline_params['width']}x{pipeline_params['height']}")
+            info(f"   - Batch: {pipeline_params['num_images_per_prompt']}")
+            info(f"   - Generator Device: {generator.device}")
+            info(f"   - Extra: {extra_params}")
             
             try:
                 result = self.pipeline(**pipeline_params)
@@ -290,7 +341,7 @@ class Txt2ImgMode:
                     # result 자체가 이미지 리스트인 경우
                     return result if isinstance(result, list) else [result]
             except Exception as e:
-                print(f"❌ 파이프라인 호출 중 오류: {e}")
+                failure(f"파이프라인 호출 중 오류: {e}")
                 import traceback
                 traceback.print_exc()
                 return []
@@ -300,17 +351,17 @@ class Txt2ImgMode:
         
         # 결과 검증
         if generated_images is None:
-            print("❌ 파이프라인 호출 결과가 None입니다")
+            failure(r"파이프라인 호출 결과가 None입니다")
             return []
         
         if not isinstance(generated_images, list):
             generated_images = [generated_images]
         
-        print(f"✅ 생성된 이미지 개수: {len(generated_images)}")
+        success(f"생성된 이미지 개수: {len(generated_images)}")
         for i, image in enumerate(generated_images):
             if hasattr(image, 'size'):
-                print(f"✅ 생성된 이미지 {i+1} 크기: {image.size}")
+                success(f"생성된 이미지 {i+1} 크기: {image.size}")
             else:
-                print(f"✅ 생성된 이미지 {i+1}: {type(image)}")
+                success(f"생성된 이미지 {i+1}: {type(image)}")
         
         return generated_images

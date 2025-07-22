@@ -1,3 +1,7 @@
+from ....core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 """
 모델 로딩 도메인 서비스
 UI나 StateManager에 의존하지 않는 순수한 비즈니스 로직
@@ -28,7 +32,7 @@ class ModelLoader:
             model_path = model_info['path']
             model_type = model_info.get('model_type', 'SD15')
             
-            print(f"🔍 모델 타입: {model_type}, 경로: {model_path}")
+            debug_emoji(f"모델 타입: {model_type}, 경로: {model_path}")
             
             if model_type == 'SDXL':
                 pipeline = StableDiffusionXLPipeline.from_single_file(
@@ -73,9 +77,9 @@ class ModelLoader:
         try:
             if hasattr(pipeline, 'enable_xformers_memory_efficient_attention'):
                 pipeline.enable_xformers_memory_efficient_attention()
-                print("✅ xformers 메모리 효율적 어텐션 활성화")
+                success(r"xformers 메모리 효율적 어텐션 활성화")
         except (ModuleNotFoundError, AttributeError) as e:
-            print(f"ℹ️ xformers 미사용: {e}")
+            info_emoji(f"xformers 미사용: {e}")
         
         # SD15 전용 최적화
         if model_type == 'SD15':
@@ -96,7 +100,7 @@ class ModelLoader:
             pipeline.scheduler.config.use_karras_sigmas = True
             pipeline.scheduler.config.karras_rho = 7.0
         
-        print("🔧 SD15 최적화 설정 적용 완료")
+        info(r"🔧 SD15 최적화 설정 적용 완료")
     
     async def load_vae(self, vae_path: str) -> bool:
         """VAE 로드 (단순화)"""
@@ -105,13 +109,13 @@ class ModelLoader:
             self.current_pipeline.vae = vae_model.to(self.device)
             return True
         except Exception as e:
-            print(f"VAE 로드 실패: {e}")
+            info(f"VAE 로드 실패: {e}")
             return False
     
     async def load_lora(self, lora_info: Dict[str, Any], weight: float = 1.0) -> bool:
         """LoRA 로드"""
         if not self.current_pipeline:
-            print("❌ 모델이 로드되지 않았습니다.")
+            failure(r"모델이 로드되지 않았습니다.")
             return False
         
         try:
@@ -138,12 +142,12 @@ class ModelLoader:
                             # 이전 버전 호환성
                             self.current_pipeline.load_attn_procs(lora_path)
                         else:
-                            print(f"❌ LoRA 로딩 방식을 찾을 수 없습니다.")
+                            failure(r"LoRA 로딩 방식을 찾을 수 없습니다.")
                             return False
                     
                     return True
                 except Exception as e:
-                    print(f"❌ LoRA 로딩 중 오류: {e}")
+                    failure(f"LoRA 로딩 중 오류: {e}")
                     return False
             
             success = await asyncio.to_thread(_load_lora)
@@ -157,14 +161,14 @@ class ModelLoader:
                     'info': lora_info
                 }
                 self.loaded_loras.append(loaded_lora)
-                print(f"✅ LoRA 로드 완료: {lora_name} (weight: {weight})")
+                success(f"LoRA 로드 완료: {lora_name} (weight: {weight})")
                 return True
             else:
-                print(f"❌ LoRA 로드 실패: {lora_name}")
+                failure(f"LoRA 로드 실패: {lora_name}")
                 return False
                 
         except Exception as e:
-            print(f"❌ LoRA 로드 오류: {e}")
+            failure(f"LoRA 로드 오류: {e}")
             return False
     
     async def unload_lora(self, lora_name: str) -> bool:
@@ -183,14 +187,14 @@ class ModelLoader:
             if success:
                 # 로드된 LoRA 목록에서 제거
                 self.loaded_loras = [lora for lora in self.loaded_loras if lora['name'] != lora_name]
-                print(f"✅ LoRA 언로드 완료: {lora_name}")
+                success(f"LoRA 언로드 완료: {lora_name}")
                 return True
             else:
-                print(f"❌ LoRA 언로드 실패: {lora_name}")
+                failure(f"LoRA 언로드 실패: {lora_name}")
                 return False
                 
         except Exception as e:
-            print(f"❌ LoRA 언로드 오류: {e}")
+            failure(f"LoRA 언로드 오류: {e}")
             return False
     
     async def unload_all_loras(self) -> bool:
@@ -208,14 +212,14 @@ class ModelLoader:
             
             if success:
                 self.loaded_loras = []
-                print("✅ 모든 LoRA 언로드 완료")
+                success(r"모든 LoRA 언로드 완료")
                 return True
             else:
-                print("❌ 모든 LoRA 언로드 실패")
+                failure(r"모든 LoRA 언로드 실패")
                 return False
                 
         except Exception as e:
-            print(f"❌ 모든 LoRA 언로드 오류: {e}")
+            failure(f"모든 LoRA 언로드 오류: {e}")
             return False
     
     def get_loaded_loras(self) -> List[Dict[str, Any]]:
@@ -236,7 +240,7 @@ class ModelLoader:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             
-            print("✅ 기존 모델 언로드 완료")
+            success(r"기존 모델 언로드 완료")
     
     def get_current_pipeline(self) -> Optional[Union[StableDiffusionPipeline, StableDiffusionXLPipeline]]:
         """현재 로드된 파이프라인 반환"""

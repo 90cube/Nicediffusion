@@ -123,48 +123,25 @@ class BaseTab(ABC):
         pass
     
     def create_transfer_buttons(self, image: Image) -> None:
-        """워크플로우 기반 전송 버튼 생성"""
-        # 워크플로우 규칙에 따른 허용된 전송 목록
-        allowed_transfers = self.state.get_allowed_transfers(self.tab_id)
+        """전달 버튼 생성"""
+        targets = self.tab_manager.get_transfer_targets(self.tab_id)
         
-        if not allowed_transfers:
+        if not targets:
             return
         
         with ui.card().classes('w-full mt-4 p-3 bg-gray-800'):
-            ui.label('워크플로우 전송').classes('text-sm font-medium text-blue-400 mb-2')
+            ui.label('다른 탭으로 전달').classes('text-sm font-medium text-blue-400 mb-2')
             
-            # 워크플로우 전송 버튼 그리드
+            # 탭 아이콘 그리드
             with ui.grid(columns=4).classes('w-full gap-2'):
-                for target_mode in allowed_transfers:
-                    tab_info = self.get_tab_info(target_mode)
+                for target in targets:
+                    tab_info = self.get_tab_info(target)
                     
                     with ui.button(
                         icon=tab_info['icon'],
-                        on_click=lambda t=target_mode: self._transfer_to_mode(t)
+                        on_click=lambda t=target: self.transfer_to_tab(image, t)
                     ).props(f'flat square color={tab_info["color"]}').classes('h-12'):
-                        ui.tooltip(f"{tab_info['name']} (워크플로우)")
-    
-    def _transfer_to_mode(self, target_mode: str):
-        """워크플로우 기반 모드 전송"""
-        current_image = self.state.get_mode_image(self.tab_id)
-        
-        if current_image:
-            success(f"🔄 워크플로우 전송: {self.tab_id} → {target_mode}")
-            
-            # StateManager를 통한 전송
-            if self.state.transfer_image_to_mode(self.tab_id, target_mode):
-                # 모드 변경
-                self.state.set('current_mode', target_mode)
-                self.state._notify('mode_changed', {'mode': target_mode})
-                
-                # 탭 전환
-                self.tab_manager.switch_tab(target_mode)
-                
-                self.safe_notify(f"{target_mode} 모드로 전송 완료!", "positive")
-            else:
-                self.safe_notify("전송 실패: 워크플로우 규칙 위반", "negative")
-        else:
-            self.safe_notify("전송할 이미지가 없습니다", "warning")
+                        ui.tooltip(tab_info['name'])
     
     def transfer_to_tab(self, image: Image, target_tab: str):
         """다른 탭으로 전달"""
@@ -208,8 +185,6 @@ class Txt2ImgTab(BaseTab):
         self.tab_id = 'txt2img'
         self.result_display = None
         self.transfer_area = None
-        self.clear_button = None
-        self.has_generated_image = False  # 생성된 이미지 보유 여부
         
         # Fabric.js Canvas 설정
         self.setup_canvas(f'{self.tab_id}-canvas')
@@ -270,20 +245,6 @@ class Txt2ImgTab(BaseTab):
             
             # 생성 완료 시 전달 버튼 영역
             self.transfer_area = ui.element('div').classes('w-full')
-            
-            # 비우기 버튼 영역 (초기에는 숨김)
-            with ui.row().classes('w-full justify-center mt-4').props(f'id="{self.tab_id}-clear-area"').style('display: none;'):
-                ui.button(
-                    '🔄 새로 그림 그리기',
-                    icon='refresh',
-                    on_click=self.clear_generated_image
-                ).props('outline color=warning size=lg')
-                
-                ui.button(
-                    '🗑️ 비우기',
-                    icon='delete',
-                    on_click=self.clear_all_images
-                ).props('outline color=negative size=lg')
     
     def activate(self):
         """탭 활성화"""
@@ -315,24 +276,17 @@ class Txt2ImgTab(BaseTab):
         # 첫 번째 이미지를 Canvas에 로드
         image = images[0]
         
-        # 생성된 이미지 플래그 설정
-        self.has_generated_image = True
-        
         # Canvas 준비 대기 및 이미지 로드
         if self.canvas_bridge:
-            # Canvas 준비 대기 (타임아웃 단축)
-            if self.canvas_bridge.wait_for_ready(timeout=2.0):
+            # Canvas 준비 대기
+            if self.canvas_bridge.wait_for_ready(timeout=5.0):
                 success = self.load_image_to_canvas(image)
                 if success:
                     success(f"{self.tab_id} 이미지 로드 성공")
                     # 전달 버튼 생성
                     self.create_transfer_buttons(image)
-                    # 비우기 버튼 표시
-                    self.show_clear_buttons()
                 else:
                     failure(f"{self.tab_id} 이미지 로드 실패")
-                    # 폴백: 기존 방식으로 표시
-                    self._fallback_display(image)
             else:
                 warning_emoji(f"{self.tab_id} Canvas 준비 시간 초과")
                 # 폴백: 기존 방식으로 표시
@@ -370,9 +324,6 @@ class Txt2ImgTab(BaseTab):
             self.transfer_area.clear()
             with self.transfer_area:
                 self.create_transfer_buttons(images[0])
-        
-        # 비우기 버튼 표시 (폴백 모드에서도)
-        self.show_clear_buttons()
     
     def display_single_image(self, image):
         """단일 이미지 표시 - Canvas 기반 Image Pad에 표시"""
@@ -446,102 +397,6 @@ class Txt2ImgTab(BaseTab):
         except Exception as e:
             failure(f"이미지 최적화 중 오류: {e}")
             return image.convert('RGB')
-    
-    def clear_generated_image(self):
-        """생성된 이미지만 비우기 (새로 그림 그리기)"""
-        try:
-            success(r"T2I: 생성된 이미지 비우기 시작")
-            
-            # Canvas 초기화
-            if self.canvas_bridge:
-                self.canvas_bridge.send_to_js('clearCanvas')
-            
-            # 상태 초기화
-            self.has_generated_image = False
-            self.state.clear_generated_images()
-            
-            # 비우기 버튼 숨기기
-            ui.run_javascript(f'''
-                const clearArea = document.getElementById('{self.tab_id}-clear-area');
-                if (clearArea) {{
-                    clearArea.style.display = 'none';
-                }}
-            ''')
-            
-            # 플레이스홀더 표시
-            ui.run_javascript(f'''
-                const placeholder = document.getElementById('{self.tab_id}-placeholder');
-                if (placeholder) {{
-                    placeholder.style.display = 'flex';
-                }}
-            ''')
-            
-            success(r"T2I: 생성된 이미지 비우기 완료")
-            self.safe_notify("생성된 이미지가 비워졌습니다. 새로 그림을 그려보세요!", "info")
-            
-        except Exception as e:
-            failure(f"생성된 이미지 비우기 실패: {e}")
-    
-    def clear_all_images(self):
-        """모든 이미지 비우기"""
-        try:
-            success(r"T2I: 모든 이미지 비우기 시작")
-            
-            # Canvas 초기화
-            if self.canvas_bridge:
-                self.canvas_bridge.send_to_js('clearCanvas')
-            
-            # 상태 초기화
-            self.has_generated_image = False
-            self.state.clear_generated_images()
-            
-            # 비우기 버튼 숨기기
-            ui.run_javascript(f'''
-                const clearArea = document.getElementById('{self.tab_id}-clear-area');
-                if (clearArea) {{
-                    clearArea.style.display = 'none';
-                }}
-            ''')
-            
-            # 플레이스홀더 표시
-            ui.run_javascript(f'''
-                const placeholder = document.getElementById('{self.tab_id}-placeholder');
-                if (placeholder) {{
-                    placeholder.style.display = 'flex';
-                }}
-            ''')
-            
-            success(r"T2I: 모든 이미지 비우기 완료")
-            self.safe_notify("모든 이미지가 비워졌습니다!", "info")
-            
-        except Exception as e:
-            failure(f"모든 이미지 비우기 실패: {e}")
-    
-    def show_clear_buttons(self):
-        """비우기 버튼 표시"""
-        try:
-            success(r"T2I: 비우기 버튼 표시")
-            
-            # 비우기 버튼 영역 표시
-            ui.run_javascript(f'''
-                const clearArea = document.getElementById('{self.tab_id}-clear-area');
-                if (clearArea) {{
-                    clearArea.style.display = 'flex';
-                }}
-            ''')
-            
-            # 플레이스홀더 숨기기
-            ui.run_javascript(f'''
-                const placeholder = document.getElementById('{self.tab_id}-placeholder');
-                if (placeholder) {{
-                    placeholder.style.display = 'none';
-                }}
-            ''')
-            
-            success(r"T2I: 비우기 버튼 표시 완료")
-            
-        except Exception as e:
-            failure(f"비우기 버튼 표시 실패: {e}")
 
 class Img2ImgTab(BaseTab):
     """이미지→이미지 탭 - 개선안 5 적용"""
@@ -1024,29 +879,6 @@ class Img2ImgTab(BaseTab):
             import traceback
             traceback.print_exc()
     
-    def _set_generated_image_silent(self, image: Image):
-        """생성된 이미지 설정 (이벤트 발생 없음 - 무한 루프 방지)"""
-        try:
-            process_emoji(f"생성된 이미지 조용히 설정: {image.size}")
-            
-            # 이미지 검증
-            if not self.validate_image(image):
-                failure(r"생성된 이미지 검증 실패")
-                return False
-            
-            # 상태 저장 (이벤트 발생 없음)
-            self.state.set_silent('generated_image', image)
-            
-            # UI 업데이트
-            self._update_ui_only(image)
-            
-            success(f"생성된 이미지 조용히 설정 완료: {image.size}")
-            return True
-            
-        except Exception as e:
-            failure(f"생성된 이미지 조용히 설정 중 오류: {e}")
-            return False
-    
     def reset_upload(self):
         """업로드 초기화 (무한 재귀 방지)"""
         try:
@@ -1143,14 +975,8 @@ class Img2ImgTab(BaseTab):
             traceback.print_exc()
     
     def restore_image_state(self):
-        """기존 이미지 상태 복원 (무한 루프 방지)"""
+        """기존 이미지 상태 복원 (UI 동기화 강화)"""
         try:
-            # 무한 루프 방지 플래그 확인
-            if hasattr(self, '_restoring_state') and self._restoring_state:
-                warning_emoji(r"이미 상태 복원 중 - 중복 호출 방지")
-                return
-            
-            self._restoring_state = True
             process_emoji(r"이미지 상태 복원 시작")
             
             # 원본 이미지 복원
@@ -1161,29 +987,18 @@ class Img2ImgTab(BaseTab):
             else:
                 info_emoji(r"원본 이미지 없음")
             
-            # 생성된 이미지 복원 (워크플로우 기반 - 각 모드별 독립 관리)
-            current_mode = self.state.get('current_mode', '')
-            
-            # 현재 모드의 이미지 가져오기
-            mode_image = self.state.get_mode_image(current_mode)
-            if mode_image:
-                success(f"{current_mode} 모드 이미지 복원: {mode_image.size}")
-                self._set_generated_image_silent(mode_image)
+            # 생성된 이미지 복원
+            generated_images = self.state.get_generated_images()
+            if generated_images:
+                success(f"생성된 이미지 복원: {len(generated_images)}개")
+                self.set_generated_image(generated_images[0])
             else:
-                # 기존 generated_images에서 복원 (하위 호환성)
-                generated_images = self.state.get_generated_images()
-                if generated_images:
-                    success(f"기존 생성된 이미지 복원: {len(generated_images)}개")
-                    self._set_generated_image_silent(generated_images[0])
-                else:
-                    info_emoji(r"복원할 이미지 없음")
+                info_emoji(r"생성된 이미지 없음")
                 
         except Exception as e:
             failure(f"이미지 상태 복원 중 오류: {e}")
             import traceback
             traceback.print_exc()
-        finally:
-            self._restoring_state = False
     
     def on_generation_completed(self, event_data):
         """생성 완료 이벤트 처리 (원본 이미지 보존 + 결과 이미지 추가) - 원본 이미지 건드리지 않음"""
@@ -1280,7 +1095,7 @@ class Img2ImgTab(BaseTab):
             self._processing_init_change = False
     
     def on_generated_images_changed(self, event_data):
-        """생성된 이미지 변경 이벤트 처리 (무한 루프 방지)"""
+        """생성된 이미지 변경 이벤트 처리 (디버깅 강화)"""
         debug_emoji(r"Img2Img: generated_images_changed 이벤트 수신")
         info(f"   - 이벤트 데이터: {event_data}")
         info(f"   - 탭 활성 상태: {self.is_active}")
@@ -1289,21 +1104,12 @@ class Img2ImgTab(BaseTab):
             warning_emoji(r"탭이 비활성 상태 - 이벤트 무시")
             return
         
-        # 무한 루프 방지를 위한 플래그 체크
         if hasattr(self, '_processing_generated_change') and self._processing_generated_change:
             warning_emoji(r"이미 처리 중 - 중복 이벤트 무시")
             return
         
-        # 이미 처리된 이벤트인지 확인
-        event_id = event_data.get('event_id', '')
-        if hasattr(self, '_last_processed_event_id') and self._last_processed_event_id == event_id:
-            warning_emoji(r"이미 처리된 이벤트 - 무시")
-            return
-        
         try:
             self._processing_generated_change = True
-            self._last_processed_event_id = event_id
-            
             count = event_data.get('count', 0)
             info(f"   - 이미지 개수: {count}")
             
@@ -1311,8 +1117,7 @@ class Img2ImgTab(BaseTab):
                 success(r"생성된 이미지 업데이트 시작")
                 generated_images = self.state.get_generated_images()
                 if generated_images:
-                    # 무한 루프 방지를 위해 이벤트 발생 없이 직접 설정
-                    self._set_generated_image_silent(generated_images[0])
+                    self.set_generated_image(generated_images[0])
                     success(r"생성된 이미지 업데이트 완료")
                 else:
                     warning_emoji(r"StateManager에서 생성된 이미지를 찾을 수 없음")
@@ -1582,7 +1387,7 @@ class UpscaleTab(BaseTab):
     def display_image(self, image: Image.Image):
         """이미지 표시"""
         if self.canvas_bridge:
-            if self.canvas_bridge.wait_for_ready(timeout=2.0):
+            if self.canvas_bridge.wait_for_ready(timeout=5.0):
                 success = self.load_image_to_canvas(image)
                 if success:
                     success(f"{self.tab_id} 이미지 로드 성공")

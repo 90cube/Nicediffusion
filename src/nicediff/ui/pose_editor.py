@@ -2,6 +2,10 @@
 
 from nicegui import ui
 from ..core.state_manager import StateManager
+from ..core.logger import (
+    debug, info, warning, error, success, failure, warning_emoji, 
+    info_emoji, debug_emoji, process_emoji, model_emoji, image_emoji, ui_emoji
+)
 
 class PoseEditor:
     """Three.js 기반 3D 포즈 에디터"""
